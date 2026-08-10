@@ -1,0 +1,35 @@
+[repos.proton]
+path = "/Users/gangtao/Code/timeplus/proton"
+visibility = "internal"
+
+[repos.proton-enterprise]
+path = "/Users/gangtao/Code/timeplus/proton-enterprise"
+visibility = "internal"
+
+[repos.timeplus-enterprise]
+path = "/Users/gangtao/Code/timeplus/timeplus-enterprise"
+visibility = "internal"
+
+[repos.helm-charts]
+path = "/Users/gangtao/Code/timeplus/helm-charts"
+visibility = "internal"
+
+[repos.timeplus-enterprise-deployment]
+path = "/Users/gangtao/Code/timeplus/timeplus-enterprise-deployment"
+visibility = "internal"
+
+[repos.terraform-provider-timeplus]
+path = "/Users/gangtao/Code/timeplus/terraform-provider-timeplus"
+visibility = "internal"
+
+[repos.byoc]
+path = "/Users/gangtao/Code/timeplus/byoc"
+visibility = "internal"
+
+[repos.timeplus-cli]
+path = "/Users/gangtao/Code/timeplus/timeplus-cli"
+visibility = "internal"
+
+[repos.docs]
+path = "/Users/gangtao/Code/timeplus/docs"
+visibility = "public"
