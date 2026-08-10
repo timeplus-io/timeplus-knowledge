@@ -49,12 +49,21 @@ def test_upsert_then_stale_delete(tp):
     t0 = datetime.now(timezone.utc)
     nodes = [_node("n1", "alpha"), _node("n2", "beta")]
     edges = [Edge(src="n1", dst="n2", rel="calls", confidence="EXTRACTED", repo="tinyrepo")]
-    upsert_graph(client, prefix, nodes, edges, run_started_at=t0)
+    # A second repo, seeded with the same old timestamp, that this test never
+    # re-ingests: it must survive the stale-delete below, proving the delete
+    # is scoped per-repo rather than a global "updated_at < t1" sweep.
+    other_nodes = [_node("o1", "other_alpha", repo="other_repo")]
+    upsert_graph(client, prefix, nodes + other_nodes, edges, run_started_at=t0)
     assert _eventually(
         lambda: _count(client, prefix, "kg_nodes", "tinyrepo"), lambda v: v == 2
     ) == 2
+    assert _eventually(
+        lambda: _count(client, prefix, "kg_nodes", "other_repo"), lambda v: v == 1
+    ) == 1
 
-    # second run: n2 disappeared, n1 updated -> n2 must be stale-deleted
+    # second run: n2 disappeared, n1 updated -> n2 must be stale-deleted.
+    # other_repo is untouched by this call -- upsert_graph derives `repos`
+    # from this (tinyrepo-only) batch, so other_repo's old rows must remain.
     t1 = datetime.now(timezone.utc) + timedelta(seconds=1)
     upsert_graph(client, prefix, [_node("n1", "alpha")], [], run_started_at=t1)
     assert _eventually(
@@ -62,6 +71,32 @@ def test_upsert_then_stale_delete(tp):
     ) == 1
     assert _eventually(
         lambda: _count(client, prefix, "kg_edges", "tinyrepo"), lambda v: v == 0
+    ) == 0
+    assert _eventually(
+        lambda: _count(client, prefix, "kg_nodes", "other_repo"), lambda v: v == 1
+    ) == 1
+
+
+def test_upsert_graph_deletes_stale_rows_with_explicit_repos_and_empty_batch(tp):
+    """A repo whose parse yields zero nodes/edges (e.g. the repo went fully
+    empty) must still have its prior rows stale-deleted. Without an explicit
+    `repos` set, upsert_graph would derive repos from the (empty) batch and
+    never issue the delete -- this is what ingest_repo relies on by always
+    passing `repos={repo_cfg.name}` explicitly.
+    """
+    from tpk.ingest import upsert_graph
+
+    client, prefix = tp
+    t0 = datetime.now(timezone.utc)
+    upsert_graph(client, prefix, [_node("n1", "alpha")], [], run_started_at=t0)
+    assert _eventually(
+        lambda: _count(client, prefix, "kg_nodes", "tinyrepo"), lambda v: v == 1
+    ) == 1
+
+    t1 = datetime.now(timezone.utc) + timedelta(seconds=1)
+    upsert_graph(client, prefix, [], [], run_started_at=t1, repos={"tinyrepo"})
+    assert _eventually(
+        lambda: _count(client, prefix, "kg_nodes", "tinyrepo"), lambda v: v == 0
     ) == 0
 
 
@@ -82,6 +117,63 @@ def test_ingest_repo_failure_leaves_graph_intact_and_logs(tp, monkeypatch, tmp_p
     assert _eventually(
         lambda: _count(client, prefix, "kg_nodes", "tinyrepo"), lambda v: v == 1
     ) == 1  # prior graph intact
+
+    def _logs():
+        return client.query(
+            f"SELECT status FROM table({prefix}kg_ingest_log) WHERE repo = 'tinyrepo'"
+        ).result_rows
+
+    logs = _eventually(_logs, lambda rows: ("failed",) in rows)
+    assert ("failed",) in logs
+
+
+def test_ingest_repo_mid_upsert_failure_leaves_prior_rows_and_logs(tp, monkeypatch, tmp_path: Path):
+    """graphify+parse succeed and the insert goes through, but the
+    stale-delete itself raises. Prior rows must survive (new rows from the
+    partial insert existing is acceptable -- the guarantee is prior rows are
+    never lost) and the run must still be logged as failed.
+    """
+    from tpk import ingest as ingest_mod
+    from tpk.ingest import ingest_repo, upsert_graph
+
+    client, prefix = tp
+    upsert_graph(
+        client, prefix, [_node("n1", "alpha")], [], datetime.now(timezone.utc), repos={"tinyrepo"}
+    )
+    assert _eventually(
+        lambda: _count(client, prefix, "kg_nodes", "tinyrepo"), lambda v: v == 1
+    ) == 1
+
+    # Stub graphify+parse so ingest_repo reaches upsert_graph's insert step.
+    monkeypatch.setattr(ingest_mod, "run_graphify", lambda repo_path, out_dir: Path("unused"))
+    monkeypatch.setattr(
+        ingest_mod,
+        "parse_graph_json",
+        lambda path, repo, default_visibility: ([_node("n2", "gamma")], []),
+    )
+
+    # Let the insert succeed but make the stale-delete (client.command) blow up.
+    orig_command = client.command
+
+    def failing_command(sql, *args, **kwargs):
+        if "DELETE" in sql:
+            raise RuntimeError("stale-delete exploded")
+        return orig_command(sql, *args, **kwargs)
+
+    monkeypatch.setattr(client, "command", failing_command)
+
+    cfg = RepoConfig(name="tinyrepo", path=tmp_path, visibility="internal")
+    result = ingest_repo(client, cfg, prefix=prefix, out_root=tmp_path / "out")
+    assert result.status == "failed"
+
+    rows = _eventually(
+        lambda: client.query(
+            f"SELECT id FROM table({prefix}kg_nodes) WHERE repo = 'tinyrepo'"
+        ).result_rows,
+        lambda rows: len(rows) >= 1,
+    )
+    ids = {r[0] for r in rows}
+    assert "n1" in ids  # prior row survived the failed run
 
     def _logs():
         return client.query(

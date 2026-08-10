@@ -21,13 +21,24 @@ class IngestResult:
 
 
 def upsert_graph(
-    client, prefix: str, nodes: list[Node], edges: list[Edge], run_started_at: datetime
+    client,
+    prefix: str,
+    nodes: list[Node],
+    edges: list[Edge],
+    run_started_at: datetime,
+    repos: set[str] | None = None,
 ) -> None:
     if nodes:
         client.insert(f"{prefix}kg_nodes", node_rows(nodes, run_started_at), column_names=NODE_COLUMNS)
     if edges:
         client.insert(f"{prefix}kg_edges", edge_rows(edges, run_started_at), column_names=EDGE_COLUMNS)
-    repos = {n.repo for n in nodes} | {e.repo for e in edges}
+    if repos is None:
+        # Derived from the batch: callers seeding multi-repo test data rely on
+        # this. Note this means a repo whose parse yielded zero nodes/edges
+        # would derive to an empty set here and its stale rows would never be
+        # deleted -- ingest_repo avoids that by always passing `repos`
+        # explicitly.
+        repos = {n.repo for n in nodes} | {e.repo for e in edges}
     for repo in repos:
         for stream in ("kg_nodes", "kg_edges"):
             client.command(
@@ -62,7 +73,7 @@ def ingest_repo(
     try:
         graph_json = run_graphify(repo_cfg.path, out_root / repo_cfg.name)
         nodes, edges = parse_graph_json(graph_json, repo_cfg.name, repo_cfg.visibility)
-        upsert_graph(client, prefix, nodes, edges, run_started_at)
+        upsert_graph(client, prefix, nodes, edges, run_started_at, repos={repo_cfg.name})
         result = IngestResult(repo_cfg.name, run_id, len(nodes), len(edges), "ok")
     except Exception as exc:  # per-repo isolation: never propagate, never touch prior rows
         print(f"[tpk] ingest failed for {repo_cfg.name}: {exc}")
