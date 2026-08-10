@@ -45,18 +45,20 @@ long as `graphify` itself exits 0.
 
 Ran against real checkouts on this machine:
 
-    docs           ok   166 nodes   154 edges
+    docs           ok   163 nodes   151 edges
     timeplus-cli   ok   473 nodes   839 edges
 
-Both reported `ok` via `tpk status`. Note: the node/edge counts above are
-graphify's *parsed* counts for the run; `kg_nodes` is a mutable stream keyed
-on a stable id derived from `(repo, kind, qualified_name)`, so nodes that
-hash to the same id (e.g. multiple non-callable code entities in one file
-that graphify's schema maps to the same `file`-kind qualified name) are
-upserted together and the graph's final unique row count can be lower than
-the parsed count — see `SELECT count() FROM table(kg_nodes)` below. This
-did not cause either ingest to report `failed`; it is a data-modeling
-sharpness issue to revisit before M3, not an M1 blocker.
+Both reported `ok` via `tpk status`, and `SELECT count() FROM table(kg_nodes)`
+matches the parsed counts exactly per repo (163 + 473 = 636 stored rows;
+edges likewise 151 + 839 = 990). `kg_nodes` is a mutable stream keyed on a
+stable id derived from `(repo, kind, qualified_name)`; `qualified_name` for
+`file`-kind nodes (graphify maps every non-callable "code" node to `file`,
+not just the one node that is literally the file — see `graphify_runner.py`)
+is disambiguated with graphify's own per-node id, which is guaranteed unique
+within a `graph.json`, so distinct entities in the same source file no
+longer collapse onto one row. (An earlier ingest run, before this fix, saw
+parsed counts of 166/473 collapse to only 91/99 stored rows — root-caused
+and fixed; see `tests/test_graphify_runner.py::test_file_kind_nodes_in_same_file_get_distinct_ids`.)
 
 ## Use from Claude Code (MCP)
 

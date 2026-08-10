@@ -30,13 +30,24 @@ Notable differences from a naive "kind"/"name"/"edges" guess:
 - Edges live under "links", not "edges" (bare networkx node_link_data shape).
 - There is no "kind"/"type" field on nodes. Node category is derived from
   "file_type" plus the "_callable" flag: a callable code node is a
-  `function`, a non-callable "code" node is the `file` itself, and any other
+  `function`, a non-callable "code" node is mapped to `file`, and any other
   file_type passes through as-is (see the documented vocabulary below).
+  NOTE: despite the name, `file` is *not* one node per source file in real
+  graphify output -- it also catches top-level structs/types/vars and
+  functions the `_callable` heuristic misses (observed on timeplus-cli:
+  e.g. a shell function labeled "handle_signal()" with `_callable` unset).
+  Do not assume `file`-kind qualified_name/id is a stable per-file handle.
 - There is no "name" field; the human name is derived from "label"
   (stripping a trailing "()" for callables).
-- There is no "qualified_name"/"fqn" field; one is synthesized from
-  source_file + name (or graphify's own id, for non-function nodes) so it is
-  stable and unique within a file.
+- There is no "qualified_name"/"fqn" field; one is synthesized so it is
+  stable *and unique* across the graph: `source_file::name` for callables
+  (`function` kind); `source_file::<graphify's own node id>` for everything
+  else (`file` kind and all DOC_KINDS). The node's own "id" is used --
+  rather than, say, its label or line number -- because it is the one field
+  graphify guarantees is unique per node (it is the dict key in the
+  node-link graph); label and line number are not (a "file" node can share
+  a source_file and line with an unrelated node -- see the `file` kind note
+  below).
 - File location is "source_file" (not "file"/"file_path"), and there is a
   single "source_location" like "L6" rather than separate line_start/
   line_end fields.
@@ -168,7 +179,19 @@ def parse_graph_json(
         file_path = str(_first(rn, ["source_file", "file_path", "file", "path"]))
 
         if kind == "file":
-            qualified = str(_first(rn, ["qualified_name", "qualifiedName", "fqn"], file_path or name))
+            # "file" is not actually one node per file: graphify emits many
+            # non-callable "code" nodes per file (structs, top-level vars,
+            # shell functions missed by the `_callable` heuristic, ...), all
+            # mapped to kind="file" by _node_kind_and_name above. A bare
+            # `file_path` qualified_name collapsed all of them onto one node
+            # id (mutable-stream upsert silently dropped the rest -- verified
+            # against real timeplus-cli output: 473 parsed nodes down to 99
+            # stored rows). Disambiguate with the node's own graphify id,
+            # which is guaranteed unique within one graph.json (it is the
+            # node-link graph's own dict key) -- same pattern as the
+            # DOC_KINDS branch below, which never collided.
+            base = f"{file_path}::{raw_id}" if file_path else raw_id
+            qualified = str(_first(rn, ["qualified_name", "qualifiedName", "fqn"], base))
         elif kind == "function":
             base = f"{file_path}::{name}" if file_path else name
             qualified = str(_first(rn, ["qualified_name", "qualifiedName", "fqn"], base))
