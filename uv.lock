@@ -1177,6 +1177,7 @@ name = "tpk"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "graphifyy" },
     { name = "mcp", extra = ["cli"] },
     { name = "timeplus-connect" },
     { name = "typer" },
@@ -1184,22 +1185,19 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "graphifyy" },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "graphifyy", specifier = ">=0.9.38" },
     { name = "mcp", extras = ["cli"], specifier = ">=2.0.0" },
     { name = "timeplus-connect", specifier = ">=0.8.17" },
     { name = "typer", specifier = ">=0.27.1" },
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "graphifyy", specifier = ">=0.9.38" },
-    { name = "pytest", specifier = ">=9.1.1" },
-]
+dev = [{ name = "pytest", specifier = ">=9.1.1" }]
 
 [[package]]
 name = "tree-sitter"

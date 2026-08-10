@@ -1,6 +1,10 @@
+import json
 from pathlib import Path
 
-from tpk.graphify_runner import parse_graph_json
+import pytest
+
+import tpk.graphify_runner as graphify_runner
+from tpk.graphify_runner import GraphifyError, parse_graph_json, run_graphify
 from tpk.model import node_id
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_graph.json"
@@ -35,3 +39,82 @@ def test_parse_drops_edges_with_unknown_endpoints(tmp_path: Path):
     nodes, edges = parse_graph_json(bad, repo="r", default_visibility="internal")
     assert len(nodes) == 1
     assert edges == []
+
+
+# graphify's documented file_type enum is exactly {code, document, paper,
+# image, rationale, concept} (graphify/skills/claude/references/
+# extraction-spec.md, shipped in the installed graphifyy package). Only
+# "code" is source-derived; the rest are always doc-ish. Its documented
+# confidence enum is {EXTRACTED, INFERRED, AMBIGUOUS}. These tests use those
+# documented values directly (no LLM run required to observe them).
+
+
+def test_doc_kind_node_is_public_even_with_internal_default(tmp_path: Path):
+    g = tmp_path / "graph.json"
+    g.write_text(
+        json.dumps(
+            {
+                "nodes": [
+                    {"id": "n1", "label": "Concept From Docs", "file_type": "document", "source_file": "README.md"},
+                    {"id": "n2", "label": "helper.py", "file_type": "code", "source_file": "helper.py"},
+                ],
+                "links": [
+                    {"source": "n1", "target": "n2", "relation": "references", "confidence": "EXTRACTED"},
+                ],
+            }
+        )
+    )
+    nodes, edges = parse_graph_json(g, repo="r", default_visibility="internal")
+    doc_node = next(n for n in nodes if n.kind == "document")
+    code_node = next(n for n in nodes if n.kind == "file")
+    assert doc_node.visibility == "public"
+    assert code_node.visibility == "internal"
+
+
+def test_ambiguous_confidence_maps_to_inferred(tmp_path: Path):
+    g = tmp_path / "graph.json"
+    g.write_text(
+        json.dumps(
+            {
+                "nodes": [
+                    {"id": "a", "label": "a.py", "file_type": "code", "source_file": "a.py"},
+                    {"id": "b", "label": "b.py", "file_type": "code", "source_file": "b.py"},
+                ],
+                "links": [
+                    {"source": "a", "target": "b", "relation": "conceptually_related_to", "confidence": "AMBIGUOUS"},
+                ],
+            }
+        )
+    )
+    _, edges = parse_graph_json(g, repo="r", default_visibility="internal")
+    assert len(edges) == 1
+    assert edges[0].confidence == "INFERRED"
+
+
+def test_inferred_confidence_stays_inferred(tmp_path: Path):
+    g = tmp_path / "graph.json"
+    g.write_text(
+        json.dumps(
+            {
+                "nodes": [
+                    {"id": "a", "label": "a.py", "file_type": "code", "source_file": "a.py"},
+                    {"id": "b", "label": "b.py", "file_type": "code", "source_file": "b.py"},
+                ],
+                "links": [
+                    {"source": "a", "target": "b", "relation": "semantically_similar_to", "confidence": "INFERRED"},
+                ],
+            }
+        )
+    )
+    _, edges = parse_graph_json(g, repo="r", default_visibility="internal")
+    assert len(edges) == 1
+    assert edges[0].confidence == "INFERRED"
+
+
+def test_run_graphify_missing_binary_raises_graphify_error(tmp_path: Path, monkeypatch):
+    def fake_run(*args, **kwargs):
+        raise FileNotFoundError("[Errno 2] No such file or directory: 'graphify'")
+
+    monkeypatch.setattr(graphify_runner.subprocess, "run", fake_run)
+    with pytest.raises(GraphifyError, match="graphify executable not found"):
+        run_graphify(tmp_path / "repo", tmp_path / "out")

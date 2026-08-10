@@ -29,13 +29,13 @@ node-link-format graph. Verified against real output (graphify 0.9.38,
 Notable differences from a naive "kind"/"name"/"edges" guess:
 - Edges live under "links", not "edges" (bare networkx node_link_data shape).
 - There is no "kind"/"type" field on nodes. Node category is derived from
-  "file_type" ("code" | "rationale") plus the "_callable" flag: a callable
-  code node is a `function`, a non-callable code node is the `file` itself,
-  and a "rationale" node (an extracted docstring/comment) is a `comment`.
+  "file_type" plus the "_callable" flag: a callable code node is a
+  `function`, a non-callable "code" node is the `file` itself, and any other
+  file_type passes through as-is (see the documented vocabulary below).
 - There is no "name" field; the human name is derived from "label"
   (stripping a trailing "()" for callables).
 - There is no "qualified_name"/"fqn" field; one is synthesized from
-  source_file + name (or graphify's own id, for rationale nodes) so it is
+  source_file + name (or graphify's own id, for non-function nodes) so it is
   stable and unique within a file.
 - File location is "source_file" (not "file"/"file_path"), and there is a
   single "source_location" like "L6" rather than separate line_start/
@@ -43,10 +43,31 @@ Notable differences from a naive "kind"/"name"/"edges" guess:
 - Edge relation is "relation" (not "type"/"rel"), and endpoints are
   "source"/"target" (not "src"/"dst").
 
+Documented file_type / confidence vocabulary (from graphify's own extraction
+subagent prompt, shipped in the installed package at
+`graphify/skills/claude/references/extraction-spec.md`, loaded whenever a
+corpus has doc/paper/image content):
+
+- `file_type` MUST be exactly one of: `code`, `document`, `paper`, `image`,
+  `rationale`, `concept`. Only `code` is source-derived; the other five are
+  always non-code entities (extracted from docs/papers/images, or
+  concept-like nodes such as "ideas, principles, mechanisms, design
+  patterns") and are treated as doc-kind (`DOC_KINDS`) regardless of the
+  repo's default visibility. `--code-only` runs only ever emit `code` (for
+  files/functions) in practice, but the parser honors the full six-value
+  enum so a future non-`--code-only` run parses correctly too.
+- `confidence` is one of `EXTRACTED` (explicit in source: import, call,
+  citation), `INFERRED` (reasonable inference), or `AMBIGUOUS` (uncertain,
+  flagged for review — the spec says "flag for review, do not omit"). Our
+  Edge model only has two confidence buckets (EXTRACTED, INFERRED), so
+  `AMBIGUOUS` (and any other unrecognized value) maps to `INFERRED`, never
+  `EXTRACTED` — mislabeling an uncertain edge as EXTRACTED (high confidence)
+  is the dangerous direction; collapsing it into INFERRED is conservative.
+
 The `_first()` helper and its fallback key lists are kept so the parser
 degrades gracefully if a future graphify version (or a different extractor
 mode) renames or adds fields, but the *primary* keys above reflect what
-graphify 0.9.38 actually emits, not a guess.
+graphify 0.9.38 actually emits and documents, not a guess.
 """
 
 import json
@@ -71,11 +92,17 @@ def run_graphify(repo_path: Path, out_dir: Path) -> Path:
     (e.g. README.md) in the emitted graph.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    proc = subprocess.run(
-        ["graphify", "extract", str(repo_path), "--code-only", "--out", str(out_dir)],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        proc = subprocess.run(
+            ["graphify", "extract", str(repo_path), "--code-only", "--out", str(out_dir)],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        raise GraphifyError(
+            "graphify executable not found on PATH; ensure the `graphifyy` package "
+            "(providing the `graphify` CLI) is installed in this environment"
+        ) from exc
     if proc.returncode != 0:
         raise GraphifyError(f"graphify failed on {repo_path}: {proc.stderr[-2000:]}")
     graph_json = out_dir / "graphify-out" / "graph.json"
@@ -91,7 +118,10 @@ def _first(d: dict, keys: list[str], default=""):
     return default
 
 
-DOC_KINDS = {"doc", "doc_section", "document", "markdown", "concept"}
+# graphify's documented file_type enum (extraction-spec.md) is exactly
+# {code, document, paper, image, rationale, concept}. `code` is the only
+# source-derived value; the rest are always non-code / doc-ish entities.
+DOC_KINDS = {"document", "paper", "image", "rationale", "concept"}
 
 
 def _node_kind_and_name(rn: dict) -> tuple[str, str]:
@@ -105,8 +135,8 @@ def _node_kind_and_name(rn: dict) -> tuple[str, str]:
         return "function", name
     if file_type == "code":
         return "file", label
-    if file_type in DOC_KINDS or file_type == "rationale":
-        return ("comment" if file_type == "rationale" else file_type), label
+    # document/paper/image/rationale/concept (or any other non-"code" value):
+    # pass the documented file_type through as the node kind unchanged.
     return file_type or "entity", label
 
 
@@ -173,8 +203,14 @@ def parse_graph_json(
         if not src or not dst:
             continue  # endpoint outside this repo's parsed nodes
         confidence = str(_first(re_, ["confidence", "tag"], "EXTRACTED")).upper()
-        if confidence not in ("EXTRACTED", "INFERRED"):
-            confidence = "EXTRACTED"
+        if confidence != "EXTRACTED":
+            # graphify's documented confidence enum is EXTRACTED, INFERRED,
+            # AMBIGUOUS. Our model has only two buckets: keep EXTRACTED as-is,
+            # collapse everything else (INFERRED, AMBIGUOUS, or an unknown
+            # future value) into INFERRED. Mislabeling an uncertain/AMBIGUOUS
+            # edge as high-confidence EXTRACTED would be the dangerous
+            # direction, so unknown values fall to the conservative bucket.
+            confidence = "INFERRED"
         edges.append(
             Edge(
                 src=src,
