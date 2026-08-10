@@ -1,0 +1,49 @@
+"""tpk command-line interface."""
+
+from pathlib import Path
+
+import typer
+
+from tpk import db
+from tpk.config import Settings, load_repos
+from tpk.ingest import ingest_repo
+
+app = typer.Typer(help="Timeplus knowledge graph toolkit")
+
+REPOS_TOML = Path(__file__).resolve().parents[2] / "repos.toml"
+
+
+@app.command()
+def ingest(
+    repo: str = typer.Option(None, help="Repo name from repos.toml; omit for all"),
+    repos_file: Path = typer.Option(REPOS_TOML, help="Path to repos.toml"),
+):
+    """Run graphify on repo checkouts and upsert the graph into Timeplus."""
+    settings = Settings.from_env()
+    client = db.get_client(settings)
+    db.ensure_schema(client)
+    repos = load_repos(repos_file)
+    targets = [repos[repo]] if repo else list(repos.values())
+    if repo and repo not in repos:
+        raise typer.BadParameter(f"unknown repo {repo!r}; known: {sorted(repos)}")
+    for cfg in targets:
+        result = ingest_repo(client, cfg)
+        typer.echo(f"{result.repo}: {result.status} ({result.nodes} nodes, {result.edges} edges)")
+
+
+@app.command()
+def status():
+    """Show the latest ingest run per repo."""
+    settings = Settings.from_env()
+    client = db.get_client(settings)
+    rows = client.query(
+        "SELECT repo, max(_tp_time) AS last_run, arg_max(status, _tp_time) AS status,"
+        " arg_max(nodes, _tp_time) AS nodes, arg_max(edges, _tp_time) AS edges"
+        " FROM table(kg_ingest_log) GROUP BY repo ORDER BY repo"
+    ).result_rows
+    for repo, last_run, status_, nodes, edges in rows:
+        typer.echo(f"{repo:35s} {status_:7s} {nodes:>8} nodes {edges:>8} edges  {last_run}")
+
+
+if __name__ == "__main__":
+    app()
