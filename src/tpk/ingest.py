@@ -67,11 +67,17 @@ def ingest_repo(
     repo_cfg: RepoConfig,
     prefix: str = "",
     out_root: Path = Path(".graphify_out"),
+    backend: str | None = None,
 ) -> IngestResult:
     run_id = uuid.uuid4().hex[:12]
     run_started_at = datetime.now(timezone.utc)
     try:
-        graph_json = run_graphify(repo_cfg.path, out_root / repo_cfg.name)
+        graph_json = run_graphify(
+            repo_cfg.path,
+            out_root / repo_cfg.name,
+            extraction=repo_cfg.extraction,
+            backend=backend,
+        )
         nodes, edges = parse_graph_json(graph_json, repo_cfg.name, repo_cfg.visibility)
         upsert_graph(client, prefix, nodes, edges, run_started_at, repos={repo_cfg.name})
         result = IngestResult(repo_cfg.name, run_id, len(nodes), len(edges), "ok")

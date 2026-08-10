@@ -182,3 +182,24 @@ def test_ingest_repo_mid_upsert_failure_leaves_prior_rows_and_logs(tp, monkeypat
 
     logs = _eventually(_logs, lambda rows: ("failed",) in rows)
     assert ("failed",) in logs
+
+
+def test_ingest_repo_passes_extraction_and_backend(tp, monkeypatch, tmp_path: Path):
+    from tpk import ingest as ingest_mod
+    from tpk.ingest import ingest_repo
+
+    client, prefix = tp
+    calls: dict = {}
+
+    def fake_run_graphify(repo_path, out_dir, extraction="code-only", backend=None):
+        calls["extraction"] = extraction
+        calls["backend"] = backend
+        raise RuntimeError("stop after capture")
+
+    monkeypatch.setattr(ingest_mod, "run_graphify", fake_run_graphify)
+    cfg = RepoConfig(
+        name="r", path=tmp_path, visibility="internal", extraction="semantic"
+    )
+    result = ingest_repo(client, cfg, prefix=prefix, out_root=tmp_path / "o", backend="openai")
+    assert result.status == "failed"  # capture stub raised, isolation held
+    assert calls == {"extraction": "semantic", "backend": "openai"}

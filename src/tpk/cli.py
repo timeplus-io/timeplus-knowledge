@@ -5,7 +5,7 @@ from pathlib import Path
 import typer
 
 from tpk import db
-from tpk.config import Settings, load_repos
+from tpk.config import Settings, load_llm, load_repos
 from tpk.ingest import ingest_repo
 
 app = typer.Typer(help="Timeplus knowledge graph toolkit")
@@ -23,11 +23,13 @@ def ingest(
     client = db.get_client(settings)
     db.ensure_schema(client)
     repos = load_repos(repos_file)
+    llm = load_llm(repos_file)
+    backend = None if llm.backend == "auto" else llm.backend
     if repo and repo not in repos:
         raise typer.BadParameter(f"unknown repo {repo!r}; known: {sorted(repos)}")
     targets = [repos[repo]] if repo else list(repos.values())
     for cfg in targets:
-        result = ingest_repo(client, cfg)
+        result = ingest_repo(client, cfg, backend=backend)
         typer.echo(f"{result.repo}: {result.status} ({result.nodes} nodes, {result.edges} edges)")
 
 

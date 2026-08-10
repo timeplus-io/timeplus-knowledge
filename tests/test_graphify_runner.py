@@ -150,3 +150,70 @@ def test_run_graphify_missing_binary_raises_graphify_error(tmp_path: Path, monke
     monkeypatch.setattr(graphify_runner.subprocess, "run", fake_run)
     with pytest.raises(GraphifyError, match="graphify executable not found"):
         run_graphify(tmp_path / "repo", tmp_path / "out")
+
+
+class _FakeProc:
+    returncode = 0
+    stderr = ""
+
+
+def _capture_graphify(monkeypatch, calls):
+    """Fake subprocess.run that records argv and fabricates graph.json."""
+    import tpk.graphify_runner as gr
+
+    def fake_run(cmd, capture_output, text):
+        calls.append(cmd)
+        out = Path(cmd[cmd.index("--out") + 1])
+        gj = out / "graphify-out" / "graph.json"
+        gj.parent.mkdir(parents=True, exist_ok=True)
+        gj.write_text('{"nodes": [], "links": []}')
+        return _FakeProc()
+
+    monkeypatch.setattr(gr.subprocess, "run", fake_run)
+
+
+def test_run_graphify_code_only_argv(monkeypatch, tmp_path: Path):
+    from tpk.graphify_runner import run_graphify
+
+    calls: list = []
+    _capture_graphify(monkeypatch, calls)
+    run_graphify(tmp_path, tmp_path / "out")
+    assert "--code-only" in calls[0]
+    assert "--backend" not in calls[0]
+
+
+def test_run_graphify_semantic_argv_with_backends(monkeypatch, tmp_path: Path):
+    from tpk.graphify_runner import run_graphify
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+
+    calls: list = []
+    _capture_graphify(monkeypatch, calls)
+    run_graphify(tmp_path, tmp_path / "o1", extraction="semantic")
+    assert "--code-only" not in calls[0]
+    assert "--backend" not in calls[0]  # auto: let graphify detect
+
+    run_graphify(tmp_path, tmp_path / "o2", extraction="semantic", backend="claude")
+    assert calls[1][calls[1].index("--backend") + 1] == "claude"
+
+    run_graphify(tmp_path, tmp_path / "o3", extraction="semantic", backend="openai")
+    assert calls[2][calls[2].index("--backend") + 1] == "openai"
+
+
+def test_run_graphify_semantic_fails_fast_without_keys(monkeypatch, tmp_path: Path):
+    from tpk.graphify_runner import GraphifyError, run_graphify
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    calls: list = []
+    _capture_graphify(monkeypatch, calls)
+
+    with pytest.raises(GraphifyError, match="ANTHROPIC_API_KEY or OPENAI_API_KEY"):
+        run_graphify(tmp_path, tmp_path / "out", extraction="semantic")
+    with pytest.raises(GraphifyError, match="ANTHROPIC_API_KEY"):
+        run_graphify(tmp_path, tmp_path / "out", extraction="semantic", backend="claude")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    with pytest.raises(GraphifyError, match="OPENAI_API_KEY"):
+        run_graphify(tmp_path, tmp_path / "out", extraction="semantic", backend="openai")
+    assert calls == []  # never reached subprocess

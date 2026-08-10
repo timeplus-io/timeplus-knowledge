@@ -1,6 +1,8 @@
 from pathlib import Path
 
-from tpk.config import Settings, load_repos
+import pytest
+
+from tpk.config import Settings, load_llm, load_repos
 
 
 def test_settings_from_env_defaults(monkeypatch):
@@ -33,3 +35,43 @@ def test_load_repos(tmp_path: Path):
     assert set(repos) == {"docs", "proton"}
     assert repos["docs"].visibility == "public"
     assert repos["proton"].path == Path("/x/proton")
+
+
+def test_load_repos_extraction_and_description(tmp_path: Path):
+    toml_path = tmp_path / "repos.toml"
+    toml_path.write_text(
+        '[repos.docs]\npath = "/x/docs"\nvisibility = "public"\n'
+        'extraction = "semantic"\ndescription = "Public docs"\n\n'
+        '[repos.proton]\npath = "/x/proton"\nvisibility = "internal"\n'
+    )
+    repos = load_repos(toml_path)
+    assert repos["docs"].extraction == "semantic"
+    assert repos["docs"].description == "Public docs"
+    assert repos["proton"].extraction == "code-only"
+    assert repos["proton"].description == ""
+
+
+def test_load_repos_rejects_bad_extraction(tmp_path: Path):
+    toml_path = tmp_path / "repos.toml"
+    toml_path.write_text(
+        '[repos.x]\npath = "/x"\nvisibility = "internal"\nextraction = "magic"\n'
+    )
+    with pytest.raises(ValueError):
+        load_repos(toml_path)
+
+
+def test_load_llm_default_and_explicit(tmp_path: Path):
+    toml_path = tmp_path / "repos.toml"
+    toml_path.write_text('[repos.x]\npath = "/x"\nvisibility = "internal"\n')
+    assert load_llm(toml_path).backend == "auto"
+    toml_path.write_text(
+        '[llm]\nbackend = "claude"\n\n[repos.x]\npath = "/x"\nvisibility = "internal"\n'
+    )
+    assert load_llm(toml_path).backend == "claude"
+
+
+def test_load_llm_rejects_bad_backend(tmp_path: Path):
+    toml_path = tmp_path / "repos.toml"
+    toml_path.write_text('[llm]\nbackend = "grok"\n')
+    with pytest.raises(ValueError):
+        load_llm(toml_path)

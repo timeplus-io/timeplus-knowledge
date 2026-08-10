@@ -23,7 +23,17 @@ do not use it in production.
 
 ## Ingest
 
-Corpus lives in `repos.toml` (repo name -> local checkout path -> visibility).
+Corpus lives in `repos.toml`. Each repo has a `path`, a `visibility`
+(`internal`/`public`), a short `description`, and an `extraction` mode:
+
+- `code-only` (default) — local tree-sitter AST parsing. Free, offline, no
+  API key; skips non-code files (YAML, Markdown), so all-YAML repos yield
+  zero nodes in this mode.
+- `semantic` — graphify's LLM extraction also processes YAML/Markdown/docs.
+  Requires an API key in the environment: `ANTHROPIC_API_KEY` (backend
+  `claude`) or `OPENAI_API_KEY` (backend `openai`). The `[llm]` section in
+  `repos.toml` picks the backend (`auto` uses whichever key is exported).
+  Ingest fails fast with a clear error if a semantic repo has no usable key.
 
     uv run tpk ingest                # all repos
     uv run tpk ingest --repo docs    # one repo
@@ -32,14 +42,8 @@ Corpus lives in `repos.toml` (repo name -> local checkout path -> visibility).
 Ingest is per-repo isolated: a failing repo logs `failed` in
 `kg_ingest_log` and leaves its previous graph untouched.
 
-Ingest runs `graphify extract <repo> --code-only --out <dir>` (package
-`graphifyy` on PyPI, CLI `graphify`) and reads
-`<dir>/graphify-out/graph.json`. `--code-only` is hardcoded in
-`run_graphify` so ingest never requires an LLM API key, but it also means
-non-code files (markdown docs, etc.) are skipped entirely — a repo that is
-mostly prose (rather than a doc site's source code) can come back with
-few or zero nodes. This is expected for M1 and not treated as a failure as
-long as `graphify` itself exits 0.
+Ingest runs `graphify extract` (package `graphifyy` on PyPI, CLI
+`graphify`) and reads `<dir>/graphify-out/graph.json`.
 
 ### M1 smoke run (2026-08-10)
 

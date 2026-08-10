@@ -82,6 +82,7 @@ graphify 0.9.38 actually emits and documents, not a guess.
 """
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -92,20 +93,49 @@ class GraphifyError(RuntimeError):
     pass
 
 
-def run_graphify(repo_path: Path, out_dir: Path) -> Path:
+_BACKEND_KEYS = {"claude": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
+
+
+def _require_llm_key(backend: str | None) -> None:
+    if backend in _BACKEND_KEYS:
+        var = _BACKEND_KEYS[backend]
+        if not os.environ.get(var):
+            raise GraphifyError(
+                f"semantic extraction with backend {backend!r} requires {var} to be set"
+            )
+    elif not any(os.environ.get(v) for v in _BACKEND_KEYS.values()):
+        raise GraphifyError(
+            "semantic extraction requires ANTHROPIC_API_KEY or OPENAI_API_KEY to be set"
+        )
+
+
+def run_graphify(
+    repo_path: Path,
+    out_dir: Path,
+    extraction: str = "code-only",
+    backend: str | None = None,
+) -> Path:
     """Run `graphify extract` on repo_path and return the path to graph.json.
 
-    Uses --code-only: graphify's default `extract` attempts LLM-backed
-    semantic extraction for non-code files (docs/papers/images) and errors
-    out if no LLM API key is configured. Code parsing itself is always local
-    tree-sitter AST with no network calls; --code-only guarantees run_graphify
-    never requires an API key, at the cost of skipping non-code files
-    (e.g. README.md) in the emitted graph.
+    extraction="code-only" (default): local tree-sitter AST only, no API key
+    needed, non-code files (YAML/Markdown/etc.) are skipped.
+    extraction="semantic": graphify's LLM extraction also processes doc/config
+    files; requires ANTHROPIC_API_KEY (backend "claude") or OPENAI_API_KEY
+    (backend "openai"). backend None/"auto" lets graphify pick from whichever
+    key is exported; we fail fast here if none is.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
+    cmd = ["graphify", "extract", str(repo_path)]
+    if extraction == "code-only":
+        cmd.append("--code-only")
+    else:
+        _require_llm_key(backend)
+        if backend and backend != "auto":
+            cmd += ["--backend", backend]
+    cmd += ["--out", str(out_dir)]
     try:
         proc = subprocess.run(
-            ["graphify", "extract", str(repo_path), "--code-only", "--out", str(out_dir)],
+            cmd,
             capture_output=True,
             text=True,
         )
