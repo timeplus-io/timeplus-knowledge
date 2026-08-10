@@ -1,8 +1,7 @@
 [project]
 name = "tpk"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+description = "Timeplus knowledge graph toolkit"
 authors = [
     { email = "gang@timeplus.io" }
 ]
