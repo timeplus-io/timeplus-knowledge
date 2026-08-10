@@ -1,0 +1,153 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {
+      "label": "app.py",
+      "file_type": "code",
+      "source_file": "app.py",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "app",
+      "community": 0,
+      "norm_label": "app.py"
+    },
+    {
+      "label": "main()",
+      "file_type": "code",
+      "source_file": "app.py",
+      "source_location": "L6",
+      "_callable": true,
+      "_origin": "ast",
+      "id": "app_main",
+      "community": 1,
+      "norm_label": "main()"
+    },
+    {
+      "label": "Tiny app used as a graphify fixture.",
+      "file_type": "rationale",
+      "source_file": "app.py",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "app_rationale_1",
+      "community": 0,
+      "norm_label": "tiny app used as a graphify fixture."
+    },
+    {
+      "label": "# NOTE: entry point for the fixture graph",
+      "file_type": "rationale",
+      "source_file": "app.py",
+      "source_location": "L7",
+      "_origin": "ast",
+      "id": "app_rationale_7",
+      "community": 0,
+      "norm_label": "# note: entry point for the fixture graph"
+    },
+    {
+      "label": "helper.py",
+      "file_type": "code",
+      "source_file": "helper.py",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "helper",
+      "community": 1,
+      "norm_label": "helper.py"
+    },
+    {
+      "label": "add()",
+      "file_type": "code",
+      "source_file": "helper.py",
+      "source_location": "L1",
+      "_callable": true,
+      "_origin": "ast",
+      "id": "helper_add",
+      "community": 1,
+      "norm_label": "add()"
+    }
+  ],
+  "links": [
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app.py",
+      "source_location": "L6",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "app",
+      "target": "app_main",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "app.py",
+      "source_location": "L3",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "app",
+      "target": "helper",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "app.py",
+      "source_location": "L3",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "app",
+      "target": "helper_add",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "app.py",
+      "source_location": "L1",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "app_rationale_1",
+      "target": "app",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "app.py",
+      "source_location": "L7",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "app_rationale_7",
+      "target": "app",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "app.py",
+      "source_location": "L8",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "app_main",
+      "target": "helper_add",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "helper.py",
+      "source_location": "L1",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "helper",
+      "target": "helper_add",
+      "confidence_score": 1.0
+    }
+  ],
+  "hyperedges": [],
+  "built_at_commit": "6a8e7523223d030b5b513f35a44d41e07e5ec7bf"
+}
