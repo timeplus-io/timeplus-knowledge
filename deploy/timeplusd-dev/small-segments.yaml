@@ -1,0 +1,11 @@
+# Dev-only override for local timeplusd: shrink nativelog segment preallocation.
+# Default is 2GB preallocated per stream shard, which fills a laptop Docker VM
+# fast when tests create/drop many short-lived streams (each stream costs ~6GB
+# across data + system streams). 64MB non-preallocated keeps local disk sane.
+# Mount into the container at /etc/timeplusd-server/config.d/small-segments.yaml
+data:
+    datastore:
+        log:
+            segment_size: 67108864 # 64MB (default 2GB)
+            min_size_to_keep: 67108864
+            preallocate: false
