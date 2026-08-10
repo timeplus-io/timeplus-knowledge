@@ -23,9 +23,9 @@ def ingest(
     client = db.get_client(settings)
     db.ensure_schema(client)
     repos = load_repos(repos_file)
-    targets = [repos[repo]] if repo else list(repos.values())
     if repo and repo not in repos:
         raise typer.BadParameter(f"unknown repo {repo!r}; known: {sorted(repos)}")
+    targets = [repos[repo]] if repo else list(repos.values())
     for cfg in targets:
         result = ingest_repo(client, cfg)
         typer.echo(f"{result.repo}: {result.status} ({result.nodes} nodes, {result.edges} edges)")
