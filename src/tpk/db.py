@@ -1,0 +1,60 @@
+"""Timeplus client factory and knowledge-graph schema DDL."""
+
+import timeplus_connect
+
+from tpk.config import Settings
+
+
+def get_client(settings: Settings):
+    return timeplus_connect.get_client(
+        host=settings.host,
+        port=settings.port,
+        username=settings.user,
+        password=settings.password,
+    )
+
+
+def ensure_schema(client, prefix: str = "") -> None:
+    client.command(f"""
+        CREATE MUTABLE STREAM IF NOT EXISTS {prefix}kg_nodes (
+          id string,
+          repo string,
+          kind string,
+          name string,
+          qualified_name string,
+          file_path string,
+          line_start uint32,
+          line_end uint32,
+          summary string,
+          community string,
+          visibility string,
+          updated_at datetime64(3, 'UTC')
+        ) PRIMARY KEY (id)
+    """)
+    client.command(f"""
+        CREATE MUTABLE STREAM IF NOT EXISTS {prefix}kg_edges (
+          src string,
+          dst string,
+          rel string,
+          confidence string,
+          repo string,
+          updated_at datetime64(3, 'UTC')
+        ) PRIMARY KEY (src, dst, rel)
+    """)
+    client.command(f"""
+        CREATE STREAM IF NOT EXISTS {prefix}kg_ingest_log (
+          repo string,
+          run_id string,
+          nodes uint64,
+          edges uint64,
+          git_sha string,
+          status string
+        )
+    """)
+
+
+def drop_schema(client, prefix: str) -> None:
+    if not prefix:
+        raise ValueError("refusing to drop unprefixed (production) streams")
+    for name in ("kg_nodes", "kg_edges", "kg_ingest_log"):
+        client.command(f"DROP STREAM IF EXISTS {prefix}{name}")
