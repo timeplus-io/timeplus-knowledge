@@ -1,0 +1,9 @@
+.venv/
+.git/
+.graphify_out/
+.claude/
+.superpowers/
+docs/
+tests/
+__pycache__/
+*.egg-info/

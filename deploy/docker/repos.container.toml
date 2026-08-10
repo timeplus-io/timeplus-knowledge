@@ -1,0 +1,56 @@
+# Corpus configuration used INSIDE the tpk docker image (copied to
+# /opt/tpk/repos.toml). Repo checkouts are expected under /repos — mount them
+# with: -v ~/Code/timeplus:/repos:ro
+# Field semantics are documented in the repo-root repos.toml.
+
+[llm]
+backend = "auto"
+
+[repos.proton]
+path = "/repos/proton"
+visibility = "internal"
+description = "Core open-source streaming SQL engine (C++), the foundation of Timeplus"
+
+[repos.proton-enterprise]
+path = "/repos/proton-enterprise"
+visibility = "internal"
+description = "Enterprise build of the core engine with proprietary extensions (C++)"
+
+[repos.timeplus-enterprise]
+path = "/repos/timeplus-enterprise"
+visibility = "internal"
+extraction = "semantic"
+description = "Enterprise release packaging: Dockerfiles, Makefiles, release/deployment scripts"
+
+[repos.helm-charts]
+path = "/repos/helm-charts"
+visibility = "internal"
+extraction = "semantic"
+description = "Kubernetes Helm charts for deploying Timeplus Enterprise"
+
+[repos.timeplus-enterprise-deployment]
+path = "/repos/timeplus-enterprise-deployment"
+visibility = "internal"
+extraction = "semantic"
+description = "Deployment configurations and environment definitions for Timeplus Enterprise installs"
+
+[repos.terraform-provider-timeplus]
+path = "/repos/terraform-provider-timeplus"
+visibility = "internal"
+description = "Terraform provider for managing Timeplus resources as infrastructure-as-code (Go)"
+
+[repos.byoc]
+path = "/repos/byoc"
+visibility = "internal"
+description = "Bring-Your-Own-Cloud deployment automation for running Timeplus in customer cloud accounts"
+
+[repos.timeplus-cli]
+path = "/repos/timeplus-cli"
+visibility = "internal"
+description = "Command-line tool for installing and managing Timeplus Enterprise deployments (Go)"
+
+[repos.docs]
+path = "/repos/docs"
+visibility = "public"
+extraction = "semantic"
+description = "Public product documentation (Docusaurus site): concepts, SQL reference, deployment guides"

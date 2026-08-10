@@ -21,6 +21,27 @@ you have a handful of streams. `deploy/timeplusd-dev/small-segments.yaml`
 overrides this to 64MB segments with no preallocation for local/dev use —
 do not use it in production.
 
+## Docker image (all-in-one)
+
+`deploy/docker/Dockerfile` builds a single image on top of the Timeplus
+Enterprise image: timeplusd runs unchanged as the main process, with the
+`tpk` CLI, the `graphify` extractor, a Python 3.11 venv, and the
+small-segments override baked in. Repo checkouts are mounted at `/repos`
+(paths come from the baked-in `deploy/docker/repos.container.toml`).
+
+    docker build -f deploy/docker/Dockerfile -t timeplus/tpk:dev .
+    docker run -d --name tpk -p 8123:8123 -p 3218:3218 \
+      -v ~/Code/timeplus:/repos:ro timeplus/tpk:dev
+
+    docker exec tpk tpk ingest              # build the graph inside
+    docker exec tpk tpk status
+    claude mcp add timeplus-knowledge -- docker exec -i tpk tpk-mcp
+
+For semantic-extraction repos, pass the LLM key at run time:
+`docker run ... -e ANTHROPIC_API_KEY` (or `-e OPENAI_API_KEY`). The
+read-only `/repos` mount is fine — graphify's in-checkout cache writes are
+skipped harmlessly.
+
 ## Ingest
 
 Corpus lives in `repos.toml`. Each repo has a `path`, a `visibility`

@@ -203,3 +203,13 @@ def test_ingest_repo_passes_extraction_and_backend(tp, monkeypatch, tmp_path: Pa
     result = ingest_repo(client, cfg, prefix=prefix, out_root=tmp_path / "o", backend="openai")
     assert result.status == "failed"  # capture stub raised, isolation held
     assert calls == {"extraction": "semantic", "backend": "openai"}
+
+
+def test_git_sha_survives_missing_git_binary(monkeypatch, tmp_path: Path):
+    from tpk import ingest as ingest_mod
+
+    def no_git(*args, **kwargs):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(ingest_mod.subprocess, "run", no_git)
+    assert ingest_mod._git_sha(tmp_path) == "unknown"

@@ -48,9 +48,12 @@ def upsert_graph(
 
 
 def _git_sha(repo_path: Path) -> str:
-    proc = subprocess.run(
-        ["git", "-C", str(repo_path), "rev-parse", "HEAD"], capture_output=True, text=True
-    )
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo_path), "rev-parse", "HEAD"], capture_output=True, text=True
+        )
+    except FileNotFoundError:  # no git binary (e.g. minimal container)
+        return "unknown"
     return proc.stdout.strip() if proc.returncode == 0 else "unknown"
 
 
