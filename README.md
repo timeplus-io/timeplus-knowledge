@@ -50,19 +50,45 @@ Ran against real checkouts on this machine:
 
 Both reported `ok` via `tpk status`, and `SELECT count() FROM table(kg_nodes)`
 matches the parsed counts exactly per repo (163 + 473 = 636 stored rows;
-edges likewise 151 + 839 = 990). `kg_nodes` is a mutable stream keyed on a
-stable id derived from `(repo, kind, qualified_name)`; `qualified_name` for
-`file`-kind nodes (graphify maps every non-callable "code" node to `file`,
-not just the one node that is literally the file — see `graphify_runner.py`)
-is disambiguated with graphify's own per-node id, which is guaranteed unique
-within a `graph.json`, so distinct entities in the same source file no
-longer collapse onto one row. (An earlier ingest run, before this fix, saw
-parsed counts of 166/473 collapse to only 91/99 stored rows — root-caused
-and fixed; see `tests/test_graphify_runner.py::test_file_kind_nodes_in_same_file_get_distinct_ids`.)
+edges likewise 151 + 839 = 990). `kg_nodes` is a mutable stream keyed on an
+id derived from `(repo, kind, qualified_name)`; that id is deterministic
+*within one parsed graph.json* — `qualified_name` for `file`-kind nodes
+(graphify maps every non-callable "code" node to `file`, not just the one
+node that is literally the file — see `graphify_runner.py`) is disambiguated
+with graphify's own per-node id, which is guaranteed unique within a single
+`graph.json`, so distinct entities in the same source file no longer
+collapse onto one row within a run. (An earlier ingest run, before this fix,
+saw parsed counts of 166/473 collapse to only 91/99 stored rows —
+root-caused and fixed; see
+`tests/test_graphify_runner.py::test_file_kind_nodes_in_same_file_get_distinct_ids`.)
+
+This does **not** mean identical output run-over-run on an unchanged repo:
+graphify keeps its own per-file extraction cache under
+`<out-dir>/graphify-out/cache/`, and a warm-cache run against an unchanged
+checkout was observed to emit 3 fewer nodes/edges than a cold run (166/154
+vs 163/151 for `docs`, git-clean, same commit both times — reproduced
+on-demand: a fresh `--out` dir gives 166/154, re-running `graphify extract`
+against that same `--out` dir immediately after gives 163/151, consistently
+losing the file that graphify's own "had syntax errors, partially
+extracted" warning applies to). This is graphify-internal, not
+`tpk`-specific. It doesn't corrupt the stored graph: each `tpk ingest`
+inserts that run's full parsed node/edge set and then deletes any previous
+row for that repo not touched by the run (`upsert_graph`'s stale-delete), so
+the graph always reflects exactly the most recent run's output — it just
+means "most recent run's output" can itself vary by a handful of nodes
+between otherwise-identical runs. Don't rely on `tpk status`/`kg_nodes`
+counts being bit-for-bit reproducible across ingests of the same commit.
 
 ## Use from Claude Code (MCP)
 
     claude mcp add timeplus-knowledge -- uv --directory /Users/gangtao/Code/timeplus/timeplus-knowledge run python -m tpk.mcp_server
+
+If you're running from a worktree or a separate clone rather than the main
+checkout, `--directory` must point at *that* checkout (the one containing
+`pyproject.toml`), not the path above — pointing it at a directory with no
+`pyproject.toml`/`src/tpk` registers successfully but the server itself
+fails to start, which shows up in `claude mcp list` as
+`✘ Failed to connect — -32000: MCP error -32000: Connection closed`.
 
 Tools: `search_entities`, `get_entity`, `neighbors`, `path_between`,
 `list_communities`, `read_source`.
