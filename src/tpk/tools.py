@@ -104,9 +104,14 @@ class KnowledgeGraph:
                         next_frontier.add(endpoint)
             frontier = sorted(next_frontier)[: self.MAX_NODES_PER_HOP]
             seen.update(frontier)
+        # Truncating the frontier to MAX_NODES_PER_HOP can leave `all_edges`
+        # referencing endpoints that never made it into `seen` (and thus
+        # never into the returned nodes) -- drop those so every returned
+        # edge's src/dst is always among the returned nodes.
+        edges = [e for e in all_edges.values() if e["src"] in seen and e["dst"] in seen]
         return {
             "nodes": self._nodes_by_ids(sorted(seen)),
-            "edges": list(all_edges.values()),
+            "edges": edges,
             "depth_used": depth_used,
         }
 

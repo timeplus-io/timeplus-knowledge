@@ -40,12 +40,21 @@ def kg(tp, tmp_path: Path):
     upsert_graph(client, prefix, SEED_NODES, SEED_EDGES, datetime.now(timezone.utc))
     (tmp_path / "m.py").write_text("line1\nline2\nline3\nline4\nline5\n")
 
-    def _seeded():
+    def _node_count():
         return client.query(
             f"SELECT count() FROM table({prefix}kg_nodes)"
         ).result_rows[0][0]
 
-    _eventually(_seeded, lambda v: v == len(SEED_NODES))
+    def _edge_count():
+        return client.query(
+            f"SELECT count() FROM table({prefix}kg_edges)"
+        ).result_rows[0][0]
+
+    # upsert_graph does two independent inserts (nodes, edges), each with its
+    # own ~100-300ms mutable-stream visibility lag -- wait for both, not just
+    # nodes, or edge-dependent tests (neighbors, path_between) can race.
+    _eventually(_node_count, lambda v: v == len(SEED_NODES))
+    _eventually(_edge_count, lambda v: v == len(SEED_EDGES))
     return KnowledgeGraph(client, stream_prefix=prefix, repo_paths={"r1": tmp_path})
 
 
@@ -107,6 +116,52 @@ def test_list_communities(kg):
     rows = kg.list_communities(repo="r1")
     by_name = {r["community"]: r["node_count"] for r in rows}
     assert by_name == {"core": 2, "docs": 1}
+
+
+def test_neighbors_edges_stay_consistent_with_truncated_nodes(kg, monkeypatch):
+    """When a hop's frontier is truncated to MAX_NODES_PER_HOP, edges whose
+    endpoint got dropped from the frontier must be dropped too -- otherwise
+    `edges` can reference node ids absent from `nodes`.
+    """
+    from tpk.ingest import upsert_graph
+    from tpk.tools import KnowledgeGraph
+
+    hub_nodes = [
+        Node(id=f"n{i}", repo="r1", kind="function", name=f"leaf{i}",
+             qualified_name=f"m.leaf{i}", file_path="m.py", line_start=1, line_end=1,
+             summary="leaf", community="core", visibility="internal")
+        for i in range(1, 5)
+    ] + [
+        Node(id="h1", repo="r1", kind="function", name="hub", qualified_name="m.hub",
+             file_path="m.py", line_start=1, line_end=1, summary="hub node",
+             community="core", visibility="internal"),
+    ]
+    hub_edges = [
+        Edge(src="h1", dst=f"n{i}", rel="calls", confidence="EXTRACTED", repo="r1")
+        for i in range(1, 5)
+    ]
+    upsert_graph(kg.client, kg.prefix, hub_nodes, hub_edges, datetime.now(timezone.utc))
+
+    def _hub_node_count():
+        return kg.client.query(
+            f"SELECT count() FROM table({kg.prefix}kg_nodes) WHERE id LIKE 'n%' OR id = 'h1'"
+        ).result_rows[0][0]
+
+    def _hub_edge_count():
+        return kg.client.query(
+            f"SELECT count() FROM table({kg.prefix}kg_edges) WHERE src = 'h1'"
+        ).result_rows[0][0]
+
+    _eventually(_hub_node_count, lambda v: v == 5)
+    _eventually(_hub_edge_count, lambda v: v == 4)
+
+    monkeypatch.setattr(KnowledgeGraph, "MAX_NODES_PER_HOP", 2)
+    result = kg.neighbors("h1", depth=1)
+    node_ids = {n["id"] for n in result["nodes"]}
+    assert len(node_ids) <= 1 + KnowledgeGraph.MAX_NODES_PER_HOP
+    for e in result["edges"]:
+        assert e["src"] in node_ids
+        assert e["dst"] in node_ids
 
 
 def test_read_source(kg):
