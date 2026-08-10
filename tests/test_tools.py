@@ -112,6 +112,53 @@ def test_path_between(kg):
     assert kg.path_between("a1", "missing") is None
 
 
+def test_path_between_max_depth_is_clamped(kg):
+    # d1 -> a1 -> b1 -> c1 is 3 hops; max_depth=99 must be clamped to
+    # MAX_PATH_DEPTH (6) rather than accepted verbatim, and the batched BFS
+    # must still find the path within the clamp.
+    path = kg.path_between("d1", "c1", max_depth=99)
+    ids = [p["id"] for p in path if "id" in p]
+    assert ids[0] == "d1" and ids[-1] == "c1"
+
+
+def test_path_between_clamp_can_make_target_unreachable(kg, monkeypatch):
+    from tpk.tools import KnowledgeGraph
+
+    # d1 -> c1 needs 3 hops; clamping MAX_PATH_DEPTH to 1 must make it
+    # unreachable even though the caller asked for max_depth=99.
+    monkeypatch.setattr(KnowledgeGraph, "MAX_PATH_DEPTH", 1)
+    assert kg.path_between("d1", "c1", max_depth=99) is None
+
+
+def test_dangling_edge_dropped_from_neighbors_and_breaks_path(kg):
+    """An edge whose endpoint node row is missing (e.g. partial ingest
+    failure) must not leak into neighbors()'s edge list, and a path routed
+    through it must return None instead of raising KeyError.
+    """
+    from tpk.ingest import upsert_graph
+    from tpk.model import Edge
+
+    dangling = Edge(src="c1", dst="ghost1", rel="calls", confidence="EXTRACTED", repo="r1")
+    # repos=set() (not None) skips upsert_graph's derive-and-delete-stale
+    # step entirely, so the pre-existing seed edges are left untouched.
+    upsert_graph(kg.client, kg.prefix, [], [dangling], datetime.now(timezone.utc), repos=set())
+
+    def _dangling_edge_count():
+        return kg.client.query(
+            f"SELECT count() FROM table({kg.prefix}kg_edges) WHERE dst = 'ghost1'"
+        ).result_rows[0][0]
+
+    _eventually(_dangling_edge_count, lambda v: v == 1)
+
+    result = kg.neighbors("c1", depth=1)
+    node_ids = {n["id"] for n in result["nodes"]}
+    assert "ghost1" not in node_ids
+    for e in result["edges"]:
+        assert e["src"] != "ghost1" and e["dst"] != "ghost1"
+
+    assert kg.path_between("b1", "ghost1", max_depth=3) is None
+
+
 def test_list_communities(kg):
     rows = kg.list_communities(repo="r1")
     by_name = {r["community"]: r["node_count"] for r in rows}
@@ -171,3 +218,14 @@ def test_read_source(kg):
         kg.read_source("unknown", "m.py", 1, 2)
     with pytest.raises(ValueError):
         kg.read_source("r1", "../etc/passwd", 1, 2)
+
+
+def test_read_source_output_is_capped(kg):
+    from tpk.tools import KnowledgeGraph
+
+    root = kg.repo_paths["r1"]
+    (root / "big.py").write_text("".join(f"line{i}\n" for i in range(1, 501)))
+    text = kg.read_source("r1", "big.py", 1, 500)
+    lines = text.splitlines()
+    assert len(lines) == KnowledgeGraph.MAX_SOURCE_LINES == 400
+    assert lines[0] == "line1" and lines[-1] == "line400"

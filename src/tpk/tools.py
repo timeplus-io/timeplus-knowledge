@@ -3,7 +3,6 @@
 Consumed by the MCP server (this plan) and the LangGraph agent (follow-up plan).
 """
 
-from collections import deque
 from pathlib import Path
 
 NODE_FIELDS = [
@@ -16,6 +15,10 @@ EDGE_FIELDS = ["src", "dst", "rel", "confidence", "repo"]
 class KnowledgeGraph:
     MAX_DEPTH = 3
     MAX_NODES_PER_HOP = 200
+    # A path needs more headroom than a neighborhood-depth query -- the two
+    # endpoints can be much further apart than a local BFS neighborhood.
+    MAX_PATH_DEPTH = 6
+    MAX_SOURCE_LINES = 400
 
     def __init__(self, client, stream_prefix: str = "", repo_paths: dict[str, Path] | None = None):
         self.client = client
@@ -106,34 +109,45 @@ class KnowledgeGraph:
             seen.update(frontier)
         # Truncating the frontier to MAX_NODES_PER_HOP can leave `all_edges`
         # referencing endpoints that never made it into `seen` (and thus
-        # never into the returned nodes) -- drop those so every returned
-        # edge's src/dst is always among the returned nodes.
-        edges = [e for e in all_edges.values() if e["src"] in seen and e["dst"] in seen]
+        # never into the returned nodes) -- filter against the node rows we
+        # actually fetched (not just `seen`) so a dangling edge whose
+        # endpoint row is missing from kg_nodes (e.g. partial ingest
+        # failure) can't leak into the returned edge list either.
+        nodes = self._nodes_by_ids(sorted(seen))
+        returned_ids = {n["id"] for n in nodes}
+        edges = [e for e in all_edges.values() if e["src"] in returned_ids and e["dst"] in returned_ids]
         return {
-            "nodes": self._nodes_by_ids(sorted(seen)),
+            "nodes": nodes,
             "edges": edges,
             "depth_used": depth_used,
         }
 
     def path_between(self, id_a, id_b, max_depth: int = 4):
+        max_depth = min(max(max_depth, 1), self.MAX_PATH_DEPTH)
         if id_a == id_b:
             return self._nodes_by_ids([id_a])
         parents: dict[str, tuple[str, dict]] = {}
         seen = {id_a}
-        queue = deque([(id_a, 0)])
-        while queue:
-            current, dist = queue.popleft()
-            if dist >= max_depth:
-                continue
-            for e in self._edges_touching([current], None, "both", None):
-                for nxt in (e["src"], e["dst"]):
+        frontier = [id_a]
+        for _ in range(max_depth):
+            if not frontier:
+                break
+            # One batched round-trip per BFS level (IN-clause over the whole
+            # frontier) instead of one query per dequeued node.
+            edges = self._edges_touching(frontier, None, "both", None)
+            next_frontier: set[str] = set()
+            for e in edges:
+                for cur, nxt in ((e["src"], e["dst"]), (e["dst"], e["src"])):
                     if nxt in seen:
                         continue
                     seen.add(nxt)
-                    parents[nxt] = (current, e)
-                    if nxt == id_b:
-                        return self._materialize_path(id_a, id_b, parents)
-                    queue.append((nxt, dist + 1))
+                    parents[nxt] = (cur, e)
+                    next_frontier.add(nxt)
+            if id_b in seen:
+                return self._materialize_path(id_a, id_b, parents)
+            # Same cap as `neighbors`: bound total work per level, sorted for
+            # determinism.
+            frontier = sorted(next_frontier)[: self.MAX_NODES_PER_HOP]
         return None
 
     def _materialize_path(self, id_a, id_b, parents):
@@ -146,10 +160,19 @@ class KnowledgeGraph:
         hops.reverse()
         node_ids = [id_a] + [n for n, _ in hops]
         node_map = {n["id"]: n for n in self._nodes_by_ids(node_ids)}
-        path: list[dict] = [node_map[id_a]]
+        start = node_map.get(id_a)
+        if start is None:
+            return None
+        path: list[dict] = [start]
         for nid, edge in hops:
+            node = node_map.get(nid)
+            if node is None:
+                # A dangling edge: the endpoint's node row is missing (e.g.
+                # partial ingest failure). A path through a node we can't
+                # present isn't presentable either.
+                return None
             path.append(edge)
-            path.append(node_map[nid])
+            path.append(node)
         return path
 
     def list_communities(self, repo=None):
@@ -166,6 +189,11 @@ class KnowledgeGraph:
         return [dict(zip(["repo", "community", "node_count"], r)) for r in rows]
 
     def read_source(self, repo, file_path, line_start, line_end):
+        """Read lines [line_start, line_end] (1-indexed, inclusive) from a repo
+        checkout. The returned window is capped at MAX_SOURCE_LINES lines: a
+        wider request is silently truncated to line_start + MAX_SOURCE_LINES - 1,
+        it does not raise.
+        """
         root = self.repo_paths.get(repo)
         if root is None:
             raise ValueError(f"unknown repo {repo!r}; known: {sorted(self.repo_paths)}")
@@ -174,4 +202,5 @@ class KnowledgeGraph:
             raise ValueError(f"path {file_path!r} escapes repo checkout")
         lines = target.read_text(errors="replace").splitlines(keepends=True)
         start = max(line_start, 1)
-        return "".join(lines[start - 1 : line_end])
+        end = min(line_end, start + self.MAX_SOURCE_LINES - 1)
+        return "".join(lines[start - 1 : end])
