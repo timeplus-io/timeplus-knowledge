@@ -150,12 +150,15 @@ extraction backend — set in `.env` or the shell:
   (openai).
 
 Model choice matters when pointing `TPK_AGENT_PROVIDER=openai` at a gateway
-rather than OpenAI directly: `openai.gpt-oss-120b` via the Bedrock
-OpenAI-compatible endpoint hangs (or loops until it overflows its context
-window) on tool-call streaming, and Anthropic models aren't served by that
-endpoint's `/v1/chat/completions` surface at all — `qwen.qwen3-coder-next` is
-verified working against the same gateway. See `docs/eval/m4-smoke.md` for
-the full compatibility record.
+rather than OpenAI directly: both `openai.gpt-oss-120b` and
+`qwen.qwen3-coder-next` are verified working via the Bedrock OpenAI-compatible
+gateway (the earlier gpt-oss-120b hangs were root-caused to tpk's shared-client
+concurrency bug and to tool exceptions aborting the stream — both now fixed in
+commits e4f093e and faec3a3). Anthropic models are not served by that
+endpoint's `/v1/chat/completions` surface; use `TPK_AGENT_PROVIDER=anthropic`
+with a direct key or Anthropic-compatible gateway instead. Note: the Bedrock
+gateway occasionally returns transient 500s mid-conversation — retry. See
+`docs/eval/m4-smoke.md` for the full compatibility record.
 
 Local dev:
 

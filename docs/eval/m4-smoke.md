@@ -279,3 +279,38 @@ for system_prompt-only tuning)
    grounded directly against `read_source`'s returned line ranges rather
    than the model's recall, but this would require a tool/prompt-format
    change beyond simple wording tuning.
+
+## Addendum (2026-08-11): gpt-oss-120b re-verified
+
+After commits e4f093e ("fix: shared client concurrency in KnowledgeGraph") and
+faec3a3 ("fix: return TOOL_ERROR strings to model on exception"), `openai.gpt-oss-120b`
+has been re-tested and is now verified working end-to-end for the chat agent. Root
+causes of the original "hangs/loops" failures (§ "Model-compatibility findings"):
+
+1. **Shared-client concurrency bug** (tpk-side, fixed in e4f093e): `KnowledgeGraph`
+   held a single `timeplus_connect` client cached per-process; concurrent tool calls
+   from parallel LLM dispatches failed deterministically. Mitigated in the original
+   smoke test via prompt instruction ("call one tool per turn"), which is neither
+   enforceable nor scalable to other models.
+
+2. **Tool exceptions aborting the stream** (tpk-side, fixed in faec3a3): exceptions
+   in tool execution (e.g., validation errors, lookup failures) were surfaced to
+   the SSE client as fatal `error` events, stopping the LLM's tool-call loop. Now
+   wrapped as `TOOL_ERROR` strings returned to the model, allowing retry/recovery.
+
+**Retest result (2026-08-11):** Q1 ("What is a materialized view checkpoint...?")
+executed end-to-end with fully cited, grounded answer, multi-turn tool calls, and
+recovery from a wrong-path guess — no hangs, no loops, no context-window overflow.
+Model was not further tuned from the original smoke-test system prompt.
+
+**Upstream quirks** (Bedrock gateway, not model-specific):
+- Occasionally returns transient HTTP 500 mid-conversation — retry succeeds.
+- Never sends the SSE `data: [DONE]` sentinel (harmless; our stack handles
+  connection close).
+- Anthropic models still not served by `/v1/chat/completions` surface (use
+  `anthropic` provider + direct key or compatible gateway instead).
+
+**Conclusion:** gpt-oss-120b is now a viable agent model via the Bedrock
+OpenAI-compatible gateway, given the tpk-side fixes. The original findings
+("Concurrency bug" and "gpt-oss-120b not viable") above are retained for the
+record and are now resolved by commits e4f093e and faec3a3.
