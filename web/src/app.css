@@ -1,0 +1,65 @@
+/* Timeplus Console design tokens
+   https://github.com/timeplus-io/AgentSkills/blob/main/timeplus-design/DESIGN.md */
+:root {
+  --gray-100: #120f1a; /* primary text */
+  --gray-200: #231f2b; /* headings */
+  --gray-300: #3a3741; /* labels, focused input border */
+  --gray-500: #7d7b82; /* disabled text */
+  --gray-600: #b5b4b8; /* clickable outlines, placeholder */
+  --gray-700: #dad9db; /* dividers, non-clickable outlines */
+  --gray-800: #ececed; /* hover rows */
+  --gray-900: #f7f6f6; /* page background */
+  --white: #ffffff;
+  --pink-400: #b83280; /* hover, links */
+  --pink-500: #d53f8c; /* primary action */
+  --red-500: #d12d50;  /* errors */
+  --radius: 4px;
+}
+* { box-sizing: border-box; margin: 0; }
+body {
+  background: var(--gray-900);
+  color: var(--gray-100);
+  font-family: Inter, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.shell { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; height: 100vh; padding: 0 24px; }
+header { padding: 20px 0 16px; border-bottom: 1px solid var(--gray-700); }
+header h1 { font-size: 18px; font-weight: 600; line-height: 1.4; color: var(--gray-200); }
+header p { color: var(--gray-500); font-size: 12px; line-height: 1.4; }
+main { flex: 1; overflow-y: auto; padding: 16px 0; display: flex; flex-direction: column; gap: 16px; }
+.turn.user { align-self: flex-end; max-width: 80%; }
+.turn.assistant { align-self: stretch; }
+.turn.user .bubble {
+  background: var(--gray-800);
+  border: 1px solid var(--gray-700);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+}
+.turn.assistant .bubble {
+  background: var(--white);
+  border: 1px solid var(--gray-700);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  white-space: pre-wrap;
+}
+.tools { color: var(--gray-500); font-size: 12px; line-height: 1.4; margin-bottom: 4px; }
+footer { display: flex; gap: 8px; align-items: flex-end; padding: 16px 0 24px; border-top: 1px solid var(--gray-700); }
+textarea {
+  flex: 1; resize: none; height: 40px; min-height: 40px;
+  background: var(--white); color: var(--gray-100);
+  border: 1px solid var(--gray-600); border-radius: var(--radius);
+  padding: 10px 12px; font: 400 14px/1.4 Inter, sans-serif;
+}
+textarea::placeholder { color: var(--gray-600); }
+textarea:focus { outline: 2px solid var(--pink-500); outline-offset: 1px; border-color: var(--gray-300); }
+button {
+  background: var(--pink-500); color: var(--white);
+  border: 0; border-radius: var(--radius);
+  height: 32px; padding: 0 16px;
+  font: 600 14px/1 Inter, sans-serif; cursor: pointer;
+}
+button:hover:not(:disabled) { background: var(--pink-400); }
+button:focus-visible { outline: 2px solid var(--pink-500); outline-offset: 2px; }
+button:disabled { background: var(--gray-700); color: var(--gray-500); cursor: default; }
+.error { color: var(--red-500); }
