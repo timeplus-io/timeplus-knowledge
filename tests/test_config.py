@@ -92,3 +92,37 @@ def test_load_llm_token_budget(tmp_path: Path):
     assert load_llm(toml_path).token_budget == 16000
     toml_path.write_text('[repos.x]\npath = "/x"\nvisibility = "internal"\n')
     assert load_llm(toml_path).token_budget == 0
+
+
+def test_load_repos_github_source(tmp_path: Path, monkeypatch):
+    from tpk.config import repo_paths
+
+    toml_path = tmp_path / "repos.toml"
+    toml_path.write_text(
+        '[repos.docs]\ngithub = "timeplus-io/docs"\nref = "main"\nvisibility = "public"\n'
+    )
+    repos = load_repos(toml_path)
+    assert repos["docs"].github == "timeplus-io/docs"
+    assert repos["docs"].ref == "main"
+    assert repos["docs"].path is None
+    monkeypatch.setenv("TPK_CHECKOUT_DIR", str(tmp_path / "cache"))
+    assert repo_paths(repos)["docs"] == tmp_path / "cache" / "docs" / "main"
+
+
+def test_load_repos_rejects_both_or_neither_source(tmp_path: Path):
+    toml_path = tmp_path / "repos.toml"
+    toml_path.write_text(
+        '[repos.x]\npath = "/x"\ngithub = "o/r"\nref = "v1"\nvisibility = "internal"\n'
+    )
+    with pytest.raises(ValueError, match="exactly one"):
+        load_repos(toml_path)
+    toml_path.write_text('[repos.x]\nvisibility = "internal"\n')
+    with pytest.raises(ValueError, match="exactly one"):
+        load_repos(toml_path)
+
+
+def test_load_repos_github_requires_ref(tmp_path: Path):
+    toml_path = tmp_path / "repos.toml"
+    toml_path.write_text('[repos.x]\ngithub = "o/r"\nvisibility = "internal"\n')
+    with pytest.raises(ValueError, match="ref"):
+        load_repos(toml_path)

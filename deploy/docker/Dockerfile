@@ -52,14 +52,18 @@ COPY deploy/timeplusd-dev/small-segments.yaml /etc/timeplusd-server/config.d/sma
 RUN printf '#!/bin/sh\nPATH=/opt/tpk/.venv/bin:$PATH exec /opt/tpk/.venv/bin/tpk "$@"\n' > /usr/local/bin/tpk \
     && printf '#!/bin/sh\nPATH=/opt/tpk/.venv/bin:$PATH exec /opt/tpk/.venv/bin/python -m tpk.mcp_server "$@"\n' > /usr/local/bin/tpk-mcp \
     && chmod +x /usr/local/bin/tpk /usr/local/bin/tpk-mcp \
+    && mkdir -p /opt/tpk/.checkouts \
     && chown -R 101:101 /opt/tpk
 
 # tpk inside the container talks to its own timeplusd (password defaults to
 # empty in tpk.config.Settings; set TIMEPLUS_PASSWORD at runtime if needed).
 # PYTHONUNBUFFERED keeps tpk's progress lines live through `docker exec -T`.
+# TPK_CHECKOUT_DIR is where github-sourced repos are fetched (shared with
+# the agent service via the tpk-checkouts volume so read_source can quote).
 ENV TIMEPLUS_HOST=localhost \
     TIMEPLUS_USER=default \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    TPK_CHECKOUT_DIR=/opt/tpk/.checkouts
 
 # timeplusd's own ports (8123, 3218) are declared by the base image;
 # 8000 is `tpk serve` (chat agent + web UI), used by the compose `agent`

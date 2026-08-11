@@ -47,12 +47,13 @@ def _build_production_agent():
     from tpk import db
     from tpk.agent import build_agent
     from tpk.config import AgentConfig, Settings, load_repos
+    from tpk.config import repo_paths as resolved_repo_paths
     from tpk.tools import KnowledgeGraph
 
     repos = load_repos(REPOS_TOML)
     kg = KnowledgeGraph(
         db.get_client(Settings.from_env()),
-        repo_paths={n: c.path for n, c in repos.items()},
+        repo_paths=resolved_repo_paths(repos),
     )
     return build_agent(kg, AgentConfig.from_env(), repos)
 

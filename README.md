@@ -58,8 +58,15 @@ skipped harmlessly.
 
 ## Ingest
 
-Corpus lives in `repos.toml`. Each repo has a `path`, a `visibility`
-(`internal`/`public`), a short `description`, and an `extraction` mode:
+Corpus lives in `repos.toml`. Each repo declares **one source** — the
+default is a GitHub repo pinned to a release tag (`github = "org/repo"` +
+`ref = "v3.3.1"`), fetched into the checkout cache (`TPK_CHECKOUT_DIR`,
+default `~/.tpk/checkouts`; a shared volume in docker). Private repos need
+`GITHUB_TOKEN` in the environment. Alternatively `path = ...` indexes a
+local checkout (dev mode). Re-ingesting the same tag is a cheap cache hit;
+`tpk status` shows the resolved SHA and ref per repo. Each repo also has a
+`visibility` (`internal`/`public`), a short `description`, and an
+`extraction` mode:
 
 - `code-only` (default) — local tree-sitter AST parsing. Free, offline, no
   API key; skips non-code files (YAML, Markdown), so all-YAML repos yield

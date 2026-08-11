@@ -1,33 +1,49 @@
-# Corpus configuration used INSIDE the tpk docker image (copied to
-# /opt/tpk/repos.toml). Repo checkouts are expected under /repos — mount them
-# with: -v ~/Code/timeplus:/repos:ro
-# Field semantics are documented in the repo-root repos.toml.
+# Corpus configuration for the Timeplus knowledge graph.
+#
+# Per repo — exactly one source:
+#   github + ref  DEFAULT: "org/repo" fetched at a pinned tag/release (or
+#                 branch/SHA) into the checkout cache (TPK_CHECKOUT_DIR,
+#                 default ~/.tpk/checkouts; /opt/tpk/.checkouts in docker).
+#                 Private repos need GITHUB_TOKEN in the environment.
+#   path          local checkout (dev mode; indexes whatever is on disk)
+#
+#   visibility  "internal" | "public"  (default visibility for source-derived nodes)
+#   extraction  "code-only" (default; local tree-sitter AST, free, skips YAML/Markdown)
+#               | "semantic" (graphify LLM extraction; also processes YAML/Markdown/docs;
+#                 requires ANTHROPIC_API_KEY or OPENAI_API_KEY / *_BASE_URL)
+#   description short human-readable summary (surfaced to the agent as repo context)
 
 [llm]
+# Backend for semantic extraction: "claude" | "openai" | "auto".
+# "auto" lets graphify pick from whichever API key is exported.
 backend = "auto"
 # Per-chunk token budget for semantic extraction. Gateways (AWS Bedrock)
 # reject oversized request bodies; 16000 stays under the limit.
 token_budget = 16000
 
 [repos.proton-enterprise]
-path = "/repos/proton-enterprise"
+github = "timeplus-io/proton-enterprise"
+ref = "v3.3.1"
 visibility = "internal"
-description = "Enterprise build of the core engine with proprietary extensions (C++)"
+description = "Enterprise build of the core streaming SQL engine with proprietary extensions (C++)"
 
 [repos.timeplus-enterprise]
-path = "/repos/timeplus-enterprise"
+github = "timeplus-io/timeplus-enterprise"
+ref = "v3.3.1"
 visibility = "internal"
 extraction = "semantic"
 description = "Enterprise release packaging: Dockerfiles, Makefiles, release/deployment scripts"
 
 [repos.helm-charts]
-path = "/repos/helm-charts"
+github = "timeplus-io/helm-charts"
+ref = "timeplus-enterprise-v13.0.6"
 visibility = "internal"
 extraction = "semantic"
 description = "Kubernetes Helm charts for deploying Timeplus Enterprise"
 
 [repos.docs]
-path = "/repos/docs"
+github = "timeplus-io/docs"
+ref = "main"
 visibility = "public"
 extraction = "semantic"
 description = "Public product documentation (Docusaurus site): concepts, SQL reference, deployment guides"

@@ -29,10 +29,31 @@ class Settings:
 @dataclass(frozen=True)
 class RepoConfig:
     name: str
-    path: Path
-    visibility: str  # "internal" | "public"
+    path: Path | None = None  # local checkout (dev mode)
+    visibility: str = "internal"  # "internal" | "public"
     extraction: str = "code-only"  # "code-only" | "semantic"
     description: str = ""
+    github: str = ""  # "org/repo" — fetched at `ref` into the checkout cache
+    ref: str = ""  # tag / release / branch / SHA (required with github)
+
+
+def checkout_root() -> Path:
+    """Cache directory for github-sourced repo checkouts."""
+    return Path(
+        os.environ.get("TPK_CHECKOUT_DIR", str(Path.home() / ".tpk" / "checkouts"))
+    )
+
+
+def resolved_repo_path(cfg: RepoConfig) -> Path:
+    """The tree ingest scans and read_source quotes from."""
+    if cfg.github:
+        return checkout_root() / cfg.name / cfg.ref.replace("/", "_")
+    assert cfg.path is not None  # load_repos enforces path xor github
+    return cfg.path
+
+
+def repo_paths(repos: dict[str, RepoConfig]) -> dict[str, Path]:
+    return {name: resolved_repo_path(cfg) for name, cfg in repos.items()}
 
 
 @dataclass(frozen=True)
@@ -52,12 +73,23 @@ def load_repos(toml_path: Path) -> dict[str, RepoConfig]:
             raise ValueError(
                 f"repo {name!r}: extraction must be one of {EXTRACTION_MODES}, got {extraction!r}"
             )
+        github = cfg.get("github", "")
+        path = cfg.get("path", "")
+        if bool(github) == bool(path):
+            raise ValueError(
+                f"repo {name!r}: set exactly one of 'path' (local checkout) or "
+                "'github' (org/repo fetched at 'ref')"
+            )
+        if github and not cfg.get("ref"):
+            raise ValueError(f"repo {name!r}: 'github' requires a 'ref' (tag/branch)")
         repos[name] = RepoConfig(
             name=name,
-            path=Path(cfg["path"]),
+            path=Path(path) if path else None,
             visibility=cfg["visibility"],
             extraction=extraction,
             description=cfg.get("description", ""),
+            github=github,
+            ref=cfg.get("ref", ""),
         )
     return repos
 

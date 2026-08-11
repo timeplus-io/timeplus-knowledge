@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from tpk.config import RepoConfig
+from tpk.fetch import fetch_github_repo
 from tpk.graphify_runner import parse_graph_json, run_graphify
 from tpk.model import EDGE_COLUMNS, NODE_COLUMNS, Edge, Node, edge_rows, node_rows
 
@@ -77,9 +78,12 @@ def ingest_repo(
 ) -> IngestResult:
     run_id = uuid.uuid4().hex[:12]
     run_started_at = datetime.now(timezone.utc)
+    repo_path = repo_cfg.path
     try:
+        if repo_cfg.github:
+            repo_path = fetch_github_repo(repo_cfg)
         graph_json = run_graphify(
-            repo_cfg.path,
+            repo_path,
             out_root / repo_cfg.name,
             extraction=repo_cfg.extraction,
             backend=backend,
@@ -93,5 +97,8 @@ def ingest_repo(
     except Exception as exc:  # per-repo isolation: never propagate, never touch prior rows
         print(f"[tpk] ingest failed for {repo_cfg.name}: {exc}")
         result = IngestResult(repo_cfg.name, run_id, 0, 0, "failed")
-    _log(client, prefix, result, _git_sha(repo_cfg.path))
+    sha = _git_sha(repo_path) if repo_path else "unknown"
+    if repo_cfg.ref:
+        sha = f"{sha} ({repo_cfg.ref})"
+    _log(client, prefix, result, sha)
     return result

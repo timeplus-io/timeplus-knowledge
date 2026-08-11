@@ -1,15 +1,19 @@
 # All-in-one Timeplus knowledge stack: timeplusd + tpk toolkit in one service,
 # plus a chat agent + web UI service.
 #
-#   cp .env.example .env   # put your API keys there
+#   cp .env.example .env   # put your API keys + GITHUB_TOKEN there
 #   docker compose up -d
 #   docker compose exec tpk tpk ingest
 #   docker compose exec tpk tpk status
 #   claude mcp add timeplus-knowledge -- docker compose exec -T tpk tpk-mcp
 #   open http://localhost:8000   # chat agent + web UI
 #
+# Repos are fetched from GitHub at the tags pinned in repos.toml (the
+# tpk-checkouts volume caches them, shared with the agent so citations can
+# quote source). GITHUB_TOKEN is required for the private repos.
+#
 # Variables (set in .env or the shell):
-#   REPOS_MOUNT         host dir with the repo checkouts (default ~/Code/timeplus)
+#   GITHUB_TOKEN        fetch private corpus repos at their pinned tags
 #   ANTHROPIC_API_KEY   for semantic extraction with the claude backend
 #   OPENAI_API_KEY      for semantic extraction with the openai backend
 #   TPK_AGENT_PROVIDER  chat agent LLM backend (anthropic/openai); may differ
@@ -27,9 +31,10 @@ services:
       - "8123:8123"   # SQL over HTTP (ClickHouse-compatible)
       - "3218:3218"   # REST ingest API
     volumes:
-      - ${REPOS_MOUNT:-${HOME}/Code/timeplus}:/repos:ro
       - tpk-data:/var/lib/timeplusd
+      - tpk-checkouts:/opt/tpk/.checkouts
     environment:
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       # Custom endpoints (self-hosted or gateways, e.g. AWS Bedrock behind
@@ -50,7 +55,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ${REPOS_MOUNT:-${HOME}/Code/timeplus}:/repos:ro
+      - tpk-checkouts:/opt/tpk/.checkouts
     environment:
       TIMEPLUS_HOST: tpk
       TPK_AGENT_PROVIDER: ${TPK_AGENT_PROVIDER:-}
@@ -64,3 +69,4 @@ services:
 
 volumes:
   tpk-data:
+  tpk-checkouts:

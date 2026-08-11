@@ -11,6 +11,7 @@ from mcp.server.mcpserver import MCPServer as FastMCP
 
 from tpk import db
 from tpk.config import Settings, load_repos
+from tpk.config import repo_paths as resolved_repo_paths
 from tpk.tools import KnowledgeGraph
 
 REPOS_TOML = Path(__file__).resolve().parents[2] / "repos.toml"
@@ -62,7 +63,7 @@ def main() -> None:
     settings = Settings.from_env()
     client = db.get_client(settings)
     repos = load_repos(REPOS_TOML)
-    kg = KnowledgeGraph(client, repo_paths={name: cfg.path for name, cfg in repos.items()})
+    kg = KnowledgeGraph(client, repo_paths=resolved_repo_paths(repos))
     build_server(kg).run()  # stdio transport
 
 
