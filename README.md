@@ -110,6 +110,12 @@ worth:
   `.graphifyignore` into its checkout excluding doc dirs you don't need
   (e.g. `static/`/images — some gateways reject image modality anyway).
 
+One failure-mode caveat (verified): if **every** LLM chunk fails (dead
+gateway, bad model id), graphify exits non-zero without writing
+`graph.json` — the successful AST results are discarded, the repo's
+ingest is logged `failed`, and the previous graph is left untouched.
+Partial chunk failures still produce a graph; re-run to fill the gaps.
+
 ### Supported languages and file types
 
 The AST pass (runs in both modes) covers: Python,
