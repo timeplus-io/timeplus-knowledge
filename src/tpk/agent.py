@@ -90,7 +90,10 @@ Rules:
    at all.
 5. Prefer document/concept entities for conceptual questions and
    file/function entities for implementation questions. Keep answers
-   concise and structured.
+   concise and structured. Formatting: standard markdown only — never
+   raw HTML except <br> for a line break inside a table cell; put code
+   in fenced blocks (```sql ... ```) below the table, never squeezed
+   into table cells.
 6. Your last message MUST be a normal assistant reply containing the
    answer text itself — never end the conversation on a tool call or with
    an empty message, and never leave the answer only in your private

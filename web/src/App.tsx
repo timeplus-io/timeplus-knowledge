@@ -1,6 +1,18 @@
 import { useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+
+// Models emit <br> inside GFM table cells (cells cannot hold real
+// newlines). rehype-raw parses raw HTML, then rehype-sanitize strips it
+// back to a GitHub-grade safe subset: scripts, styles, iframes and all
+// event-handler attributes are removed. We additionally drop img so model
+// output can never load external resources (tracking pixels).
+const sanitizeSchema = {
+  ...defaultSchema,
+  tagNames: (defaultSchema.tagNames ?? []).filter((t) => t !== "img"),
+};
 
 type Turn = { role: "user" | "assistant"; content: string; tools?: string[] };
 
@@ -76,9 +88,15 @@ export default function App() {
             )}
             <div className="bubble">
               {t.role === "assistant" && t.content ? (
-                // react-markdown renders React elements (HTML in the model
-                // output is escaped, never injected), so this stays XSS-safe.
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{t.content}</ReactMarkdown>
+                // Raw HTML from the model is sanitized to a safe subset
+                // (see sanitizeSchema above) — scripts/handlers/img never
+                // reach the DOM, but <br> in table cells renders.
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
+                >
+                  {t.content}
+                </ReactMarkdown>
               ) : (
                 t.content || (busy && i === turns.length - 1 ? "…" : "")
               )}
