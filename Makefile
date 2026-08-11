@@ -57,6 +57,14 @@ mcp: ## Run the MCP server on stdio (Ctrl-D to exit)
 mcp-register: ## Register the MCP server with Claude Code (this checkout)
 	claude mcp add timeplus-knowledge -- uv --directory $(PWD) run python -m tpk.mcp_server
 
+# --- docker compose ----------------------------------------------------------
+
+up: ## Start the all-in-one stack via docker compose (.env for API keys)
+	docker compose up -d
+
+down: ## Stop the compose stack (named data volume is kept)
+	docker compose down
+
 # --- all-in-one docker image -------------------------------------------------
 
 docker-build: ## Build the all-in-one image (timeplusd + tpk)
@@ -82,5 +90,5 @@ clean: ## Remove local scratch (graphify output, __pycache__)
 	find . -name __pycache__ -type d -not -path './.venv/*' -prune -exec rm -rf {} +
 
 .PHONY: help sync db-up db-down db-logs test test-unit ingest ingest-repo \
-        status mcp mcp-register docker-build docker-run docker-ingest \
+        status mcp mcp-register up down docker-build docker-run docker-ingest \
         docker-status docker-stop clean

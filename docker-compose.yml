@@ -1,0 +1,33 @@
+# All-in-one Timeplus knowledge stack: timeplusd + tpk toolkit in one service.
+#
+#   cp .env.example .env   # put your API keys there
+#   docker compose up -d
+#   docker compose exec tpk tpk ingest
+#   docker compose exec tpk tpk status
+#   claude mcp add timeplus-knowledge -- docker compose exec -T tpk tpk-mcp
+#
+# Variables (set in .env or the shell):
+#   REPOS_MOUNT        host dir with the repo checkouts (default ~/Code/timeplus)
+#   ANTHROPIC_API_KEY  for semantic extraction with the claude backend
+#   OPENAI_API_KEY     for semantic extraction with the openai backend
+
+services:
+  tpk:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+    image: timeplus/tpk:dev
+    container_name: tpk
+    ports:
+      - "8123:8123"   # SQL over HTTP (ClickHouse-compatible)
+      - "3218:3218"   # REST ingest API
+    volumes:
+      - ${REPOS_MOUNT:-${HOME}/Code/timeplus}:/repos:ro
+      - tpk-data:/var/lib/timeplusd
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    restart: unless-stopped
+
+volumes:
+  tpk-data:

@@ -24,6 +24,17 @@ you have a handful of streams. `deploy/timeplusd-dev/small-segments.yaml`
 overrides this to 64MB segments with no preallocation for local/dev use —
 do not use it in production.
 
+## Docker compose (quickest start)
+
+    cp .env.example .env        # add ANTHROPIC_API_KEY / OPENAI_API_KEY there
+    docker compose up -d        # or: make up
+    docker compose exec tpk tpk ingest
+    claude mcp add timeplus-knowledge -- docker compose exec -T tpk tpk-mcp
+
+`.env` (gitignored) carries the LLM keys for semantic extraction and an
+optional `REPOS_MOUNT` override; graph data lives in the named volume
+`tpk-data` and survives `docker compose down`.
+
 ## Docker image (all-in-one)
 
 `deploy/docker/Dockerfile` builds a single image on top of the Timeplus
