@@ -126,3 +126,24 @@ def test_load_repos_github_requires_ref(tmp_path: Path):
     toml_path.write_text('[repos.x]\ngithub = "o/r"\nvisibility = "internal"\n')
     with pytest.raises(ValueError, match="ref"):
         load_repos(toml_path)
+
+
+def test_entry_key_and_enabled_default(tmp_path: Path):
+    from tpk.config import entry_key
+
+    toml_path = tmp_path / "repos.toml"
+    toml_path.write_text(
+        '[repos.docs]\ngithub = "timeplus-io/docs"\nref = "main"\nvisibility = "public"\n\n'
+        '[repos.local]\npath = "/x"\nvisibility = "internal"\n'
+    )
+    repos = load_repos(toml_path)
+    assert repos["docs"].enabled is True
+    assert entry_key(repos["docs"]) == "docs@main"
+    assert entry_key(repos["local"]) == "local"
+
+
+def test_load_repos_rejects_at_sign_in_name(tmp_path: Path):
+    toml_path = tmp_path / "repos.toml"
+    toml_path.write_text('[repos."bad@name"]\npath = "/x"\nvisibility = "internal"\n')
+    with pytest.raises(ValueError, match="@"):
+        load_repos(toml_path)

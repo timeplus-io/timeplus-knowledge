@@ -35,6 +35,11 @@ class RepoConfig:
     description: str = ""
     github: str = ""  # "org/repo" — fetched at `ref` into the checkout cache
     ref: str = ""  # tag / release / branch / SHA (required with github)
+    enabled: bool = True
+
+    def __post_init__(self) -> None:
+        if self.path is not None and not isinstance(self.path, Path):
+            object.__setattr__(self, "path", Path(self.path))
 
 
 def checkout_root() -> Path:
@@ -56,6 +61,12 @@ def repo_paths(repos: dict[str, RepoConfig]) -> dict[str, Path]:
     return {name: resolved_repo_path(cfg) for name, cfg in repos.items()}
 
 
+def entry_key(cfg: RepoConfig) -> str:
+    """Graph identity of a corpus entry: name@ref, or bare name for
+    local-path entries (which have no ref)."""
+    return f"{cfg.name}@{cfg.ref}" if cfg.ref else cfg.name
+
+
 @dataclass(frozen=True)
 class LLMConfig:
     backend: str = "auto"  # "auto" | "claude" | "openai"
@@ -68,6 +79,8 @@ def load_repos(toml_path: Path) -> dict[str, RepoConfig]:
     data = tomllib.loads(toml_path.read_text())
     repos: dict[str, RepoConfig] = {}
     for name, cfg in data["repos"].items():
+        if "@" in name:
+            raise ValueError(f"repo name {name!r} must not contain '@' (reserved for entry keys)")
         extraction = cfg.get("extraction", "code-only")
         if extraction not in EXTRACTION_MODES:
             raise ValueError(
