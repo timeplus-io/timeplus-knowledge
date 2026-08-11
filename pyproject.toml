@@ -7,7 +7,8 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "graphifyy>=0.9.38",
+    "anthropic>=0.121.0",
+    "graphifyy[claude,openai]>=0.9.38",
     "mcp[cli]>=2.0.0",
     "timeplus-connect>=0.8.17",
     "typer>=0.27.1",
