@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -84,12 +84,15 @@ def _build_production_agent():
     )
 
 
-def create_app(agent=None, stream_prefix: str = "") -> FastAPI:
+def create_app(agent=None, stream_prefix: str = "", auth=None) -> FastAPI:
     from tpk.agent import RECURSION_LIMIT
     from tpk.api import create_api_router
+    from tpk.auth import AuthLayer, User, create_auth_router
 
+    auth = auth or AuthLayer(stream_prefix)
     app = FastAPI(title="timeplus-knowledge")
-    app.include_router(create_api_router(prefix=stream_prefix))
+    app.include_router(create_auth_router(auth))
+    app.include_router(create_api_router(prefix=stream_prefix, auth=auth))
     state = {"agent": agent}
 
     def _agent():
@@ -102,7 +105,7 @@ def create_app(agent=None, stream_prefix: str = "") -> FastAPI:
         return {"status": "ok"}
 
     @app.post("/chat")
-    async def chat(req: ChatRequest):
+    async def chat(req: ChatRequest, user: User = Depends(auth.require_user)):
         messages = [(t.role, t.content) for t in req.history] + [("user", req.message)]
 
         async def stream():

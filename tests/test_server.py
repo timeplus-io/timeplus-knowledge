@@ -2,7 +2,19 @@ import json
 
 from fastapi.testclient import TestClient
 
+from tpk.auth import AuthLayer, User
 from tpk.server import create_app
+
+
+class _StubAuth(AuthLayer):
+    """Grants a fixed user without touching any store."""
+
+    def __init__(self, user: User | None = None):
+        super().__init__()
+        self.user = user or User("tester", "", "admin")
+
+    def _resolve(self, authorization):
+        return self.user
 
 
 class FakeAgent:
@@ -32,13 +44,13 @@ def _parse_sse(body: str) -> list[dict]:
 
 
 def test_healthz():
-    client = TestClient(create_app(agent=FakeAgent([])))
+    client = TestClient(create_app(agent=FakeAgent([]), auth=_StubAuth()))
     assert client.get("/healthz").json() == {"status": "ok"}
 
 
 def test_chat_streams_tokens_tools_and_done():
     agent = FakeAgent([_tool("search_entities", {"query": "q"}), _tok("Hello "), _tok("world")])
-    client = TestClient(create_app(agent=agent))
+    client = TestClient(create_app(agent=agent, auth=_StubAuth()))
     resp = client.post("/chat", json={"message": "hi"})
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/event-stream")
@@ -54,7 +66,7 @@ def test_chat_streams_error_event():
             raise RuntimeError("model exploded")
             yield  # pragma: no cover
 
-    client = TestClient(create_app(agent=BoomAgent()))
+    client = TestClient(create_app(agent=BoomAgent(), auth=_StubAuth()))
     events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
     assert events[-1]["type"] == "error"
     assert "RuntimeError" in events[-1]["message"]
@@ -62,12 +74,12 @@ def test_chat_streams_error_event():
 
 
 def test_chat_rejects_empty_message():
-    client = TestClient(create_app(agent=FakeAgent([])))
+    client = TestClient(create_app(agent=FakeAgent([]), auth=_StubAuth()))
     assert client.post("/chat", json={"message": ""}).status_code == 422
 
 
 def test_chat_rejects_invalid_history_role():
-    client = TestClient(create_app(agent=FakeAgent([])))
+    client = TestClient(create_app(agent=FakeAgent([]), auth=_StubAuth()))
     resp = client.post(
         "/chat",
         json={"message": "hi", "history": [{"role": "system", "content": "x"}]},
@@ -84,14 +96,19 @@ def _end(text):
 
 def test_done_prefers_final_model_message():
     agent = FakeAgent([_tok("Let me search... "), _end("The grounded final answer.")])
-    client = TestClient(create_app(agent=agent))
+    client = TestClient(create_app(agent=agent, auth=_StubAuth()))
     events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
     assert events[-1] == {"type": "done", "text": "The grounded final answer."}
 
 
 def test_done_fallback_when_model_emits_no_text():
     agent = FakeAgent([_tool("search_entities", {"query": "q"})])
-    client = TestClient(create_app(agent=agent))
+    client = TestClient(create_app(agent=agent, auth=_StubAuth()))
     events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
     assert events[-1]["type"] == "done"
     assert "retry" in events[-1]["text"]
+
+
+def test_chat_401_without_auth():
+    client = TestClient(create_app(agent=FakeAgent([])))
+    assert client.post("/chat", json={"message": "hi"}).status_code == 401

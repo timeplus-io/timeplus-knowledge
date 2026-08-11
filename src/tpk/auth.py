@@ -224,3 +224,120 @@ def delete_user_sessions(client, username: str, prefix: str = "",
         sql += " AND token_hash != %(k)s"
         params["k"] = _token_hash(keep_token)
     client.command(sql, parameters=params)
+
+
+# -- HTTP layer ------------------------------------------------------------
+
+import os
+
+from fastapi import APIRouter, Depends, Header, HTTPException
+from pydantic import BaseModel
+
+
+def _session_ttl() -> int:
+    return int(os.environ.get("TPK_SESSION_TTL", "86400"))
+
+
+class AuthLayer:
+    """FastAPI dependencies over the auth store. One fresh client per
+    request (matches api.py's `_client()` style); fails closed (503) when
+    the store is unreachable."""
+
+    def __init__(self, prefix: str = ""):
+        self.prefix = prefix
+
+    def _client(self):
+        from tpk import db
+        from tpk.config import Settings
+
+        return db.get_client(Settings.from_env())
+
+    def _resolve(self, authorization: str | None) -> User:
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(401, "missing bearer token")
+        token = authorization.removeprefix("Bearer ")
+        try:
+            client = self._client()
+            username = get_session(client, token, prefix=self.prefix)
+            user = get_user(client, username, prefix=self.prefix) if username else None
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(503, "auth store unavailable")
+        if user is None or user.disabled:
+            raise HTTPException(401, "invalid or expired session")
+        return user
+
+    def require_user_any(self, authorization: str | None = Header(None)) -> User:
+        """Valid session only — no must-change gate (me/logout/change-password)."""
+        return self._resolve(authorization)
+
+    def require_user(self, authorization: str | None = Header(None)) -> User:
+        user = self._resolve(authorization)
+        if user.must_change_password:
+            raise HTTPException(403, detail={"code": "password_change_required"})
+        return user
+
+    def require_admin(self, authorization: str | None = Header(None)) -> User:
+        user = self.require_user(authorization)
+        if user.role != ROLE_ADMIN:
+            raise HTTPException(403, "admin required")
+        return user
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+
+
+def create_auth_router(auth_layer: AuthLayer) -> APIRouter:
+    router = APIRouter(prefix="/auth")
+    prefix = auth_layer.prefix
+
+    @router.post("/login")
+    def login(body: LoginRequest):
+        try:
+            client = auth_layer._client()
+            user = get_user(client, body.username, prefix=prefix)
+        except Exception:
+            raise HTTPException(503, "auth store unavailable")
+        if user is None or user.disabled or not verify_password(user.password_hash, body.password):
+            raise HTTPException(401, "invalid credentials")
+        token = create_session(client, user.username, _session_ttl(), prefix=prefix)
+        return {"token": token, "role": user.role,
+                "must_change_password": user.must_change_password}
+
+    @router.post("/logout", status_code=204)
+    def logout(authorization: str | None = Header(None),
+               user: User = Depends(auth_layer.require_user_any)):
+        delete_session(auth_layer._client(),
+                       authorization.removeprefix("Bearer "), prefix=prefix)
+
+    @router.get("/me")
+    def me(user: User = Depends(auth_layer.require_user_any)):
+        return {"username": user.username, "role": user.role,
+                "must_change_password": user.must_change_password}
+
+    @router.post("/change-password")
+    def change_password(body: ChangePasswordRequest,
+                        authorization: str | None = Header(None),
+                        user: User = Depends(auth_layer.require_user_any)):
+        if not verify_password(user.password_hash, body.old_password):
+            raise HTTPException(401, "invalid credentials")
+        err = validate_new_password(body.new_password, old=body.old_password)
+        if err:
+            raise HTTPException(400, err)
+        client = auth_layer._client()
+        upsert_user(client, User(user.username, hash_password(body.new_password),
+                                 user.role, must_change_password=False,
+                                 disabled=user.disabled), prefix=prefix)
+        delete_user_sessions(client, user.username, prefix=prefix,
+                             keep_token=authorization.removeprefix("Bearer "))
+        return {"ok": True}
+
+    return router

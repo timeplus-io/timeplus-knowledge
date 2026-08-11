@@ -176,7 +176,9 @@ class JobManager:
                 rec["finished_at"] = datetime.now(timezone.utc).isoformat()
 
 
-def create_api_router(prefix: str = "") -> APIRouter:
+def create_api_router(prefix: str = "", auth=None) -> APIRouter:
+    # `auth` is accepted but unused in this task -- Task 3 wires these
+    # routes to `auth.require_admin` in place of the X-Admin-Token gate.
     router = APIRouter(prefix="/api")
     jobs = JobManager(prefix=prefix)
 
