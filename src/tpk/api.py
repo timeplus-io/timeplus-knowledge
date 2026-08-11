@@ -76,6 +76,11 @@ class JobManager:
         self._q: queue.Queue = queue.Queue()
         self._started = False
         self._lock = threading.Lock()
+        # Guards all access to `self.jobs` (insert in submit(), snapshot in
+        # list/get, field updates in the worker thread). Distinct from
+        # `_lock` (worker-start guard) so `submit()` -> `_ensure_worker()`
+        # doesn't need a reentrant lock.
+        self._jobs_lock = threading.Lock()
 
     def _ensure_worker(self):
         with self._lock:
@@ -85,21 +90,32 @@ class JobManager:
 
     def submit(self, cfg: RepoConfig) -> str:
         job_id = uuid.uuid4().hex[:12]
-        self.jobs[job_id] = {
+        rec = {
             "id": job_id, "entry_key": entry_key(cfg), "status": "queued",
             "nodes": 0, "edges": 0, "error": None,
             "submitted_at": datetime.now(timezone.utc).isoformat(),
             "finished_at": None,
         }
+        with self._jobs_lock:
+            self.jobs[job_id] = rec
         self._q.put((job_id, cfg))
         self._ensure_worker()
         return job_id
 
+    def snapshot(self) -> list[dict]:
+        with self._jobs_lock:
+            return list(self.jobs.values())
+
+    def get(self, job_id: str) -> dict | None:
+        with self._jobs_lock:
+            return self.jobs.get(job_id)
+
     def _run(self):
         while True:
             job_id, cfg = self._q.get()
-            rec = self.jobs[job_id]
-            rec["status"] = "running"
+            with self._jobs_lock:
+                rec = self.jobs[job_id]
+                rec["status"] = "running"
             try:
                 client = db.get_client(Settings.from_env())
                 llm = load_llm(REPOS_TOML) if REPOS_TOML.exists() else None
@@ -109,14 +125,17 @@ class JobManager:
                     model=(llm.model or None) if llm else None,
                     token_budget=llm.token_budget if llm else 0,
                 )
-                rec["nodes"], rec["edges"] = result.nodes, result.edges
-                rec["status"] = result.status  # "ok" | "failed"
-                if result.status == "failed":
-                    rec["error"] = "ingest failed; see server logs"
+                with self._jobs_lock:
+                    rec["nodes"], rec["edges"] = result.nodes, result.edges
+                    rec["status"] = result.status  # "ok" | "failed"
+                    if result.status == "failed":
+                        rec["error"] = "ingest failed; see server logs"
             except Exception as exc:
-                rec["status"] = "failed"
-                rec["error"] = f"{type(exc).__name__}: {exc}"
-            rec["finished_at"] = datetime.now(timezone.utc).isoformat()
+                with self._jobs_lock:
+                    rec["status"] = "failed"
+                    rec["error"] = f"{type(exc).__name__}: {exc}"
+            with self._jobs_lock:
+                rec["finished_at"] = datetime.now(timezone.utc).isoformat()
 
 
 def create_api_router(prefix: str = "") -> APIRouter:
@@ -191,13 +210,14 @@ def create_api_router(prefix: str = "") -> APIRouter:
     @router.get("/jobs")
     def list_jobs(x_admin_token: str | None = Header(None)):
         _require_admin(x_admin_token)
-        return sorted(jobs.jobs.values(), key=lambda j: j["submitted_at"], reverse=True)[:50]
+        return sorted(jobs.snapshot(), key=lambda j: j["submitted_at"], reverse=True)[:50]
 
     @router.get("/jobs/{job_id}")
     def get_job(job_id: str, x_admin_token: str | None = Header(None)):
         _require_admin(x_admin_token)
-        if job_id not in jobs.jobs:
+        rec = jobs.get(job_id)
+        if rec is None:
             raise HTTPException(404, "no such job")
-        return jobs.jobs[job_id]
+        return rec
 
     return router
