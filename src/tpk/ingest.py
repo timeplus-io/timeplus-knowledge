@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from tpk.config import RepoConfig
+from tpk.config import RepoConfig, entry_key
 from tpk.fetch import fetch_github_repo
 from tpk.graphify_runner import parse_graph_json, run_graphify
 from tpk.model import EDGE_COLUMNS, NODE_COLUMNS, Edge, Node, edge_rows, node_rows
@@ -78,25 +78,29 @@ def ingest_repo(
 ) -> IngestResult:
     run_id = uuid.uuid4().hex[:12]
     run_started_at = datetime.now(timezone.utc)
+    key = entry_key(repo_cfg)
     repo_path = repo_cfg.path
     try:
         if repo_cfg.github:
             repo_path = fetch_github_repo(repo_cfg)
         graph_json = run_graphify(
             repo_path,
-            out_root / repo_cfg.name,
+            out_root / key,
             extraction=repo_cfg.extraction,
             backend=backend,
             model=model,
             token_budget=token_budget,
             stream=stream,
         )
-        nodes, edges = parse_graph_json(graph_json, repo_cfg.name, repo_cfg.visibility)
-        upsert_graph(client, prefix, nodes, edges, run_started_at, repos={repo_cfg.name})
-        result = IngestResult(repo_cfg.name, run_id, len(nodes), len(edges), "ok")
+        nodes, edges = parse_graph_json(graph_json, key, repo_cfg.visibility)
+        # `repos` is a set literal of {key, repo_cfg.name}: when a repo carries
+        # a ref, this is two distinct values, and the bare-name member cleans
+        # up any legacy rows written before entry keys existed.
+        upsert_graph(client, prefix, nodes, edges, run_started_at, repos={key, repo_cfg.name})
+        result = IngestResult(key, run_id, len(nodes), len(edges), "ok")
     except Exception as exc:  # per-repo isolation: never propagate, never touch prior rows
-        print(f"[tpk] ingest failed for {repo_cfg.name}: {exc}")
-        result = IngestResult(repo_cfg.name, run_id, 0, 0, "failed")
+        print(f"[tpk] ingest failed for {key}: {exc}")
+        result = IngestResult(key, run_id, 0, 0, "failed")
     sha = _git_sha(repo_path) if repo_path else "unknown"
     if repo_cfg.ref:
         sha = f"{sha} ({repo_cfg.ref})"

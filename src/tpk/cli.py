@@ -1,12 +1,13 @@
 """tpk command-line interface."""
 
+import os
 from pathlib import Path
 
 import typer
 
-from tpk import db
-from tpk.config import Settings, load_llm, load_repos
-from tpk.ingest import ingest_repo
+from tpk import corpus, db
+from tpk.config import Settings, entry_key, load_llm
+from tpk.ingest import IngestResult, ingest_repo
 
 app = typer.Typer(help="Timeplus knowledge graph toolkit")
 
@@ -15,7 +16,9 @@ REPOS_TOML = Path(__file__).resolve().parents[2] / "repos.toml"
 
 @app.command()
 def ingest(
-    repo: str = typer.Option(None, help="Repo name from repos.toml; omit for all"),
+    repo: str = typer.Option(
+        None, help="Corpus entry name or name@ref (e.g. repo@v1.0.0); omit for all"
+    ),
     repos_file: Path = typer.Option(REPOS_TOML, help="Path to repos.toml"),
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Stream graphify's own output live"
@@ -24,19 +27,23 @@ def ingest(
     """Run graphify on repo checkouts and upsert the graph into Timeplus."""
     settings = Settings.from_env()
     client = db.get_client(settings)
-    db.ensure_schema(client)
-    repos = load_repos(repos_file)
+    prefix = os.environ.get("TPK_STREAM_PREFIX", "")
+    db.ensure_schema(client, prefix)
+    corpus.seed_from_toml(client, repos_file, prefix=prefix)
     llm = load_llm(repos_file)
     backend = None if llm.backend == "auto" else llm.backend
     model = llm.model or None
-    if repo and repo not in repos:
-        raise typer.BadParameter(f"unknown repo {repo!r}; known: {sorted(repos)}")
-    targets = [repos[repo]] if repo else list(repos.values())
-    for i, cfg in enumerate(targets, 1):
-        typer.echo(f"[{i}/{len(targets)}] {cfg.name}: extracting ({cfg.extraction})...")
+    entries = corpus.list_entries(client, prefix=prefix)
+    if repo:
+        entries = [e for e in entries if e.name == repo or entry_key(e) == repo]
+        if not entries:
+            raise typer.BadParameter(f"no corpus entry matches {repo!r}")
+    for i, cfg in enumerate(entries, 1):
+        typer.echo(f"[{i}/{len(entries)}] {entry_key(cfg)}: extracting ({cfg.extraction})...")
         result = ingest_repo(
             client,
             cfg,
+            prefix=prefix,
             backend=backend,
             model=model,
             token_budget=llm.token_budget,

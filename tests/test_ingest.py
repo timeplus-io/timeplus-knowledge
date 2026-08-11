@@ -231,3 +231,49 @@ def test_git_sha_survives_missing_git_binary(monkeypatch, tmp_path: Path):
 
     monkeypatch.setattr(ingest_mod.subprocess, "run", no_git)
     assert ingest_mod._git_sha(tmp_path) == "unknown"
+
+
+def test_ingest_writes_entry_key_and_cleans_legacy_rows(tp, monkeypatch, tmp_path: Path):
+    from datetime import datetime, timezone
+
+    from tpk import ingest as ingest_mod
+    from tpk.config import RepoConfig, entry_key
+    from tpk.ingest import ingest_repo, upsert_graph
+    from tpk.model import Node
+
+    client, prefix = tp
+    # legacy row under the bare name
+    legacy = Node(id="old1", repo="vrepo", kind="function", name="f",
+                  qualified_name="m.f", file_path="m.py", line_start=1, line_end=2,
+                  summary="", community="", visibility="internal")
+    upsert_graph(client, prefix, [legacy], [], datetime.now(timezone.utc))
+
+    def fake_run_graphify(repo_path, out_dir, **kw):
+        assert "vrepo@v1.0.0" in str(out_dir)
+        return Path("unused")
+
+    def fake_parse(graph_json, repo, default_visibility):
+        assert repo == "vrepo@v1.0.0"
+        n = Node(id="new1", repo=repo, kind="function", name="g",
+                 qualified_name="m.g", file_path="m.py", line_start=1, line_end=2,
+                 summary="", community="", visibility=default_visibility)
+        return [n], []
+
+    # github-sourced repo config: stub the network fetch so this stays a
+    # local, deterministic test of the entry-key plumbing rather than an
+    # integration test of git cloning.
+    monkeypatch.setattr(ingest_mod, "fetch_github_repo", lambda cfg: tmp_path / "checkout")
+    monkeypatch.setattr(ingest_mod, "run_graphify", fake_run_graphify)
+    monkeypatch.setattr(ingest_mod, "parse_graph_json", fake_parse)
+    cfg = RepoConfig(name="vrepo", github="org/vrepo", ref="v1.0.0", visibility="internal")
+    result = ingest_repo(client, cfg, prefix=prefix, out_root=tmp_path)
+    assert result.status == "ok" and result.repo == "vrepo@v1.0.0"
+
+    def counts():
+        rows = client.query(
+            f"SELECT repo, count() FROM table({prefix}kg_nodes)"
+            " WHERE repo IN ('vrepo', 'vrepo@v1.0.0') GROUP BY repo"
+        ).result_rows
+        return dict(rows)
+
+    _eventually(lambda: counts(), lambda c: c.get("vrepo@v1.0.0") == 1 and "vrepo" not in c)
