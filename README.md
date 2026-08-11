@@ -241,6 +241,18 @@ Ingest jobs run on a background worker thread inside the server process, so
 `POST` calls return immediately with a `job_id`; poll `/api/jobs` (the
 Manage tab does this every 5s) until it reaches `ok` or `failed`.
 
+**Input validation.** `name` must match `^[A-Za-z0-9._-]+$`; `ref` allows
+`/` (for refs like `release/1.0`) but rejects a leading `-` or `/`, `..`
+path components, and any other character outside `[A-Za-z0-9._/-]` — both
+return `422`/`400`. `path`-type entries (`{"path": "..."}` instead of
+`{"github": ...}`) are only accepted through this API when
+`TPK_ADMIN_TOKEN` is set (`403` otherwise): on the default open admin gate, a
+path entry would map an arbitrary server-filesystem path into the corpus,
+which the chat agent's `read_source` tool then treats as readable — i.e. an
+arbitrary-file-read primitive reachable over the network. Seeding path-type
+entries from `repos.toml` or the `tpk` CLI is unaffected; this gate applies
+only to the `/api/repos` create/update route.
+
 **Admin gate.** Set `TPK_ADMIN_TOKEN` in `.env`/the environment to require
 every `/api/*` call to carry a matching `X-Admin-Token` header (checked
 against the exact env value in `_require_admin`); requests without it, or

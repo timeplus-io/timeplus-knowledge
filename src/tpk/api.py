@@ -2,6 +2,8 @@
 
 import os
 import queue
+import re
+import secrets
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -16,10 +18,22 @@ from tpk.ingest import ingest_repo
 
 REPOS_TOML = Path(__file__).resolve().parents[2] / "repos.toml"
 
+# `name` keys the graph (`entry_key`) and, for local-path entries, is never
+# used in a filesystem path -- this also rejects empty and `@`/`/`/`..`.
+_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+# `ref` is passed straight to `git fetch`/`git clone` and used to build
+# checkout/out-dir paths. `/` is allowed (branch names like "release/1.0"),
+# but a leading `-` (git option injection), a leading `/`, `..` path
+# components, or anything outside this character class (incl. whitespace)
+# is rejected.
+_REF_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
+
 
 def _require_admin(x_admin_token: str | None) -> None:
     expected = os.environ.get("TPK_ADMIN_TOKEN")
-    if expected and x_admin_token != expected:
+    if not expected:
+        return
+    if x_admin_token is None or not secrets.compare_digest(x_admin_token, expected):
         raise HTTPException(status_code=401, detail="missing or invalid X-Admin-Token")
 
 
@@ -51,10 +65,32 @@ class DeleteRepo(EntryRef):
 def _validate(body: AddRepo) -> RepoConfig:
     if "@" in body.name:
         raise HTTPException(422, "repo name must not contain '@'")
+    if not _NAME_RE.match(body.name):
+        raise HTTPException(400, "name must match ^[A-Za-z0-9._-]+$")
+    if body.ref:
+        if body.ref.startswith("-"):
+            raise HTTPException(400, "ref must not start with '-'")
+        if body.ref.startswith("/"):
+            raise HTTPException(400, "ref must not start with '/'")
+        if ".." in body.ref.split("/"):
+            raise HTTPException(400, "ref must not contain '..' path components")
+        if not _REF_RE.match(body.ref):
+            raise HTTPException(400, "ref must match ^[A-Za-z0-9._/-]+$")
     if bool(body.github) == bool(body.path):
         raise HTTPException(422, "set exactly one of 'github' or 'path'")
     if body.github and not body.ref:
         raise HTTPException(422, "'github' requires a 'ref' (tag/branch)")
+    if body.path and not os.environ.get("TPK_ADMIN_TOKEN"):
+        # A path-type entry maps an arbitrary server-filesystem path into the
+        # corpus, which the chat agent's read_source tool then treats as
+        # readable. On the default open admin gate (TPK_ADMIN_TOKEN unset)
+        # that's an arbitrary-file-read primitive reachable over the network,
+        # so path entries via this API require the admin token to be
+        # configured. Seeding from repos.toml and CLI use are unaffected --
+        # this gate applies only to this create/update route.
+        raise HTTPException(
+            403, "path-type entries require TPK_ADMIN_TOKEN to be configured"
+        )
     if body.visibility not in ("internal", "public"):
         raise HTTPException(422, "visibility must be internal|public")
     if body.extraction not in ("code-only", "semantic"):
