@@ -41,21 +41,6 @@ visibility = "internal"
 extraction = "semantic"
 description = "Deployment configurations and environment definitions for Timeplus Enterprise installs"
 
-[repos.terraform-provider-timeplus]
-path = "/Users/gangtao/Code/timeplus/terraform-provider-timeplus"
-visibility = "internal"
-description = "Terraform provider for managing Timeplus resources as infrastructure-as-code (Go)"
-
-[repos.byoc]
-path = "/Users/gangtao/Code/timeplus/byoc"
-visibility = "internal"
-description = "Bring-Your-Own-Cloud deployment automation for running Timeplus in customer cloud accounts"
-
-[repos.timeplus-cli]
-path = "/Users/gangtao/Code/timeplus/timeplus-cli"
-visibility = "internal"
-description = "Command-line tool for installing and managing Timeplus Enterprise deployments (Go)"
-
 [repos.docs]
 path = "/Users/gangtao/Code/timeplus/docs"
 visibility = "public"
