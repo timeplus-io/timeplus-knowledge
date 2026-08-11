@@ -6,6 +6,9 @@ code, design, architecture, and devops. See
 
 ## Setup
 
+`make` lists every dev command (setup, db, tests, ingest, MCP, docker
+image). The underlying steps:
+
 Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), and a running
 Timeplus Enterprise (mutable streams are an Enterprise feature):
 
