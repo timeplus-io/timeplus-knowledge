@@ -42,9 +42,14 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message, history }),
       });
+      if (!resp.ok || !resp.body) {
+        update((t) => ({ ...t, content: t.content + `\n\n[error] HTTP ${resp.status}` }));
+        return;
+      }
       for await (const ev of sseEvents(resp)) {
         if (ev.type === "token") update((t) => ({ ...t, content: t.content + ev.text }));
         else if (ev.type === "tool") update((t) => ({ ...t, tools: [...(t.tools ?? []), ev.name] }));
+        else if (ev.type === "done") update((t) => ({ ...t, content: ev.text }));
         else if (ev.type === "error") update((t) => ({ ...t, content: t.content + `\n\n[error] ${ev.message}` }));
         bottomRef.current?.scrollIntoView({ behavior: "smooth" });
       }
