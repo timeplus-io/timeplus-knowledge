@@ -39,10 +39,15 @@ def build_chat_model(cfg: AgentConfig):
 RECURSION_LIMIT = 40
 
 
-def system_prompt(repos: dict[str, "RepoConfig"]) -> str:
+def system_prompt(repos) -> str:
+    """`repos` may be a dict[str, RepoConfig] (legacy) or an iterable of
+    RepoConfig (e.g. live corpus entries from corpus.list_entries)."""
+    from tpk.config import entry_key
+
+    entries = list(repos.values()) if isinstance(repos, dict) else list(repos)
     corpus = "\n".join(
-        f"- {r.name} ({r.visibility}): {r.description or 'no description'}"
-        for r in repos.values()
+        f"- {entry_key(r)} ({r.visibility}): {r.description or 'no description'}"
+        for r in entries
     )
     return f"""You are the Timeplus knowledge agent. You answer questions about
 Timeplus — its code, design, architecture, and devops — using ONLY the
@@ -100,9 +105,15 @@ Rules:
    reasoning."""
 
 
-def build_agent(kg, cfg, repos: dict[str, "RepoConfig"], model=None):
-    return create_react_agent(
-        model if model is not None else build_chat_model(cfg),
-        build_agent_tools(kg),
-        prompt=system_prompt(repos),
-    )
+def build_agent(kg, cfg, repos: dict[str, "RepoConfig"], model=None, corpus_provider=None):
+    chat_model = model if model is not None else build_chat_model(cfg)
+    tools = build_agent_tools(kg)
+    if corpus_provider is None:
+        return create_react_agent(chat_model, tools, prompt=system_prompt(repos))
+
+    def _live_prompt(state):
+        return [{"role": "system", "content": system_prompt(corpus_provider())}] + list(
+            state["messages"]
+        )
+
+    return create_react_agent(chat_model, tools, prompt=_live_prompt)

@@ -62,3 +62,36 @@ def test_build_agent_answers_via_fake_model(monkeypatch):
     )
     result = agent.invoke({"messages": [("user", "what is proton?")]})
     assert result["messages"][-1].content == "grounded answer"
+
+
+def test_system_prompt_labels_versioned_entries():
+    from tpk.config import RepoConfig
+
+    entries = [RepoConfig(name="proton-enterprise", github="o/pe", ref="v3.3.1",
+                          visibility="internal", description="Enterprise engine")]
+    p = system_prompt(entries)
+    assert "proton-enterprise@v3.3.1" in p
+    assert "Enterprise engine" in p
+
+
+def test_build_agent_with_corpus_provider_renders_live_prompt(monkeypatch):
+    from langchain_core.messages import AIMessage
+    from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+    from tpk.config import RepoConfig
+
+    fake = GenericFakeChatModel(messages=iter([AIMessage(content="ok")]))
+    monkeypatch.setattr(GenericFakeChatModel, "bind_tools", lambda self, *a, **k: self)
+    seen = []
+
+    def provider():
+        seen.append(1)
+        return [RepoConfig(name="live", github="o/l", ref="v9", visibility="public",
+                           description="live entry")]
+
+    agent = build_agent(
+        FakeKG(), AgentConfig(provider="openai", model="x"), {},
+        model=fake, corpus_provider=provider,
+    )
+    result = agent.invoke({"messages": [("user", "hi")]})
+    assert result["messages"][-1].content == "ok"
+    assert seen  # provider consulted during invocation

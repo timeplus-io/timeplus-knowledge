@@ -44,18 +44,32 @@ def _chunk_text(chunk) -> str:
 
 
 def _build_production_agent():
-    from tpk import db
+    from tpk import corpus, db
     from tpk.agent import build_agent
     from tpk.config import AgentConfig, Settings, load_repos
     from tpk.config import repo_paths as resolved_repo_paths
     from tpk.tools import KnowledgeGraph
 
     repos = load_repos(REPOS_TOML)
+    settings = Settings.from_env()
+    client = db.get_client(settings)
+    db.ensure_schema(client)
+    corpus.seed_from_toml(client, REPOS_TOML)
     kg = KnowledgeGraph(
-        db.get_client(Settings.from_env()),
+        client,
         repo_paths=resolved_repo_paths(repos),
     )
-    return build_agent(kg, AgentConfig.from_env(), repos)
+    # Separate client for the live corpus provider: it is called from the
+    # async worker thread pool on every chat turn, and sharing the
+    # KnowledgeGraph's client across threads causes concurrent-session
+    # errors against Timeplus.
+    provider_client = db.get_client(settings)
+    return build_agent(
+        kg,
+        AgentConfig.from_env(),
+        repos,
+        corpus_provider=lambda: [e for e in corpus.list_entries(provider_client) if e.enabled],
+    )
 
 
 def create_app(agent=None) -> FastAPI:
