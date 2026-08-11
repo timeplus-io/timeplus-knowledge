@@ -8,7 +8,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
 from tpk.agent_tools import build_agent_tools
-from tpk.config import AgentConfig, RepoConfig
+from tpk.config import AgentConfig, RepoConfig, entry_key
 
 _PLACEHOLDER_KEY = "placeholder-gateway-key"
 
@@ -42,8 +42,6 @@ RECURSION_LIMIT = 40
 def system_prompt(repos) -> str:
     """`repos` may be a dict[str, RepoConfig] (legacy) or an iterable of
     RepoConfig (e.g. live corpus entries from corpus.list_entries)."""
-    from tpk.config import entry_key
-
     entries = list(repos.values()) if isinstance(repos, dict) else list(repos)
     corpus = "\n".join(
         f"- {entry_key(r)} ({r.visibility}): {r.description or 'no description'}"
@@ -105,15 +103,32 @@ Rules:
    reasoning."""
 
 
-def build_agent(kg, cfg, repos: dict[str, "RepoConfig"], model=None, corpus_provider=None):
+def build_agent(
+    kg,
+    cfg,
+    repos: "dict[str, RepoConfig] | list[RepoConfig]",
+    model=None,
+    corpus_provider=None,
+):
     chat_model = model if model is not None else build_chat_model(cfg)
     tools = build_agent_tools(kg)
     if corpus_provider is None:
         return create_react_agent(chat_model, tools, prompt=system_prompt(repos))
 
+    # `repos` seeds the fallback corpus: if `corpus_provider()` raises (e.g.
+    # a transient DB failure), the turn must still get a usable prompt
+    # instead of the chat dying with an error event. Mirrors the
+    # degrade-gracefully pattern in tools.py's KnowledgeGraph._corpus_state.
+    last_good_repos = repos
+
     def _live_prompt(state):
-        return [{"role": "system", "content": system_prompt(corpus_provider())}] + list(
-            state["messages"]
-        )
+        nonlocal last_good_repos
+        try:
+            last_good_repos = corpus_provider()
+        except Exception:
+            pass  # keep serving the last successful (or seed) corpus
+        return [
+            {"role": "system", "content": system_prompt(last_good_repos)}
+        ] + list(state["messages"])
 
     return create_react_agent(chat_model, tools, prompt=_live_prompt)

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import threading
 from pathlib import Path
 from typing import Literal
 
@@ -62,13 +63,24 @@ def _build_production_agent():
     # Separate client for the live corpus provider: it is called from the
     # async worker thread pool on every chat turn, and sharing the
     # KnowledgeGraph's client across threads causes concurrent-session
-    # errors against Timeplus.
+    # errors against Timeplus. But this second client is itself shared
+    # across concurrent /chat requests (one agent, cached for the app's
+    # lifetime) and timeplus_connect forbids concurrent queries within one
+    # session -- so its own access must be serialized too, the same way
+    # KnowledgeGraph._query_rows serializes access to `kg.client` (see
+    # tools.py:57-61).
     provider_client = db.get_client(settings)
+    provider_lock = threading.Lock()
+
+    def _live_corpus():
+        with provider_lock:
+            return [e for e in corpus.list_entries(provider_client) if e.enabled]
+
     return build_agent(
         kg,
         AgentConfig.from_env(),
         repos,
-        corpus_provider=lambda: [e for e in corpus.list_entries(provider_client) if e.enabled],
+        corpus_provider=_live_corpus,
     )
 
 
