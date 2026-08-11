@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Repo = {
   name: string; ref: string; entry_key: string; github: string; path: string;
@@ -36,16 +36,22 @@ export default function Manage() {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [purge, setPurge] = useState(false);
   const [token, setToken] = useState(() => sessionStorage.getItem("tpk_admin_token") ?? "");
+  // Mirrors `token` for the mount-once polling effect below: reading state
+  // there would either go stale (empty deps) or reset the interval on every
+  // keystroke ([token] deps). The ref lets refresh() always see the latest
+  // token without the effect depending on it.
+  const tokenRef = useRef(token);
 
   function updateToken(value: string) {
     setToken(value);
+    tokenRef.current = value;
     sessionStorage.setItem("tpk_admin_token", value);
   }
 
   async function refresh() {
     try {
-      setRepos(await api("/api/repos", token));
-      setJobs(await api("/api/jobs", token));
+      setRepos(await api("/api/repos", tokenRef.current));
+      setJobs(await api("/api/jobs", tokenRef.current));
       setError("");
     } catch (e) {
       setError(String(e));
@@ -56,8 +62,10 @@ export default function Manage() {
     refresh();
     const t = setInterval(refresh, 5000);
     return () => clearInterval(t);
+    // Mount-once: refresh() reads tokenRef.current, not the `token` state,
+    // so the interval's identity stays stable while typing (see tokenRef).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, []);
 
   const activeJob = (key: string) =>
     jobs.find((j) => j.entry_key === key && (j.status === "queued" || j.status === "running"));
@@ -70,7 +78,9 @@ export default function Manage() {
     <main className="manage">
       <div className="toolbar">
         <input type="password" placeholder="Admin token (if required)" value={token}
-               onChange={(e) => updateToken(e.target.value)} />
+               onChange={(e) => updateToken(e.target.value)}
+               onBlur={refresh}
+               onKeyDown={(e) => e.key === "Enter" && refresh()} />
       </div>
       {error && <div className="manage-error">{error}</div>}
       <table className="repo-table">
