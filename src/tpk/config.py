@@ -38,6 +38,7 @@ class RepoConfig:
 @dataclass(frozen=True)
 class LLMConfig:
     backend: str = "auto"  # "auto" | "claude" | "openai"
+    model: str = ""  # backend default when empty; else passed to graphify --model
 
 
 def load_repos(toml_path: Path) -> dict[str, RepoConfig]:
@@ -61,7 +62,8 @@ def load_repos(toml_path: Path) -> dict[str, RepoConfig]:
 
 def load_llm(toml_path: Path) -> LLMConfig:
     data = tomllib.loads(toml_path.read_text())
-    backend = data.get("llm", {}).get("backend", "auto")
+    llm = data.get("llm", {})
+    backend = llm.get("backend", "auto")
     if backend not in LLM_BACKENDS:
         raise ValueError(f"llm.backend must be one of {LLM_BACKENDS}, got {backend!r}")
-    return LLMConfig(backend=backend)
+    return LLMConfig(backend=backend, model=llm.get("model", ""))

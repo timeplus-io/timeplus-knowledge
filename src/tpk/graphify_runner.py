@@ -93,20 +93,62 @@ class GraphifyError(RuntimeError):
     pass
 
 
-_BACKEND_KEYS = {"claude": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
+# A backend is usable with either an API key or a custom endpoint URL
+# (self-hosted server or gateway, e.g. AWS Bedrock behind LiteLLM /
+# Bedrock Access Gateway, which may not need a real key). graphify itself
+# honors the *_BASE_URL / *_MODEL env vars.
+_BACKEND_ENV = {
+    "claude": ("ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"),
+    "openai": ("OPENAI_API_KEY", "OPENAI_BASE_URL"),
+}
 
 
 def _require_llm_key(backend: str | None) -> None:
-    if backend in _BACKEND_KEYS:
-        var = _BACKEND_KEYS[backend]
-        if not os.environ.get(var):
+    if backend in _BACKEND_ENV:
+        if not any(os.environ.get(v) for v in _BACKEND_ENV[backend]):
+            key, url = _BACKEND_ENV[backend]
             raise GraphifyError(
-                f"semantic extraction with backend {backend!r} requires {var} to be set"
+                f"semantic extraction with backend {backend!r} requires {key} "
+                f"(or {url} for a self-hosted/gateway endpoint) to be set"
             )
-    elif not any(os.environ.get(v) for v in _BACKEND_KEYS.values()):
+    elif not any(
+        os.environ.get(v) for pair in _BACKEND_ENV.values() for v in pair
+    ):
         raise GraphifyError(
-            "semantic extraction requires ANTHROPIC_API_KEY or OPENAI_API_KEY to be set"
+            "semantic extraction requires ANTHROPIC_API_KEY or OPENAI_API_KEY "
+            "(or ANTHROPIC_BASE_URL/OPENAI_BASE_URL for a gateway endpoint) to be set"
         )
+
+
+def _infer_backend_from_env() -> str | None:
+    """Resolve an explicit backend when auto mode can't rely on graphify.
+
+    graphify's own auto-detection keys off API keys only. If no key is set
+    but a *_BASE_URL is (gateway/self-hosted, e.g. Bedrock), we must pass
+    --backend explicitly — inferred from which base URL is present.
+    """
+    if any(os.environ.get(pair[0]) for pair in _BACKEND_ENV.values()):
+        return None  # a real key exists; graphify's own auto-detect works
+    with_url = [b for b, (_, url) in _BACKEND_ENV.items() if os.environ.get(url)]
+    if len(with_url) > 1:
+        raise GraphifyError(
+            "both ANTHROPIC_BASE_URL and OPENAI_BASE_URL are set with no API "
+            "keys; set [llm].backend in repos.toml to disambiguate"
+        )
+    return with_url[0] if with_url else None
+
+
+def _child_env_with_placeholder_key() -> dict[str, str]:
+    """graphify requires the backend's *_API_KEY env even when *_BASE_URL
+    points at a gateway that does its own auth. When a base URL is set with
+    no key, hand the child a placeholder so the gateway path works; the key
+    is never sent anywhere except that gateway."""
+    env = os.environ.copy()
+    for key_var, url_var in _BACKEND_ENV.values():
+        if env.get(url_var) and not env.get(key_var):
+            print(f"[tpk] {url_var} set without {key_var}; passing placeholder key to graphify")
+            env[key_var] = "placeholder-gateway-key"
+    return env
 
 
 def run_graphify(
@@ -114,6 +156,7 @@ def run_graphify(
     out_dir: Path,
     extraction: str = "code-only",
     backend: str | None = None,
+    model: str | None = None,
 ) -> Path:
     """Run `graphify extract` on repo_path and return the path to graph.json.
 
@@ -130,14 +173,20 @@ def run_graphify(
         cmd.append("--code-only")
     else:
         _require_llm_key(backend)
+        if backend in (None, "auto"):
+            backend = _infer_backend_from_env()
         if backend and backend != "auto":
             cmd += ["--backend", backend]
+        if model:
+            cmd += ["--model", model]
     cmd += ["--out", str(out_dir)]
+    child_env = _child_env_with_placeholder_key()
     try:
         proc = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
+            env=child_env,
         )
     except FileNotFoundError as exc:
         raise GraphifyError(

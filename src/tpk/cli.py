@@ -25,11 +25,12 @@ def ingest(
     repos = load_repos(repos_file)
     llm = load_llm(repos_file)
     backend = None if llm.backend == "auto" else llm.backend
+    model = llm.model or None
     if repo and repo not in repos:
         raise typer.BadParameter(f"unknown repo {repo!r}; known: {sorted(repos)}")
     targets = [repos[repo]] if repo else list(repos.values())
     for cfg in targets:
-        result = ingest_repo(client, cfg, backend=backend)
+        result = ingest_repo(client, cfg, backend=backend, model=model)
         typer.echo(f"{result.repo}: {result.status} ({result.nodes} nodes, {result.edges} edges)")
 
 

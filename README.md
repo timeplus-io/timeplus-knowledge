@@ -65,10 +65,24 @@ Corpus lives in `repos.toml`. Each repo has a `path`, a `visibility`
   API key; skips non-code files (YAML, Markdown), so all-YAML repos yield
   zero nodes in this mode.
 - `semantic` — graphify's LLM extraction also processes YAML/Markdown/docs.
-  Requires an API key in the environment: `ANTHROPIC_API_KEY` (backend
-  `claude`) or `OPENAI_API_KEY` (backend `openai`). The `[llm]` section in
-  `repos.toml` picks the backend (`auto` uses whichever key is exported).
-  Ingest fails fast with a clear error if a semantic repo has no usable key.
+  Requires a usable backend in the environment: `ANTHROPIC_API_KEY` (backend
+  `claude`) or `OPENAI_API_KEY` (backend `openai`) — or a custom endpoint via
+  `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` for self-hosted servers and
+  gateways. The `[llm]` section in `repos.toml` picks the backend (`auto`
+  uses whichever is exported) and can pin a model:
+
+      [llm]
+      backend = "openai"
+      model = "gpt-5.2"     # optional; passed to graphify --model.
+                            # Env alternative: OPENAI_MODEL / ANTHROPIC_MODEL.
+
+  **AWS Bedrock:** Bedrock speaks SigV4, not the OpenAI/Anthropic wire
+  protocols, so put an OpenAI-compatible gateway in front of it (LiteLLM
+  proxy or AWS Bedrock Access Gateway) and set `OPENAI_BASE_URL` to the
+  gateway, `OPENAI_API_KEY` to whatever the gateway expects, and
+  `OPENAI_MODEL` (or `[llm].model`) to the Bedrock model id. See
+  `.env.example`. Ingest fails fast with a clear error if a semantic repo
+  has neither a key nor a base URL.
 
     uv run tpk ingest                # all repos
     uv run tpk ingest --repo docs    # one repo

@@ -161,8 +161,8 @@ def _capture_graphify(monkeypatch, calls):
     """Fake subprocess.run that records argv and fabricates graph.json."""
     import tpk.graphify_runner as gr
 
-    def fake_run(cmd, capture_output, text):
-        calls.append(cmd)
+    def fake_run(cmd, capture_output, text, env=None):
+        calls.append({"cmd": cmd, "env": env})
         out = Path(cmd[cmd.index("--out") + 1])
         gj = out / "graphify-out" / "graph.json"
         gj.parent.mkdir(parents=True, exist_ok=True)
@@ -178,8 +178,8 @@ def test_run_graphify_code_only_argv(monkeypatch, tmp_path: Path):
     calls: list = []
     _capture_graphify(monkeypatch, calls)
     run_graphify(tmp_path, tmp_path / "out")
-    assert "--code-only" in calls[0]
-    assert "--backend" not in calls[0]
+    assert "--code-only" in calls[0]["cmd"]
+    assert "--backend" not in calls[0]["cmd"]
 
 
 def test_run_graphify_semantic_argv_with_backends(monkeypatch, tmp_path: Path):
@@ -191,14 +191,14 @@ def test_run_graphify_semantic_argv_with_backends(monkeypatch, tmp_path: Path):
     calls: list = []
     _capture_graphify(monkeypatch, calls)
     run_graphify(tmp_path, tmp_path / "o1", extraction="semantic")
-    assert "--code-only" not in calls[0]
-    assert "--backend" not in calls[0]  # auto: let graphify detect
+    assert "--code-only" not in calls[0]["cmd"]
+    assert "--backend" not in calls[0]["cmd"]  # auto: let graphify detect
 
     run_graphify(tmp_path, tmp_path / "o2", extraction="semantic", backend="claude")
-    assert calls[1][calls[1].index("--backend") + 1] == "claude"
+    assert calls[1]["cmd"][calls[1]["cmd"].index("--backend") + 1] == "claude"
 
     run_graphify(tmp_path, tmp_path / "o3", extraction="semantic", backend="openai")
-    assert calls[2][calls[2].index("--backend") + 1] == "openai"
+    assert calls[2]["cmd"][calls[2]["cmd"].index("--backend") + 1] == "openai"
 
 
 def test_run_graphify_semantic_fails_fast_without_keys(monkeypatch, tmp_path: Path):
@@ -217,3 +217,41 @@ def test_run_graphify_semantic_fails_fast_without_keys(monkeypatch, tmp_path: Pa
     with pytest.raises(GraphifyError, match="OPENAI_API_KEY"):
         run_graphify(tmp_path, tmp_path / "out", extraction="semantic", backend="openai")
     assert calls == []  # never reached subprocess
+
+
+def test_run_graphify_semantic_model_flag(monkeypatch, tmp_path: Path):
+    from tpk.graphify_runner import run_graphify
+
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    calls: list = []
+    _capture_graphify(monkeypatch, calls)
+    run_graphify(
+        tmp_path, tmp_path / "o", extraction="semantic", backend="openai", model="gpt-5.2"
+    )
+    assert calls[0]["cmd"][calls[0]["cmd"].index("--model") + 1] == "gpt-5.2"
+
+
+def test_run_graphify_semantic_accepts_base_url_instead_of_key(monkeypatch, tmp_path: Path):
+    from tpk.graphify_runner import run_graphify
+
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_BASE_URL", "OPENAI_BASE_URL"):
+        monkeypatch.delenv(var, raising=False)
+    calls: list = []
+    _capture_graphify(monkeypatch, calls)
+
+    # a gateway URL (e.g. Bedrock behind LiteLLM) counts as a usable backend
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://gateway.internal/v1")
+    run_graphify(tmp_path, tmp_path / "o1", extraction="semantic", backend="openai")
+    run_graphify(tmp_path, tmp_path / "o2", extraction="semantic")  # auto
+    assert len(calls) == 2
+    # graphify hard-requires the key env var even for gateway endpoints, so
+    # a placeholder must be injected into the child env
+    assert calls[0]["env"]["OPENAI_API_KEY"] == "placeholder-gateway-key"
+    # auto mode must infer --backend from the base URL (graphify's own
+    # auto-detect only looks at API keys)
+    assert calls[1]["cmd"][calls[1]["cmd"].index("--backend") + 1] == "openai"
+
+    # both base URLs with no keys is ambiguous
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://other.internal")
+    with pytest.raises(GraphifyError, match="disambiguate"):
+        run_graphify(tmp_path, tmp_path / "o3", extraction="semantic")

@@ -191,18 +191,23 @@ def test_ingest_repo_passes_extraction_and_backend(tp, monkeypatch, tmp_path: Pa
     client, prefix = tp
     calls: dict = {}
 
-    def fake_run_graphify(repo_path, out_dir, extraction="code-only", backend=None):
+    def fake_run_graphify(
+        repo_path, out_dir, extraction="code-only", backend=None, model=None
+    ):
         calls["extraction"] = extraction
         calls["backend"] = backend
+        calls["model"] = model
         raise RuntimeError("stop after capture")
 
     monkeypatch.setattr(ingest_mod, "run_graphify", fake_run_graphify)
     cfg = RepoConfig(
         name="r", path=tmp_path, visibility="internal", extraction="semantic"
     )
-    result = ingest_repo(client, cfg, prefix=prefix, out_root=tmp_path / "o", backend="openai")
+    result = ingest_repo(
+        client, cfg, prefix=prefix, out_root=tmp_path / "o", backend="openai", model="gpt-5.2"
+    )
     assert result.status == "failed"  # capture stub raised, isolation held
-    assert calls == {"extraction": "semantic", "backend": "openai"}
+    assert calls == {"extraction": "semantic", "backend": "openai", "model": "gpt-5.2"}
 
 
 def test_git_sha_survives_missing_git_binary(monkeypatch, tmp_path: Path):

@@ -75,3 +75,12 @@ def test_load_llm_rejects_bad_backend(tmp_path: Path):
     toml_path.write_text('[llm]\nbackend = "grok"\n')
     with pytest.raises(ValueError):
         load_llm(toml_path)
+
+
+def test_load_llm_model(tmp_path: Path):
+    toml_path = tmp_path / "repos.toml"
+    toml_path.write_text('[llm]\nbackend = "openai"\nmodel = "gpt-5.2"\n')
+    llm = load_llm(toml_path)
+    assert llm.model == "gpt-5.2"
+    toml_path.write_text('[repos.x]\npath = "/x"\nvisibility = "internal"\n')
+    assert load_llm(toml_path).model == ""
