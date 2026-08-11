@@ -9,8 +9,9 @@
 #
 #   visibility  "internal" | "public"  (default visibility for source-derived nodes)
 #   extraction  "code-only" (default; local tree-sitter AST, free, skips YAML/Markdown)
-#               | "semantic" (graphify LLM extraction; also processes YAML/Markdown/docs;
-#                 requires ANTHROPIC_API_KEY or OPENAI_API_KEY / *_BASE_URL)
+#               | "semantic" (adds an LLM pass over YAML/Markdown/docs; code is still
+#                 AST-parsed locally in both modes, so LLM cost scales with doc count
+#                 only; requires ANTHROPIC_API_KEY or OPENAI_API_KEY / *_BASE_URL)
 #   description short human-readable summary (surfaced to the agent as repo context)
 
 [llm]

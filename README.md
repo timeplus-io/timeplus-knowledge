@@ -91,6 +91,41 @@ local checkout (dev mode). Re-ingesting the same tag is a cheap cache hit;
   `.env.example`. Ingest fails fast with a clear error if a semantic repo
   has neither a key nor a base URL.
 
+### Which mode for a repo with both code and docs?
+
+Code files are parsed by the local AST extractor in **both** modes —
+`semantic` never sends code through the LLM. The modes differ only in
+what happens to non-code files: `code-only` skips them; `semantic` runs
+an additional LLM pass over them, producing the `document`/`concept`
+nodes the agent uses for conceptual questions. Pick by what the docs are
+worth:
+
+- Docs are incidental (a README, a changelog) → `code-only`. Free,
+  offline, deterministic.
+- The repo has meaningful docs, or is mostly config/YAML/Markdown →
+  `semantic`. LLM cost and wall-clock scale with the number of doc/config
+  files, **not** with code size — the code half is still AST-parsed for
+  free in the same run, so a large mixed repo is fine.
+- To trim the LLM bill on a semantic repo, drop an untracked
+  `.graphifyignore` into its checkout excluding doc dirs you don't need
+  (e.g. `static/`/images — some gateways reject image modality anyway).
+
+### Supported languages and file types
+
+The AST pass (runs in both modes) covers: Python,
+JavaScript/TypeScript (incl. JSX/TSX and Vue/Svelte/Astro components),
+Go, Rust, C, C++ (incl. CUDA/Metal), Java, Groovy/Gradle, C#, Kotlin,
+Scala, Swift, Ruby, PHP, Objective-C, Elixir, Lua, Julia, Fortran, Dart,
+Zig, PowerShell, Bash, Pascal/Delphi, Verilog, Apex, JSON, and .NET
+project files (`.sln`/`.csproj`/`.xaml`/`.razor`). SQL and
+Terraform/HCL need graphify's optional `sql`/`terraform` extras, which
+this project does not install — those files are skipped with a warning.
+
+The LLM pass (`semantic` mode only) covers doc/config files: Markdown
+(`.md`/`.mdx`), reStructuredText, plain text, HTML, and YAML — plus
+PDFs, images, and Office files if present (exclude images via
+`.graphifyignore` when your gateway lacks image modality).
+
     uv run tpk ingest                # all repos
     uv run tpk ingest --repo docs    # one repo
     uv run tpk status                # last run per repo
