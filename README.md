@@ -188,6 +188,80 @@ against the `tpk` service's database:
     docker compose up -d
     open http://localhost:8000
 
+## Manage the corpus
+
+Beyond `repos.toml` + `tpk ingest`, the running server exposes a management
+API and a **Manage** tab in the web UI (`http://localhost:8000`, next to the
+chat view) for adding, versioning, enabling/disabling, reindexing, and
+deleting corpus entries without editing config or restarting the server.
+
+**Versioning model.** Each corpus entry's identity is `(name, ref)`, keyed in
+the graph as `name@ref` (e.g. `helm-charts@timeplus-enterprise-v13.0.6`; a
+local-path entry with no `ref` keys as the bare `name`). Multiple `ref`s of
+the same `name` can coexist side by side — their nodes/edges live under
+distinct `repo` keys in `kg_nodes`/`kg_edges` and don't collide. The
+`enabled` flag on each entry (stored in `kg_repos`, the corpus source of
+truth) gates whether it's searchable: the chat agent and `search_entities`
+only see entries where `enabled = true` (`corpus.list_entries(...).enabled`
+filters both the live agent's corpus prompt and `KnowledgeGraph`'s query
+paths), so a disabled entry's data stays in the graph but stops showing up
+in answers. **Delete** removes the `kg_repos` row; pass `purge` to also
+delete its `kg_nodes`/`kg_edges` rows (irreversible — the Manage tab asks for
+confirmation and shows a "also delete indexed data" checkbox for this).
+
+**Release-upgrade workflow** (e.g. bumping `helm-charts` to a new chart
+release without losing the old one while you verify):
+
+1. Add the new `(name, ref)` via the API or the Manage tab's "Add corpus
+   entry" form — this creates a second entry alongside the existing one,
+   both enabled by default.
+2. Let its ingest job run (submitted automatically on add, or trigger
+   **Reindex**) and confirm it reaches `ok` with a plausible node/edge count.
+3. Verify: ask the chat agent a question that should cite the new ref, or
+   query `kg_nodes` directly for its `repo` key.
+4. Flip the old ref's **Enabled** toggle off (keep the new one on) once
+   you're satisfied — this is a soft cutover, so you can flip back instantly
+   if the new ingest looks wrong, and both old and new are searchable side
+   by side until you do.
+
+**Management API** (all under `/api`, admin-gated when `TPK_ADMIN_TOKEN` is
+set — see below):
+
+| Method & path            | Body                                                | Notes |
+|---------------------------|-----------------------------------------------------|-------|
+| `GET /api/repos`          | —                                                     | List all entries: `name`, `ref`, `entry_key`, source, `enabled`, `node_count`, last ingest status/sha/time |
+| `POST /api/repos`         | `{name, github\|path, ref, visibility, extraction, description, enabled, ingest}` | Create/update an entry; `ingest: true` (default) submits a background ingest job immediately |
+| `POST /api/repos/toggle`  | `{name, ref, enabled}`                                | Flip searchability without touching indexed data |
+| `POST /api/repos/reindex` | `{name, ref}`                                         | Re-run ingest for an existing entry (submits a job) |
+| `POST /api/repos/delete`  | `{name, ref, purge}`                                  | Remove the entry; `purge: true` also deletes its `kg_nodes`/`kg_edges` rows |
+| `GET /api/jobs`           | —                                                     | Last 50 ingest jobs (`queued`/`running`/`ok`/`failed`), newest first |
+| `GET /api/jobs/{id}`      | —                                                     | Single job status |
+
+Ingest jobs run on a background worker thread inside the server process, so
+`POST` calls return immediately with a `job_id`; poll `/api/jobs` (the
+Manage tab does this every 5s) until it reaches `ok` or `failed`.
+
+**Admin gate.** Set `TPK_ADMIN_TOKEN` in `.env`/the environment to require
+every `/api/*` call to carry a matching `X-Admin-Token` header (checked
+against the exact env value in `_require_admin`); requests without it, or
+with the wrong value, get `401`. Leaving `TPK_ADMIN_TOKEN` unset leaves the
+management API open — fine for local dev, not for anything reachable outside
+localhost. The Manage tab has a token field (top toolbar) that's sent as
+`X-Admin-Token` on every request and cached in `sessionStorage` so you don't
+retype it each visit.
+
+**Legacy-key migration note.** Before versioned entries, graph rows were
+keyed by bare `repo` name with no `@ref` suffix. The first `tpk ingest`
+(CLI or a job the management API submits) after upgrading to this version
+re-keys that repo's data: it writes the new run under `name@ref` *and*
+deletes any stale rows still sitting under the bare `name` (`ingest_repo`
+passes both `{key, repo_cfg.name}` to the stale-delete pass in
+`upsert_graph`) — so a repo you haven't re-ingested since upgrading may
+briefly show both a bare-name entry and a `name@ref` entry in
+`kg_ingest_log`/query results until its next ingest runs. No manual cleanup
+is needed; re-ingesting each repo once (`tpk ingest`, or Reindex from the
+Manage tab) completes the migration.
+
 ## Use from Claude Code (MCP)
 
     claude mcp add timeplus-knowledge -- uv --directory /Users/gangtao/Code/timeplus/timeplus-knowledge run python -m tpk.mcp_server
