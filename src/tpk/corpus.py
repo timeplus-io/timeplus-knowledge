@@ -99,3 +99,7 @@ def seed_from_toml(client, toml_path: Path, prefix: str = "") -> int:
 
 def entry_paths(entries: list[RepoConfig]) -> dict[str, Path]:
     return {entry_key(e): resolved_repo_path(e) for e in entries}
+
+
+def enabled_keys_from(entries: list[RepoConfig]) -> list[str]:
+    return [entry_key(e) for e in entries if e.enabled]

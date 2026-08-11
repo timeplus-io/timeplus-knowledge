@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -269,3 +270,44 @@ def test_search_falls_back_to_ranked_any_token_match(kg):
 
 def test_search_no_token_matches_still_empty(kg):
     assert kg.search_entities("xyzzy plugh") == []
+
+
+def _seed_corpus_entry(client, prefix, name, ref, enabled):
+    from tpk import corpus
+    from tpk.config import RepoConfig
+
+    corpus.upsert_entry(
+        client,
+        RepoConfig(name=name, github=f"org/{name}", ref=ref, visibility="internal",
+                   enabled=enabled),
+        prefix=prefix,
+    )
+
+
+def test_disabled_entry_invisible_everywhere(tp, tmp_path):
+    from tpk.ingest import upsert_graph
+    from tpk.tools import KnowledgeGraph
+
+    client, prefix = tp
+    # two versions of one repo in the graph
+    n1 = replace(SEED_NODES[0], id="v1n", repo="r@v1")
+    n2 = replace(SEED_NODES[0], id="v2n", repo="r@v2")
+    upsert_graph(client, prefix, [n1, n2], [], datetime.now(timezone.utc))
+    _seed_corpus_entry(client, prefix, "r", "v1", enabled=True)
+    _seed_corpus_entry(client, prefix, "r", "v2", enabled=False)
+
+    kg = KnowledgeGraph(client, stream_prefix=prefix, corpus_ttl=0)
+    _eventually(lambda: len(kg.search_entities("checkpoint")), lambda v: v >= 1)
+    hits = kg.search_entities("checkpoint")
+    assert {h["repo"] for h in hits} == {"r@v1"}          # search filtered
+    assert kg.get_entity("v2n") is None                    # id lookup filtered
+    assert kg.get_entity("v1n") is not None
+
+    from tpk import corpus
+    corpus.set_enabled(client, "r", "v2", True, prefix=prefix)
+    _eventually(lambda: kg.get_entity("v2n"), lambda v: v is not None)  # live toggle
+
+
+def test_empty_corpus_store_means_no_filter(kg):
+    # the kg fixture seeds nodes but never touches kg_repos -> unfiltered
+    assert kg.search_entities("checkpoint")
