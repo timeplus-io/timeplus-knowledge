@@ -8,10 +8,15 @@ authors = [
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.121.0",
+    "fastapi>=0.141.1",
     "graphifyy[claude,openai]>=0.9.38",
+    "langchain-anthropic>=1.5.4",
+    "langchain-openai>=1.4.3",
+    "langgraph>=1.2.10",
     "mcp[cli]>=2.0.0",
     "timeplus-connect>=0.8.17",
     "typer>=0.27.1",
+    "uvicorn[standard]>=0.52.1",
 ]
 
 [project.scripts]

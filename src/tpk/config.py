@@ -67,3 +67,33 @@ def load_llm(toml_path: Path) -> LLMConfig:
     if backend not in LLM_BACKENDS:
         raise ValueError(f"llm.backend must be one of {LLM_BACKENDS}, got {backend!r}")
     return LLMConfig(backend=backend, model=llm.get("model", ""))
+
+
+AGENT_PROVIDERS = ("anthropic", "openai")
+
+
+@dataclass(frozen=True)
+class AgentConfig:
+    provider: str  # "anthropic" | "openai"
+    model: str
+
+    @classmethod
+    def from_env(cls) -> "AgentConfig":
+        provider = os.environ.get("TPK_AGENT_PROVIDER", "")
+        if provider and provider not in AGENT_PROVIDERS:
+            raise ValueError(
+                f"TPK_AGENT_PROVIDER must be one of {AGENT_PROVIDERS}, got {provider!r}"
+            )
+        if not provider:
+            if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_BASE_URL"):
+                provider = "anthropic"
+            elif os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENAI_BASE_URL"):
+                provider = "openai"
+            else:
+                raise ValueError(
+                    "no agent LLM configured: set TPK_AGENT_PROVIDER plus "
+                    "ANTHROPIC_API_KEY/ANTHROPIC_BASE_URL or "
+                    "OPENAI_API_KEY/OPENAI_BASE_URL"
+                )
+        default_model = "claude-sonnet-5" if provider == "anthropic" else "gpt-5.2"
+        return cls(provider=provider, model=os.environ.get("TPK_AGENT_MODEL") or default_model)
