@@ -1,15 +1,20 @@
-# All-in-one Timeplus knowledge stack: timeplusd + tpk toolkit in one service.
+# All-in-one Timeplus knowledge stack: timeplusd + tpk toolkit in one service,
+# plus a chat agent + web UI service.
 #
 #   cp .env.example .env   # put your API keys there
 #   docker compose up -d
 #   docker compose exec tpk tpk ingest
 #   docker compose exec tpk tpk status
 #   claude mcp add timeplus-knowledge -- docker compose exec -T tpk tpk-mcp
+#   open http://localhost:8000   # chat agent + web UI
 #
 # Variables (set in .env or the shell):
-#   REPOS_MOUNT        host dir with the repo checkouts (default ~/Code/timeplus)
-#   ANTHROPIC_API_KEY  for semantic extraction with the claude backend
-#   OPENAI_API_KEY     for semantic extraction with the openai backend
+#   REPOS_MOUNT         host dir with the repo checkouts (default ~/Code/timeplus)
+#   ANTHROPIC_API_KEY   for semantic extraction with the claude backend
+#   OPENAI_API_KEY      for semantic extraction with the openai backend
+#   TPK_AGENT_PROVIDER  chat agent LLM backend (anthropic/openai); may differ
+#                       from the extraction backend above
+#   TPK_AGENT_MODEL     chat agent model override
 
 services:
   tpk:
@@ -33,6 +38,27 @@ services:
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
+    restart: unless-stopped
+
+  agent:
+    image: timeplus/tpk:dev
+    container_name: tpk-agent
+    depends_on:
+      - tpk
+    entrypoint: ["tpk"]
+    command: ["serve", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - ${REPOS_MOUNT:-${HOME}/Code/timeplus}:/repos:ro
+    environment:
+      TIMEPLUS_HOST: tpk
+      TPK_AGENT_PROVIDER: ${TPK_AGENT_PROVIDER:-}
+      TPK_AGENT_MODEL: ${TPK_AGENT_MODEL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
     restart: unless-stopped
 
 volumes:

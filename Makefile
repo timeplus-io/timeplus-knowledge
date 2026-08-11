@@ -57,6 +57,17 @@ mcp: ## Run the MCP server on stdio (Ctrl-D to exit)
 mcp-register: ## Register the MCP server with Claude Code (this checkout)
 	claude mcp add timeplus-knowledge -- uv --directory $(PWD) run python -m tpk.mcp_server
 
+# --- chat agent & web UI ------------------------------------------------------
+
+serve: ## Run the chat server locally (needs agent env + populated graph)
+	TIMEPLUS_HOST=$(TIMEPLUS_HOST) uv run tpk serve
+
+web-build: ## Build the React UI into web/dist
+	cd web && npm install && npm run build
+
+web-dev: ## Run the Vite dev server (proxies /chat to :8000)
+	cd web && npm install && npm run dev
+
 # --- docker compose ----------------------------------------------------------
 
 up: ## Start the all-in-one stack via docker compose (.env for API keys)
@@ -90,5 +101,5 @@ clean: ## Remove local scratch (graphify output, __pycache__)
 	find . -name __pycache__ -type d -not -path './.venv/*' -prune -exec rm -rf {} +
 
 .PHONY: help sync db-up db-down db-logs test test-unit ingest ingest-repo \
-        status mcp mcp-register up down docker-build docker-run docker-ingest \
-        docker-status docker-stop clean
+        status mcp mcp-register serve web-build web-dev up down docker-build \
+        docker-run docker-ingest docker-status docker-stop clean

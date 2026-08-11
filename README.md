@@ -6,8 +6,8 @@ code, design, architecture, and devops. See
 
 ## Setup
 
-`make` lists every dev command (setup, db, tests, ingest, MCP, docker
-image). The underlying steps:
+`make` lists every dev command (setup, db, tests, ingest, MCP, chat agent /
+web UI, docker image). The underlying steps:
 
 Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), and a running
 Timeplus Enterprise (mutable streams are an Enterprise feature):
@@ -131,6 +131,36 @@ the graph always reflects exactly the most recent run's output — it just
 means "most recent run's output" can itself vary by a handful of nodes
 between otherwise-identical runs. Don't rely on `tpk status`/`kg_nodes`
 counts being bit-for-bit reproducible across ingests of the same commit.
+
+## Chat agent & web UI
+
+`tpk serve` runs a FastAPI server exposing a streaming chat agent (`POST
+/chat`, Server-Sent Events: each event is a `data: {...}\n\n` line with
+`type` one of `token` | `tool` | `done` | `error`) over the knowledge graph,
+plus the built React web UI at `/` (mounted from `web/dist` when present) and
+`GET /healthz`.
+
+The agent needs its own LLM configuration, separate from graphify's
+extraction backend — set in `.env` or the shell:
+
+- `TPK_AGENT_PROVIDER` — `anthropic` or `openai`; if unset, inferred from
+  whichever of `ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL` or
+  `OPENAI_API_KEY`/`OPENAI_BASE_URL` is set.
+- `TPK_AGENT_MODEL` — defaults to `claude-sonnet-5` (anthropic) or `gpt-5.2`
+  (openai).
+
+Local dev:
+
+    make web-build     # build web/dist once (or after UI changes)
+    make serve         # tpk serve, reads WEB_DIST=web/dist if present
+    make web-dev       # Vite dev server with hot reload, proxies /chat to :8000
+
+Via docker compose, the `agent` service builds the same image as `tpk`
+(the web build stage runs during `docker compose build`) and runs `tpk serve`
+against the `tpk` service's database:
+
+    docker compose up -d
+    open http://localhost:8000
 
 ## Use from Claude Code (MCP)
 

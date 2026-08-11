@@ -1,11 +1,22 @@
 # All-in-one image: Timeplus Enterprise (timeplusd) + the tpk knowledge-graph
-# toolkit (ingest CLI, tools, MCP server). timeplusd remains the container's
-# main process via the base entrypoint; tpk is used via `docker exec`.
+# toolkit (ingest CLI, tools, MCP server, chat agent + web UI). timeplusd
+# remains the container's main process via the base entrypoint; tpk is used
+# via `docker exec` (or as the compose `agent` service's entrypoint, for
+# `tpk serve`).
 #
 #   docker build -f deploy/docker/Dockerfile -t timeplus/tpk:dev .
 #   docker run -d --name tpk -p 8123:8123 -p 3218:3218 \
 #     -v ~/Code/timeplus:/repos:ro timeplus/tpk:dev
 #   docker exec tpk tpk ingest
+
+# Build the React chat UI separately so the final image doesn't need node.
+FROM node:22-alpine AS webbuild
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
 FROM docker.timeplus.com/timeplus/timeplusd:latest
 
 USER root
@@ -26,6 +37,10 @@ RUN uv python install 3.11 \
     && uv sync --frozen --no-dev --python 3.11 \
     && chmod -R a+rX /opt/uv/python
 
+# Prebuilt web UI, served by `tpk serve` (server.py resolves WEB_DIST as
+# parents[2]/web/dist relative to src/tpk/server.py -> /opt/tpk/web/dist).
+COPY --from=webbuild /web/dist /opt/tpk/web/dist
+
 # Corpus config with paths under /repos (mounted at runtime) and the
 # nativelog small-segments override (2GB/stream preallocation is a disk
 # killer on dev machines).
@@ -45,5 +60,10 @@ RUN printf '#!/bin/sh\nPATH=/opt/tpk/.venv/bin:$PATH exec /opt/tpk/.venv/bin/tpk
 ENV TIMEPLUS_HOST=localhost \
     TIMEPLUS_USER=default \
     PYTHONUNBUFFERED=1
+
+# timeplusd's own ports (8123, 3218) are declared by the base image;
+# 8000 is `tpk serve` (chat agent + web UI), used by the compose `agent`
+# service which runs this same image with entrypoint tpk.
+EXPOSE 8000
 
 USER 101:101
