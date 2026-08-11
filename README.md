@@ -91,6 +91,14 @@ Corpus lives in `repos.toml`. Each repo has a `path`, a `visibility`
 Ingest is per-repo isolated: a failing repo logs `failed` in
 `kg_ingest_log` and leaves its previous graph untouched.
 
+**Semantic repos need multiple passes for full coverage.** LLM extraction
+covers only a subset of files per run (failed chunks are dropped, and the
+per-file cache accumulates successes across runs), so re-run
+`tpk ingest --repo docs` until the stored node count stabilizes —
+observed: 170 -> 217 -> 241 -> 298 covered files over four passes. The
+cache lives in the container's `.graphify_out/`; recreating the container
+resets it.
+
 Ingest runs `graphify extract` (package `graphifyy` on PyPI, CLI
 `graphify`) and reads `<dir>/graphify-out/graph.json`.
 
