@@ -20,10 +20,19 @@ def build_chat_model(cfg: AgentConfig):
             base_url=os.environ.get("ANTHROPIC_BASE_URL") or None,
             api_key=os.environ.get("ANTHROPIC_API_KEY") or _PLACEHOLDER_KEY,
         )
+    kwargs = {}
+    # For reasoning models (gpt-oss et al): "low" keeps output on the content
+    # channel instead of flooding the reasoning channel and ending with an
+    # empty final message. Unset -> parameter not sent (non-reasoning models
+    # like qwen reject or ignore it).
+    effort = os.environ.get("TPK_AGENT_REASONING_EFFORT")
+    if effort:
+        kwargs["reasoning_effort"] = effort
     return ChatOpenAI(
         model=cfg.model,
         base_url=os.environ.get("OPENAI_BASE_URL") or None,
         api_key=os.environ.get("OPENAI_API_KEY") or _PLACEHOLDER_KEY,
+        **kwargs,
     )
 
 
@@ -81,7 +90,11 @@ Rules:
    at all.
 5. Prefer document/concept entities for conceptual questions and
    file/function entities for implementation questions. Keep answers
-   concise and structured."""
+   concise and structured.
+6. Your last message MUST be a normal assistant reply containing the
+   answer text itself — never end the conversation on a tool call or with
+   an empty message, and never leave the answer only in your private
+   reasoning."""
 
 
 def build_agent(kg, cfg, repos: dict[str, "RepoConfig"], model=None):

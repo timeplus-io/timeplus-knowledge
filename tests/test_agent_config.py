@@ -65,3 +65,16 @@ def test_build_chat_model_anthropic(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
     model = build_chat_model(AgentConfig(provider="anthropic", model="claude-sonnet-5"))
     assert model.model == "claude-sonnet-5"
+
+
+def test_reasoning_effort_env_passthrough(monkeypatch):
+    from tpk.agent import build_chat_model
+    from tpk.config import AgentConfig
+
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.setenv("TPK_AGENT_REASONING_EFFORT", "low")
+    model = build_chat_model(AgentConfig(provider="openai", model="openai.gpt-oss-120b"))
+    assert model.reasoning_effort == "low"
+    monkeypatch.delenv("TPK_AGENT_REASONING_EFFORT")
+    model = build_chat_model(AgentConfig(provider="openai", model="openai.gpt-oss-120b"))
+    assert model.reasoning_effort is None
