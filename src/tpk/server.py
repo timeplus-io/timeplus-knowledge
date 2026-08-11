@@ -84,10 +84,12 @@ def _build_production_agent():
     )
 
 
-def create_app(agent=None) -> FastAPI:
+def create_app(agent=None, stream_prefix: str = "") -> FastAPI:
     from tpk.agent import RECURSION_LIMIT
+    from tpk.api import create_api_router
 
     app = FastAPI(title="timeplus-knowledge")
+    app.include_router(create_api_router(prefix=stream_prefix))
     state = {"agent": agent}
 
     def _agent():
