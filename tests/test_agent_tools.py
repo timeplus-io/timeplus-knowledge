@@ -27,6 +27,8 @@ class FakeKG:
         return []
 
     def read_source(self, repo, file_path, line_start, line_end):
+        if file_path == "boom.py":
+            raise RuntimeError("boom")
         return "line"
 
 
@@ -46,3 +48,17 @@ def test_tools_delegate_to_kg():
     assert tools["read_source"].invoke(
         {"repo": "r", "file_path": "f.py", "line_start": 1, "line_end": 2}
     ) == "line"
+
+
+def test_tool_exception_becomes_structured_error_string():
+    """A KG method raising must not propagate out of the tool -- it must come
+    back as a string the model can read and react to (spec: "tool errors
+    return structured error strings to the LLM so it can retry or degrade")."""
+    kg = FakeKG()
+    tools = {t.name: t for t in build_agent_tools(kg)}
+    out = tools["read_source"].invoke(
+        {"repo": "r", "file_path": "boom.py", "line_start": 1, "line_end": 2}
+    )
+    assert isinstance(out, str)
+    assert "TOOL_ERROR" in out
+    assert "boom" in out

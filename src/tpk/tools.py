@@ -217,6 +217,8 @@ class KnowledgeGraph:
         target = (Path(root) / file_path).resolve()
         if not target.is_relative_to(Path(root).resolve()):
             raise ValueError(f"path {file_path!r} escapes repo checkout")
+        if not target.is_file():
+            raise ValueError(f"file not found in {repo}: {file_path}")
         lines = target.read_text(errors="replace").splitlines(keepends=True)
         start = max(line_start, 1)
         end = min(line_end, start + self.MAX_SOURCE_LINES - 1)

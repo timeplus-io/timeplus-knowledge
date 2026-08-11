@@ -220,6 +220,14 @@ def test_read_source(kg):
         kg.read_source("r1", "../etc/passwd", 1, 2)
 
 
+def test_read_source_missing_file_raises_value_error(kg):
+    """A guessed/nonexistent file path must surface as a ValueError (so the
+    agent boundary can turn it into a structured error string) instead of a
+    raw FileNotFoundError leaking a local absolute path."""
+    with pytest.raises(ValueError, match="file not found in r1"):
+        kg.read_source("r1", "does-not-exist.py", 1, 2)
+
+
 def test_search_entities_concurrent_calls_succeed(kg):
     """Live-DB reproduction of the exact failure Task 7 hit: parallel tool
     calls sharing one KnowledgeGraph/timeplus_connect client used to fail
