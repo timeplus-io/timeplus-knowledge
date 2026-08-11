@@ -78,6 +78,7 @@ def create_app(agent=None) -> FastAPI:
 
         async def stream():
             full: list[str] = []
+            final_text = ""
             try:
                 async for event in _agent().astream_events(
                     {"messages": messages},
@@ -90,6 +91,13 @@ def create_app(agent=None) -> FastAPI:
                         if text:
                             full.append(text)
                             yield _sse({"type": "token", "text": text})
+                    elif kind == "on_chat_model_end":
+                        # The last model turn's message is the authoritative
+                        # answer — token deltas can miss it entirely for
+                        # models that stream on a reasoning channel (gpt-oss).
+                        end_text = _chunk_text(event.get("data", {}).get("output"))
+                        if end_text:
+                            final_text = end_text
                     elif kind == "on_tool_start":
                         yield _sse(
                             {
@@ -98,7 +106,12 @@ def create_app(agent=None) -> FastAPI:
                                 "input": event.get("data", {}).get("input", {}),
                             }
                         )
-                yield _sse({"type": "done", "text": "".join(full)})
+                done_text = final_text or "".join(full) or (
+                    "The model returned no answer text for this question "
+                    "(it may have spent its turns on tool calls). Please retry "
+                    "or rephrase."
+                )
+                yield _sse({"type": "done", "text": done_text})
             except Exception as exc:  # stream errors must reach the client
                 # Log the full exception server-side; the client only gets
                 # the exception's class name, never the raw message, which

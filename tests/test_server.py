@@ -73,3 +73,25 @@ def test_chat_rejects_invalid_history_role():
         json={"message": "hi", "history": [{"role": "system", "content": "x"}]},
     )
     assert resp.status_code == 422
+
+
+def _end(text):
+    class Msg:
+        content = text
+
+    return {"event": "on_chat_model_end", "data": {"output": Msg()}}
+
+
+def test_done_prefers_final_model_message():
+    agent = FakeAgent([_tok("Let me search... "), _end("The grounded final answer.")])
+    client = TestClient(create_app(agent=agent))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+    assert events[-1] == {"type": "done", "text": "The grounded final answer."}
+
+
+def test_done_fallback_when_model_emits_no_text():
+    agent = FakeAgent([_tool("search_entities", {"query": "q"})])
+    client = TestClient(create_app(agent=agent))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+    assert events[-1]["type"] == "done"
+    assert "retry" in events[-1]["text"]
