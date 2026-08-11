@@ -54,12 +54,25 @@ def test_add_validation(tp, monkeypatch):
     c, _ = _client(tp, monkeypatch)
     assert c.post("/api/repos", json={"name": "x"}).status_code == 422           # no source
     assert c.post("/api/repos", json={"name": "x", "github": "o/x"}).status_code == 422  # no ref
-    assert c.post("/api/repos", json={"name": "a@b", "path": "/p"}).status_code == 422   # @ in name
+    # '@' in name is rejected by the name regex itself (400), not a
+    # dedicated '@' check -- the regex already excludes it.
+    assert c.post("/api/repos", json={"name": "a@b", "path": "/p"}).status_code == 400
 
 
 def test_add_rejects_bad_name(tp, monkeypatch):
     c, _ = _client(tp, monkeypatch)
     for name in ["../etc", "a/b", "", "a b", "a$b"]:
+        r = c.post("/api/repos", json={"name": name, "github": "o/x", "ref": "v1"})
+        assert r.status_code == 400, (name, r.text)
+
+
+def test_add_rejects_dot_and_dotdot_name(tp, monkeypatch):
+    # "." and ".." both match `_NAME_RE` (only [A-Za-z0-9._-]) but, used as
+    # a raw filesystem path segment in `resolved_repo_path`
+    # (checkout_root() / name / ref), ".." walks the checkout destination
+    # outside the checkout cache entirely -- must be rejected explicitly.
+    c, _ = _client(tp, monkeypatch)
+    for name in [".", ".."]:
         r = c.post("/api/repos", json={"name": name, "github": "o/x", "ref": "v1"})
         assert r.status_code == 400, (name, r.text)
 

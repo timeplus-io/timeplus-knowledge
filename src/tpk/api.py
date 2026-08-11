@@ -18,8 +18,12 @@ from tpk.ingest import ingest_repo
 
 REPOS_TOML = Path(__file__).resolve().parents[2] / "repos.toml"
 
-# `name` keys the graph (`entry_key`) and, for local-path entries, is never
-# used in a filesystem path -- this also rejects empty and `@`/`/`/`..`.
+# `name` keys the graph (`entry_key`) and is also used as a raw filesystem
+# path segment (`resolved_repo_path` in tpk.config: `checkout_root() / name /
+# ref`). This regex alone rejects empty and `@`/`/`, but NOT the literal
+# strings "." or ".." (both match `[A-Za-z0-9._-]+`) -- those are rejected
+# separately below, since "..", used as a path segment, walks the checkout
+# destination out of the checkout cache entirely.
 _NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 # `ref` is passed straight to `git fetch`/`git clone` and used to build
 # checkout/out-dir paths. `/` is allowed (branch names like "release/1.0"),
@@ -63,10 +67,8 @@ class DeleteRepo(EntryRef):
 
 
 def _validate(body: AddRepo) -> RepoConfig:
-    if "@" in body.name:
-        raise HTTPException(422, "repo name must not contain '@'")
-    if not _NAME_RE.match(body.name):
-        raise HTTPException(400, "name must match ^[A-Za-z0-9._-]+$")
+    if not _NAME_RE.match(body.name) or body.name in (".", ".."):
+        raise HTTPException(400, "name must match ^[A-Za-z0-9._-]+$ and not be '.' or '..'")
     if body.ref:
         if body.ref.startswith("-"):
             raise HTTPException(400, "ref must not start with '-'")
