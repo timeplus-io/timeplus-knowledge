@@ -57,9 +57,19 @@ def test_chat_streams_error_event():
     client = TestClient(create_app(agent=BoomAgent()))
     events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
     assert events[-1]["type"] == "error"
-    assert "model exploded" in events[-1]["message"]
+    assert "RuntimeError" in events[-1]["message"]
+    assert "model exploded" not in events[-1]["message"]
 
 
 def test_chat_rejects_empty_message():
     client = TestClient(create_app(agent=FakeAgent([])))
     assert client.post("/chat", json={"message": ""}).status_code == 422
+
+
+def test_chat_rejects_invalid_history_role():
+    client = TestClient(create_app(agent=FakeAgent([])))
+    resp = client.post(
+        "/chat",
+        json={"message": "hi", "history": [{"role": "system", "content": "x"}]},
+    )
+    assert resp.status_code == 422

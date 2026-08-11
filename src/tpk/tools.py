@@ -3,6 +3,7 @@
 Consumed by the MCP server (this plan) and the LangGraph agent (follow-up plan).
 """
 
+import threading
 from pathlib import Path
 
 NODE_FIELDS = [
@@ -24,17 +25,33 @@ class KnowledgeGraph:
         self.client = client
         self.prefix = stream_prefix
         self.repo_paths = repo_paths or {}
+        # timeplus_connect forbids concurrent queries within one session
+        # ("Attempt to execute concurrent queries within the same session").
+        # KnowledgeGraph's single client is shared across LangGraph's
+        # thread-pooled parallel tool calls and across concurrent /chat
+        # requests (both the MCP server and the FastAPI app cache one
+        # KnowledgeGraph per process), so every call into `self.client` must
+        # be serialized through this lock.
+        self._lock = threading.Lock()
 
     # -- internals ---------------------------------------------------------
+
+    def _query_rows(self, sql: str, parameters: dict | None = None) -> list[tuple]:
+        """The single choke point for talking to `self.client` -- holds
+        `self._lock` for the duration of the call so overlapping tool calls
+        (parallel LangGraph tool dispatch, concurrent /chat requests, the MCP
+        server) never issue concurrent queries on the shared session."""
+        with self._lock:
+            return self.client.query(sql, parameters=parameters).result_rows
 
     def _nodes_by_ids(self, ids: list[str]) -> list[dict]:
         if not ids:
             return []
-        rows = self.client.query(
+        rows = self._query_rows(
             f"SELECT {', '.join(NODE_FIELDS)} FROM table({self.prefix}kg_nodes)"
             " WHERE id IN %(ids)s",
             parameters={"ids": ids},
-        ).result_rows
+        )
         return [dict(zip(NODE_FIELDS, r)) for r in rows]
 
     def _edges_touching(self, ids: list[str], rels, direction: str, confidence) -> list[dict]:
@@ -51,11 +68,11 @@ class KnowledgeGraph:
         if confidence:
             clauses.append("confidence = %(conf)s")
             params["conf"] = confidence
-        rows = self.client.query(
+        rows = self._query_rows(
             f"SELECT {', '.join(EDGE_FIELDS)} FROM table({self.prefix}kg_edges)"
             f" WHERE {' AND '.join(clauses)}",
             parameters=params,
-        ).result_rows
+        )
         return [dict(zip(EDGE_FIELDS, r)) for r in rows]
 
     # -- public tools ------------------------------------------------------
@@ -77,13 +94,13 @@ class KnowledgeGraph:
         if repos:
             clauses.append("repo IN %(repos)s")
             params["repos"] = repos
-        rows = self.client.query(
+        rows = self._query_rows(
             f"SELECT {', '.join(NODE_FIELDS)} FROM table({self.prefix}kg_nodes)"
             f" WHERE {' AND '.join(clauses)}"
             " ORDER BY (lower(name) = %(q)s) DESC, length(name) ASC"
             " LIMIT %(limit)s",
             parameters=params,
-        ).result_rows
+        )
         return [dict(zip(NODE_FIELDS, r)) for r in rows]
 
     def get_entity(self, entity_id: str):
@@ -180,12 +197,12 @@ class KnowledgeGraph:
         if repo:
             clause = " WHERE repo = %(repo)s"
             params["repo"] = repo
-        rows = self.client.query(
+        rows = self._query_rows(
             f"SELECT repo, community, count() AS node_count"
             f" FROM table({self.prefix}kg_nodes){clause}"
             " GROUP BY repo, community ORDER BY node_count DESC",
             parameters=params,
-        ).result_rows
+        )
         return [dict(zip(["repo", "community", "node_count"], r)) for r in rows]
 
     def read_source(self, repo, file_path, line_start, line_end):

@@ -149,6 +149,14 @@ extraction backend — set in `.env` or the shell:
 - `TPK_AGENT_MODEL` — defaults to `claude-sonnet-5` (anthropic) or `gpt-5.2`
   (openai).
 
+Model choice matters when pointing `TPK_AGENT_PROVIDER=openai` at a gateway
+rather than OpenAI directly: `openai.gpt-oss-120b` via the Bedrock
+OpenAI-compatible endpoint hangs (or loops until it overflows its context
+window) on tool-call streaming, and Anthropic models aren't served by that
+endpoint's `/v1/chat/completions` surface at all — `qwen.qwen3-coder-next` is
+verified working against the same gateway. See `docs/eval/m4-smoke.md` for
+the full compatibility record.
+
 Local dev:
 
     make web-build     # build web/dist once (or after UI changes)

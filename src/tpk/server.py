@@ -1,7 +1,9 @@
 """FastAPI server: SSE /chat over the knowledge agent + static web UI."""
 
 import json
+import logging
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
@@ -11,9 +13,11 @@ from pydantic import BaseModel, Field
 REPOS_TOML = Path(__file__).resolve().parents[2] / "repos.toml"
 WEB_DIST = Path(__file__).resolve().parents[2] / "web" / "dist"
 
+logger = logging.getLogger(__name__)
+
 
 class ChatTurn(BaseModel):
-    role: str  # "user" | "assistant"
+    role: Literal["user", "assistant"]
     content: str
 
 
@@ -96,7 +100,17 @@ def create_app(agent=None) -> FastAPI:
                         )
                 yield _sse({"type": "done", "text": "".join(full)})
             except Exception as exc:  # stream errors must reach the client
-                yield _sse({"type": "error", "message": str(exc)})
+                # Log the full exception server-side; the client only gets
+                # the exception's class name, never the raw message, which
+                # can leak internal details (stack context, credentials in
+                # a driver error, etc.) into the browser.
+                logger.exception("chat stream failed")
+                yield _sse(
+                    {
+                        "type": "error",
+                        "message": f"{type(exc).__name__}: request failed; see server logs",
+                    }
+                )
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 

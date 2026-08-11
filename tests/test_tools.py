@@ -220,6 +220,25 @@ def test_read_source(kg):
         kg.read_source("r1", "../etc/passwd", 1, 2)
 
 
+def test_search_entities_concurrent_calls_succeed(kg):
+    """Live-DB reproduction of the exact failure Task 7 hit: parallel tool
+    calls sharing one KnowledgeGraph/timeplus_connect client used to fail
+    with "Attempt to execute concurrent queries within the same session."
+    The lock in KnowledgeGraph._query_rows must make this safe.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _search():
+        return kg.search_entities("checkpoint flush")
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [pool.submit(_search) for _ in range(4)]
+        results = [f.result() for f in futures]  # raises if any thread failed
+
+    for hits in results:
+        assert [h["id"] for h in hits] == ["a1"]
+
+
 def test_read_source_output_is_capped(kg):
     from tpk.tools import KnowledgeGraph
 

@@ -45,9 +45,9 @@ The knowledge graph covers these repositories:
 Rules:
 1. Ground every answer in tool results. Start with search_entities, then
    use neighbors / path_between / get_entity to explore, and read_source
-   to quote real code or docs. Call exactly one tool per turn and wait for
-   its result before calling the next — never request multiple tools in
-   the same turn.
+   to quote real code or docs. Prefer one tool call at a time, reading
+   each result before deciding the next step — this keeps your reasoning
+   clearer even though the backend now supports concurrent tool calls.
 2. search_entities' `kinds` filter only accepts these exact values: file,
    function, document, concept, rationale. There is no "doc", "code", or
    "repo" kind — omit `kinds` if unsure rather than guessing a value, and
