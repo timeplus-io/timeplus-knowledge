@@ -57,6 +57,44 @@ def test_add_validation(tp, monkeypatch):
     assert c.post("/api/repos", json={"name": "a@b", "path": "/p"}).status_code == 422   # @ in name
 
 
+def test_add_rejects_bad_name(tp, monkeypatch):
+    c, _ = _client(tp, monkeypatch)
+    for name in ["../etc", "a/b", "", "a b", "a$b"]:
+        r = c.post("/api/repos", json={"name": name, "github": "o/x", "ref": "v1"})
+        assert r.status_code == 400, (name, r.text)
+
+
+def test_add_rejects_bad_ref(tp, monkeypatch):
+    c, _ = _client(tp, monkeypatch)
+    r = c.post("/api/repos", json={"name": "x", "github": "o/x", "ref": "-evil"})
+    assert r.status_code == 400
+    r = c.post("/api/repos", json={"name": "x", "github": "o/x", "ref": "a/../b"})
+    assert r.status_code == 400
+    r = c.post("/api/repos", json={"name": "x", "github": "o/x", "ref": "a b"})
+    assert r.status_code == 400
+
+
+def test_add_accepts_ref_with_slash(tp, monkeypatch):
+    c, _ = _client(tp, monkeypatch)
+    r = c.post("/api/repos", json={"name": "x", "github": "o/x", "ref": "release/1.0",
+                                   "ingest": False})
+    assert r.status_code == 200 and r.json()["entry_key"] == "x@release/1.0"
+
+
+def test_path_entry_requires_admin_token(tp, monkeypatch):
+    c, _ = _client(tp, monkeypatch)
+    monkeypatch.delenv("TPK_ADMIN_TOKEN", raising=False)
+    r = c.post("/api/repos", json={"name": "local", "path": "/tmp/somewhere",
+                                   "ingest": False})
+    assert r.status_code == 403
+
+    monkeypatch.setenv("TPK_ADMIN_TOKEN", "sekret")
+    r = c.post("/api/repos", json={"name": "local", "path": "/tmp/somewhere",
+                                   "ingest": False},
+               headers={"X-Admin-Token": "sekret"})
+    assert r.status_code == 200 and r.json()["entry_key"] == "local"
+
+
 def test_reindex_job_runs_to_ok(tp, monkeypatch):
     c, _ = _client(tp, monkeypatch)
     c.post("/api/repos", json={"name": "demo", "github": "o/demo", "ref": "v1",
