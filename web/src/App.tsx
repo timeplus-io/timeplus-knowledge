@@ -1,4 +1,6 @@
 import { useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 type Turn = { role: "user" | "assistant"; content: string; tools?: string[] };
 
@@ -72,7 +74,15 @@ export default function App() {
             {t.tools && t.tools.length > 0 && (
               <div className="tools">🔎 {t.tools.join(" → ")}</div>
             )}
-            <div className="bubble">{t.content || (busy && i === turns.length - 1 ? "…" : "")}</div>
+            <div className="bubble">
+              {t.role === "assistant" && t.content ? (
+                // react-markdown renders React elements (HTML in the model
+                // output is escaped, never injected), so this stays XSS-safe.
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{t.content}</ReactMarkdown>
+              ) : (
+                t.content || (busy && i === turns.length - 1 ? "…" : "")
+              )}
+            </div>
           </div>
         ))}
         <div ref={bottomRef} />
