@@ -81,26 +81,43 @@ class KnowledgeGraph:
         tokens = [t for t in query.split() if t]
         if not tokens:
             return []
-        clauses, params = [], {"q": query.lower(), "limit": limit}
+        token_exprs, params = [], {"q": query.lower(), "limit": limit}
         for i, tok in enumerate(tokens):
             params[f"t{i}"] = f"%{tok.lower()}%"
-            clauses.append(
+            token_exprs.append(
                 f"(lower(name) LIKE %(t{i})s OR lower(qualified_name) LIKE %(t{i})s"
                 f" OR lower(summary) LIKE %(t{i})s)"
             )
+        filters = []
         if kinds:
-            clauses.append("kind IN %(kinds)s")
+            filters.append("kind IN %(kinds)s")
             params["kinds"] = kinds
         if repos:
-            clauses.append("repo IN %(repos)s")
+            filters.append("repo IN %(repos)s")
             params["repos"] = repos
-        rows = self._query_rows(
-            f"SELECT {', '.join(NODE_FIELDS)} FROM table({self.prefix}kg_nodes)"
-            f" WHERE {' AND '.join(clauses)}"
-            " ORDER BY (lower(name) = %(q)s) DESC, length(name) ASC"
-            " LIMIT %(limit)s",
-            parameters=params,
+
+        def _run(where_clauses, order):
+            return self._query_rows(
+                f"SELECT {', '.join(NODE_FIELDS)} FROM table({self.prefix}kg_nodes)"
+                f" WHERE {' AND '.join(where_clauses)}"
+                f" ORDER BY {order} LIMIT %(limit)s",
+                parameters=params,
+            )
+
+        rows = _run(
+            token_exprs + filters,
+            "(lower(name) = %(q)s) DESC, length(name) ASC",
         )
+        if not rows and len(tokens) > 1:
+            # Strict all-tokens match found nothing; fall back to any-token
+            # matching ranked by how many tokens matched, so phrase-like
+            # queries still surface the closest entities.
+            score = " + ".join(f"({e})" for e in token_exprs)
+            params["score_min"] = 0
+            rows = _run(
+                [f"({score}) > %(score_min)s"] + filters,
+                f"({score}) DESC, length(name) ASC",
+            )
         return [dict(zip(NODE_FIELDS, r)) for r in rows]
 
     def get_entity(self, entity_id: str):

@@ -62,3 +62,14 @@ def test_tool_exception_becomes_structured_error_string():
     assert isinstance(out, str)
     assert "TOOL_ERROR" in out
     assert "boom" in out
+
+
+def test_search_empty_returns_guidance_string():
+    class EmptyKG(FakeKG):
+        def search_entities(self, query, kinds=None, repos=None, limit=20):
+            return []
+
+    tools = {t.name: t for t in build_agent_tools(EmptyKG())}
+    out = tools["search_entities"].invoke({"query": "no such thing"})
+    assert isinstance(out, str) and out.startswith("NO_RESULTS")
+    assert "could not find this in the knowledge graph" in out

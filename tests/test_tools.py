@@ -256,3 +256,16 @@ def test_read_source_output_is_capped(kg):
     lines = text.splitlines()
     assert len(lines) == KnowledgeGraph.MAX_SOURCE_LINES == 400
     assert lines[0] == "line1" and lines[-1] == "line400"
+
+
+def test_search_falls_back_to_ranked_any_token_match(kg):
+    # No entity matches all three tokens, but "checkpoint" and "flush" match
+    # a1 (2 tokens) and "checkpoint" matches b1/d1 (1 token) — fallback must
+    # return ranked results instead of nothing.
+    hits = kg.search_entities("checkpoint flush zebra")
+    assert hits, "fallback should return ranked partial matches"
+    assert hits[0]["id"] == "a1"  # most tokens matched ranks first
+
+
+def test_search_no_token_matches_still_empty(kg):
+    assert kg.search_entities("xyzzy plugh") == []

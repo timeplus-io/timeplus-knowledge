@@ -27,10 +27,19 @@ def build_agent_tools(kg) -> list:
         limit: int = 20,
     ) -> list[dict] | str:
         """Find code/doc entities in the Timeplus knowledge graph by keyword.
-        Every whitespace-separated token must match the entity's name,
-        qualified name, or summary (case-insensitive). Start here for any
+        Results are ranked; multi-word queries fall back to best-effort
+        matching when no entity matches every word. Start here for any
         question; use kinds/repos to narrow."""
-        return _safe(kg.search_entities, query, kinds=kinds, repos=repos, limit=limit)
+        result = _safe(kg.search_entities, query, kinds=kinds, repos=repos, limit=limit)
+        if result == []:
+            return (
+                "NO_RESULTS: nothing in the graph matches any word of "
+                f"{query!r}. Try ONE different, distinctive keyword (e.g. a "
+                "config name, class name, or concept). If 3-4 varied "
+                "keywords all return NO_RESULTS, stop searching and answer "
+                "that you could not find this in the knowledge graph."
+            )
+        return result
 
     @tool
     def get_entity(entity_id: str) -> dict | None | str:
