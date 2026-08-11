@@ -95,6 +95,16 @@ class KnowledgeGraph:
                 paths = corpus.entry_paths([e for e in entries if e.enabled])
         except Exception:
             keys, paths = None, {}
+        # Intentionally written without `self._lock`. This is a benign race
+        # under the GIL: two threads refreshing concurrently at worst both
+        # recompute and each write the (same-shaped) result -- a redundant
+        # `list_entries` round-trip, never a torn read (each assignment here
+        # is a single reference swap) or inconsistent data. Leave it
+        # unlocked: `self._lock` is a plain (non-reentrant) `threading.Lock`,
+        # and the fetch just above already goes through `_query_rows`, which
+        # itself takes `self._lock` -- wrapping this whole method in
+        # `self._lock` too would self-deadlock the thread that refreshes the
+        # cache.
         self._corpus_keys, self._corpus_paths = keys, paths
         self._corpus_cached_at = now
         return keys, paths
@@ -304,7 +314,11 @@ class KnowledgeGraph:
         _, corpus_paths = self._corpus_state()
         root = corpus_paths.get(repo) or self.repo_paths.get(repo)
         if root is None:
-            raise ValueError(f"unknown repo {repo!r}; known: {sorted(self.repo_paths)}")
+            # Include the live corpus entry keys (name@ref), not just the
+            # static `repo_paths` bare names, so the LLM sees the actual
+            # valid keys to retry with.
+            known = sorted(set(self.repo_paths) | set(corpus_paths))
+            raise ValueError(f"unknown repo {repo!r}; known: {known}")
         target = (Path(root) / file_path).resolve()
         if not target.is_relative_to(Path(root).resolve()):
             raise ValueError(f"path {file_path!r} escapes repo checkout")

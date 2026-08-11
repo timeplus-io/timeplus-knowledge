@@ -308,6 +308,34 @@ def test_disabled_entry_invisible_everywhere(tp, tmp_path):
     _eventually(lambda: kg.get_entity("v2n"), lambda v: v is not None)  # live toggle
 
 
+def test_all_entries_disabled_means_zero_results(tp, tmp_path):
+    """Every corpus entry disabled -> `active` is `[]` (not `None`), so the
+    `active or ["__none__"]` sentinel branch in `_nodes_by_ids` /
+    `_edges_touching` / `search_entities` / `list_communities` must match
+    nothing, not fall through to unfiltered."""
+    from tpk.ingest import upsert_graph
+    from tpk.tools import KnowledgeGraph
+
+    client, prefix = tp
+    n1 = replace(SEED_NODES[0], id="allv1n", repo="allr@v1")
+    upsert_graph(client, prefix, [n1], [], datetime.now(timezone.utc))
+    _seed_corpus_entry(client, prefix, "allr", "v1", enabled=False)
+
+    kg = KnowledgeGraph(client, stream_prefix=prefix, corpus_ttl=0)
+    # Wait for the row to actually be visible before asserting on absence --
+    # otherwise a slow write (not the filter) could make this pass for the
+    # wrong reason.
+    _eventually(lambda: len(corpus_entries_for(client, prefix)), lambda v: v >= 1)
+    assert kg.search_entities("checkpoint") == []
+    assert kg.list_communities() == []
+
+
+def corpus_entries_for(client, prefix):
+    from tpk import corpus
+
+    return corpus.list_entries(client, prefix=prefix)
+
+
 def test_empty_corpus_store_means_no_filter(kg):
     # the kg fixture seeds nodes but never touches kg_repos -> unfiltered
     assert kg.search_entities("checkpoint")
