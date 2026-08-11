@@ -162,7 +162,7 @@ def _capture_graphify(monkeypatch, calls):
     import tpk.graphify_runner as gr
 
     def fake_run(cmd, capture_output, text, env=None):
-        calls.append({"cmd": cmd, "env": env})
+        calls.append({"cmd": cmd, "env": env, "capture_output": capture_output})
         out = Path(cmd[cmd.index("--out") + 1])
         gj = out / "graphify-out" / "graph.json"
         gj.parent.mkdir(parents=True, exist_ok=True)
@@ -255,3 +255,25 @@ def test_run_graphify_semantic_accepts_base_url_instead_of_key(monkeypatch, tmp_
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://other.internal")
     with pytest.raises(GraphifyError, match="disambiguate"):
         run_graphify(tmp_path, tmp_path / "o3", extraction="semantic")
+
+
+def test_run_graphify_stream_mode(monkeypatch, tmp_path: Path):
+    from tpk.graphify_runner import GraphifyError, run_graphify
+
+    calls: list = []
+    _capture_graphify(monkeypatch, calls)
+    run_graphify(tmp_path, tmp_path / "o1", stream=True)
+    assert calls[0]["capture_output"] is False
+
+    # streamed failure: stderr is not captured; error must not crash on None
+    import tpk.graphify_runner as gr
+
+    class _FailProc:
+        returncode = 1
+        stderr = None
+
+    monkeypatch.setattr(
+        gr.subprocess, "run", lambda cmd, capture_output, text, env=None: _FailProc()
+    )
+    with pytest.raises(GraphifyError, match="see output above"):
+        run_graphify(tmp_path, tmp_path / "o2", stream=True)

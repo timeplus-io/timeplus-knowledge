@@ -41,7 +41,9 @@ RUN printf '#!/bin/sh\nPATH=/opt/tpk/.venv/bin:$PATH exec /opt/tpk/.venv/bin/tpk
 
 # tpk inside the container talks to its own timeplusd (password defaults to
 # empty in tpk.config.Settings; set TIMEPLUS_PASSWORD at runtime if needed).
+# PYTHONUNBUFFERED keeps tpk's progress lines live through `docker exec -T`.
 ENV TIMEPLUS_HOST=localhost \
-    TIMEPLUS_USER=default
+    TIMEPLUS_USER=default \
+    PYTHONUNBUFFERED=1
 
 USER 101:101

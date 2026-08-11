@@ -17,6 +17,9 @@ REPOS_TOML = Path(__file__).resolve().parents[2] / "repos.toml"
 def ingest(
     repo: str = typer.Option(None, help="Repo name from repos.toml; omit for all"),
     repos_file: Path = typer.Option(REPOS_TOML, help="Path to repos.toml"),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Stream graphify's own output live"
+    ),
 ):
     """Run graphify on repo checkouts and upsert the graph into Timeplus."""
     settings = Settings.from_env()
@@ -29,8 +32,9 @@ def ingest(
     if repo and repo not in repos:
         raise typer.BadParameter(f"unknown repo {repo!r}; known: {sorted(repos)}")
     targets = [repos[repo]] if repo else list(repos.values())
-    for cfg in targets:
-        result = ingest_repo(client, cfg, backend=backend, model=model)
+    for i, cfg in enumerate(targets, 1):
+        typer.echo(f"[{i}/{len(targets)}] {cfg.name}: extracting ({cfg.extraction})...")
+        result = ingest_repo(client, cfg, backend=backend, model=model, stream=verbose)
         typer.echo(f"{result.repo}: {result.status} ({result.nodes} nodes, {result.edges} edges)")
 
 

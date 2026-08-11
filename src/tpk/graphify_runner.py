@@ -157,6 +157,7 @@ def run_graphify(
     extraction: str = "code-only",
     backend: str | None = None,
     model: str | None = None,
+    stream: bool = False,
 ) -> Path:
     """Run `graphify extract` on repo_path and return the path to graph.json.
 
@@ -182,9 +183,11 @@ def run_graphify(
     cmd += ["--out", str(out_dir)]
     child_env = _child_env_with_placeholder_key()
     try:
+        # stream=True inherits stdout/stderr so graphify's own progress
+        # output is visible live (used by `tpk ingest --verbose`).
         proc = subprocess.run(
             cmd,
-            capture_output=True,
+            capture_output=not stream,
             text=True,
             env=child_env,
         )
@@ -194,7 +197,8 @@ def run_graphify(
             "(providing the `graphify` CLI) is installed in this environment"
         ) from exc
     if proc.returncode != 0:
-        raise GraphifyError(f"graphify failed on {repo_path}: {proc.stderr[-2000:]}")
+        detail = "see output above" if stream else (proc.stderr or "")[-2000:]
+        raise GraphifyError(f"graphify failed on {repo_path}: {detail}")
     graph_json = out_dir / "graphify-out" / "graph.json"
     if not graph_json.exists():
         raise GraphifyError(f"graphify produced no graph.json in {out_dir}")
