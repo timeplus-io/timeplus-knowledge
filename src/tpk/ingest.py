@@ -85,7 +85,11 @@ def ingest_repo(
             repo_path = fetch_github_repo(repo_cfg)
         graph_json = run_graphify(
             repo_path,
-            out_root / key,
+            # `key` (name@ref) can contain '/' for branch/tag-style refs
+            # (e.g. "helm@release/1.0") -- sanitize the same way
+            # `resolved_repo_path` sanitizes the checkout dir, so a ref with
+            # '/' doesn't create nested graphify-out directories.
+            out_root / key.replace("/", "_"),
             extraction=repo_cfg.extraction,
             backend=backend,
             model=model,

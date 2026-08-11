@@ -42,11 +42,18 @@ def fetch_github_repo(cfg: RepoConfig) -> Path:
     with a cheap shallow fetch + reset, which is a no-op for unchanged tags
     and picks up new commits for branch refs.
     """
+    # Defense in depth: the API route validates `ref` already, but a
+    # leading '-' would otherwise let git parse the ref as an option (e.g.
+    # `--upload-pack=...`). CLI/repos.toml callers go through this too.
+    if cfg.ref.startswith("-"):
+        raise ValueError(f"invalid ref {cfg.ref!r}: must not start with '-'")
     dest = resolved_repo_path(cfg)
     if (dest / ".git").is_dir():
-        _git(["fetch", "--depth", "1", "origin", cfg.ref], cwd=dest)
+        # `--` stops git from parsing `cfg.ref` as an option even if the
+        # leading-'-' guard above were ever bypassed (e.g. a future caller).
+        _git(["fetch", "--depth", "1", "origin", "--", cfg.ref], cwd=dest)
         _git(["reset", "--hard", "FETCH_HEAD"], cwd=dest)
     else:
         dest.parent.mkdir(parents=True, exist_ok=True)
-        _git(["clone", "--depth", "1", "--branch", cfg.ref, clone_url(cfg.github), str(dest)])
+        _git(["clone", "--depth", "1", "--branch", cfg.ref, "--", clone_url(cfg.github), str(dest)])
     return dest
