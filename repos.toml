@@ -12,6 +12,9 @@
 # Backend for semantic extraction: "claude" | "openai" | "auto".
 # "auto" lets graphify pick from whichever API key is exported.
 backend = "auto"
+# Per-chunk token budget for semantic extraction. Gateways (AWS Bedrock)
+# reject oversized request bodies; 16000 stays under the limit.
+token_budget = 16000
 
 [repos.proton]
 path = "/Users/gangtao/Code/timeplus/proton"

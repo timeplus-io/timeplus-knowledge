@@ -34,7 +34,14 @@ def ingest(
     targets = [repos[repo]] if repo else list(repos.values())
     for i, cfg in enumerate(targets, 1):
         typer.echo(f"[{i}/{len(targets)}] {cfg.name}: extracting ({cfg.extraction})...")
-        result = ingest_repo(client, cfg, backend=backend, model=model, stream=verbose)
+        result = ingest_repo(
+            client,
+            cfg,
+            backend=backend,
+            model=model,
+            token_budget=llm.token_budget,
+            stream=verbose,
+        )
         typer.echo(f"{result.repo}: {result.status} ({result.nodes} nodes, {result.edges} edges)")
 
 

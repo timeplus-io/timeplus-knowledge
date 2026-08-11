@@ -72,6 +72,7 @@ def ingest_repo(
     out_root: Path = Path(".graphify_out"),
     backend: str | None = None,
     model: str | None = None,
+    token_budget: int = 0,
     stream: bool = False,
 ) -> IngestResult:
     run_id = uuid.uuid4().hex[:12]
@@ -83,6 +84,7 @@ def ingest_repo(
             extraction=repo_cfg.extraction,
             backend=backend,
             model=model,
+            token_budget=token_budget,
             stream=stream,
         )
         nodes, edges = parse_graph_json(graph_json, repo_cfg.name, repo_cfg.visibility)

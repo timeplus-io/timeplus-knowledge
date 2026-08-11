@@ -277,3 +277,18 @@ def test_run_graphify_stream_mode(monkeypatch, tmp_path: Path):
     )
     with pytest.raises(GraphifyError, match="see output above"):
         run_graphify(tmp_path, tmp_path / "o2", stream=True)
+
+
+def test_run_graphify_token_budget_flag(monkeypatch, tmp_path: Path):
+    from tpk.graphify_runner import run_graphify
+
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    calls: list = []
+    _capture_graphify(monkeypatch, calls)
+    run_graphify(tmp_path, tmp_path / "o1", extraction="semantic", token_budget=16000)
+    cmd = calls[0]["cmd"]
+    assert cmd[cmd.index("--token-budget") + 1] == "16000"
+    run_graphify(tmp_path, tmp_path / "o2", extraction="semantic")
+    assert "--token-budget" not in calls[1]["cmd"]
+    run_graphify(tmp_path, tmp_path / "o3", token_budget=16000)  # code-only: no flag
+    assert "--token-budget" not in calls[2]["cmd"]

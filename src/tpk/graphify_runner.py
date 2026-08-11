@@ -157,6 +157,7 @@ def run_graphify(
     extraction: str = "code-only",
     backend: str | None = None,
     model: str | None = None,
+    token_budget: int = 0,
     stream: bool = False,
 ) -> Path:
     """Run `graphify extract` on repo_path and return the path to graph.json.
@@ -180,6 +181,8 @@ def run_graphify(
             cmd += ["--backend", backend]
         if model:
             cmd += ["--model", model]
+        if token_budget:
+            cmd += ["--token-budget", str(token_budget)]
     cmd += ["--out", str(out_dir)]
     child_env = _child_env_with_placeholder_key()
     try:

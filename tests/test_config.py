@@ -84,3 +84,11 @@ def test_load_llm_model(tmp_path: Path):
     assert llm.model == "gpt-5.2"
     toml_path.write_text('[repos.x]\npath = "/x"\nvisibility = "internal"\n')
     assert load_llm(toml_path).model == ""
+
+
+def test_load_llm_token_budget(tmp_path: Path):
+    toml_path = tmp_path / "repos.toml"
+    toml_path.write_text('[llm]\nbackend = "openai"\ntoken_budget = 16000\n')
+    assert load_llm(toml_path).token_budget == 16000
+    toml_path.write_text('[repos.x]\npath = "/x"\nvisibility = "internal"\n')
+    assert load_llm(toml_path).token_budget == 0

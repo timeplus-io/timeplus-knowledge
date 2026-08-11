@@ -39,6 +39,8 @@ class RepoConfig:
 class LLMConfig:
     backend: str = "auto"  # "auto" | "claude" | "openai"
     model: str = ""  # backend default when empty; else passed to graphify --model
+    token_budget: int = 0  # 0 = graphify default; else --token-budget per chunk
+    # (gateways like Bedrock reject oversized request bodies; ~16000 is safe)
 
 
 def load_repos(toml_path: Path) -> dict[str, RepoConfig]:
@@ -66,7 +68,11 @@ def load_llm(toml_path: Path) -> LLMConfig:
     backend = llm.get("backend", "auto")
     if backend not in LLM_BACKENDS:
         raise ValueError(f"llm.backend must be one of {LLM_BACKENDS}, got {backend!r}")
-    return LLMConfig(backend=backend, model=llm.get("model", ""))
+    return LLMConfig(
+        backend=backend,
+        model=llm.get("model", ""),
+        token_budget=int(llm.get("token_budget", 0)),
+    )
 
 
 AGENT_PROVIDERS = ("anthropic", "openai")

@@ -192,11 +192,13 @@ def test_ingest_repo_passes_extraction_and_backend(tp, monkeypatch, tmp_path: Pa
     calls: dict = {}
 
     def fake_run_graphify(
-        repo_path, out_dir, extraction="code-only", backend=None, model=None, stream=False
+        repo_path, out_dir, extraction="code-only", backend=None, model=None,
+        token_budget=0, stream=False,
     ):
         calls["extraction"] = extraction
         calls["backend"] = backend
         calls["model"] = model
+        calls["token_budget"] = token_budget
         calls["stream"] = stream
         raise RuntimeError("stop after capture")
 
@@ -211,11 +213,13 @@ def test_ingest_repo_passes_extraction_and_backend(tp, monkeypatch, tmp_path: Pa
         out_root=tmp_path / "o",
         backend="openai",
         model="gpt-5.2",
+        token_budget=16000,
         stream=True,
     )
     assert result.status == "failed"  # capture stub raised, isolation held
     assert calls == {
-        "extraction": "semantic", "backend": "openai", "model": "gpt-5.2", "stream": True
+        "extraction": "semantic", "backend": "openai", "model": "gpt-5.2",
+        "token_budget": 16000, "stream": True,
     }
 
 
