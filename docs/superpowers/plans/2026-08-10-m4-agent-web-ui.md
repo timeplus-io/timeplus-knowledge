@@ -20,7 +20,7 @@
 - No auth in v1 (spec). Server binds 127.0.0.1 by default; `--host 0.0.0.0` opt-in (compose uses it).
 - Every read of Timeplus goes through `KnowledgeGraph` (already `table(...)`-wrapped). No new SQL in this plan.
 - Python ≥ 3.11, uv, conventional commits. Full pytest suite green (`TIMEPLUS_HOST=localhost uv run pytest`) before each commit; UI build verified with `npm run build`.
-- Web UI: minimal, clean, dark-capable chat page; CSS custom properties so Timeplus console tokens can be dropped in later. No UI framework beyond React.
+- Web UI: follows the Timeplus Console design system (https://github.com/timeplus-io/AgentSkills/blob/main/timeplus-design/DESIGN.md) VERBATIM: Inter font (400 body / 600 headings+buttons, never below 12px), neutral grays carry the UI, pink #D53F8C is the single primary-action accent (#B83280 hover), page background #F7F6F6, white surfaces with 1px #DAD9DB borders, 4px radius everywhere, NO shadows (borders separate surfaces), 32px buttons, 40px+ inputs, visible 2px pink focus ring. No UI framework beyond React.
 
 ## File Structure
 
@@ -946,34 +946,82 @@ export default function App() {
 }
 ```
 
-`web/src/app.css`:
+`web/src/app.css` (Timeplus Console tokens from DESIGN.md — use verbatim):
 
 ```css
+/* Timeplus Console design tokens
+   https://github.com/timeplus-io/AgentSkills/blob/main/timeplus-design/DESIGN.md */
 :root {
-  --bg: #0e1116;
-  --panel: #161b22;
-  --border: #2a313c;
-  --text: #e6e8eb;
-  --muted: #8b949e;
-  --accent: #d53f8c; /* placeholder — swap for Timeplus console token */
-  --user: #1f2937;
+  --gray-100: #120f1a; /* primary text */
+  --gray-200: #231f2b; /* headings */
+  --gray-300: #3a3741; /* labels, focused input border */
+  --gray-500: #7d7b82; /* disabled text */
+  --gray-600: #b5b4b8; /* clickable outlines, placeholder */
+  --gray-700: #dad9db; /* dividers, non-clickable outlines */
+  --gray-800: #ececed; /* hover rows */
+  --gray-900: #f7f6f6; /* page background */
+  --white: #ffffff;
+  --pink-400: #b83280; /* hover, links */
+  --pink-500: #d53f8c; /* primary action */
+  --red-500: #d12d50;  /* errors */
+  --radius: 4px;
 }
 * { box-sizing: border-box; margin: 0; }
-body { background: var(--bg); color: var(--text); font: 15px/1.6 -apple-system, "Segoe UI", sans-serif; }
-.shell { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; height: 100vh; padding: 0 16px; }
-header { padding: 20px 4px 12px; border-bottom: 1px solid var(--border); }
-header h1 { font-size: 18px; }
-header p { color: var(--muted); font-size: 13px; }
-main { flex: 1; overflow-y: auto; padding: 16px 4px; display: flex; flex-direction: column; gap: 14px; }
+body {
+  background: var(--gray-900);
+  color: var(--gray-100);
+  font-family: Inter, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.shell { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; height: 100vh; padding: 0 24px; }
+header { padding: 20px 0 16px; border-bottom: 1px solid var(--gray-700); }
+header h1 { font-size: 18px; font-weight: 600; line-height: 1.4; color: var(--gray-200); }
+header p { color: var(--gray-500); font-size: 12px; line-height: 1.4; }
+main { flex: 1; overflow-y: auto; padding: 16px 0; display: flex; flex-direction: column; gap: 16px; }
 .turn.user { align-self: flex-end; max-width: 80%; }
 .turn.assistant { align-self: stretch; }
-.turn.user .bubble { background: var(--user); border-radius: 10px; padding: 10px 14px; }
-.turn.assistant .bubble { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; white-space: pre-wrap; }
-.tools { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
-footer { display: flex; gap: 10px; padding: 14px 4px 20px; border-top: 1px solid var(--border); }
-textarea { flex: 1; resize: none; height: 52px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 12px; font: inherit; }
-button { background: var(--accent); color: white; border: 0; border-radius: 8px; padding: 0 22px; font: inherit; cursor: pointer; }
-button:disabled { opacity: 0.5; cursor: default; }
+.turn.user .bubble {
+  background: var(--gray-800);
+  border: 1px solid var(--gray-700);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+}
+.turn.assistant .bubble {
+  background: var(--white);
+  border: 1px solid var(--gray-700);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  white-space: pre-wrap;
+}
+.tools { color: var(--gray-500); font-size: 12px; line-height: 1.4; margin-bottom: 4px; }
+footer { display: flex; gap: 8px; align-items: flex-end; padding: 16px 0 24px; border-top: 1px solid var(--gray-700); }
+textarea {
+  flex: 1; resize: none; height: 40px; min-height: 40px;
+  background: var(--white); color: var(--gray-100);
+  border: 1px solid var(--gray-600); border-radius: var(--radius);
+  padding: 10px 12px; font: 400 14px/1.4 Inter, sans-serif;
+}
+textarea::placeholder { color: var(--gray-600); }
+textarea:focus { outline: 2px solid var(--pink-500); outline-offset: 1px; border-color: var(--gray-300); }
+button {
+  background: var(--pink-500); color: var(--white);
+  border: 0; border-radius: var(--radius);
+  height: 32px; padding: 0 16px;
+  font: 600 14px/1 Inter, sans-serif; cursor: pointer;
+}
+button:hover:not(:disabled) { background: var(--pink-400); }
+button:focus-visible { outline: 2px solid var(--pink-500); outline-offset: 2px; }
+button:disabled { background: var(--gray-700); color: var(--gray-500); cursor: default; }
+.error { color: var(--red-500); }
+```
+
+Also load the Inter font in `web/index.html` `<head>` (self-hosting is fine
+later; for now the Google Fonts link keeps the build simple):
+
+```html
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
 ```
 
 Add to `.gitignore`:
