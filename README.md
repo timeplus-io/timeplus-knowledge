@@ -91,6 +91,47 @@ local checkout (dev mode). Re-ingesting the same tag is a cheap cache hit;
   `.env.example`. Ingest fails fast with a clear error if a semantic repo
   has neither a key nor a base URL.
 
+### Which mode for a repo with both code and docs?
+
+Code files are parsed by the local AST extractor in **both** modes —
+`semantic` never sends code through the LLM. The modes differ only in
+what happens to non-code files: `code-only` skips them; `semantic` runs
+an additional LLM pass over them, producing the `document`/`concept`
+nodes the agent uses for conceptual questions. Pick by what the docs are
+worth:
+
+- Docs are incidental (a README, a changelog) → `code-only`. Free,
+  offline, deterministic.
+- The repo has meaningful docs, or is mostly config/YAML/Markdown →
+  `semantic`. LLM cost and wall-clock scale with the number of doc/config
+  files, **not** with code size — the code half is still AST-parsed for
+  free in the same run, so a large mixed repo is fine.
+- To trim the LLM bill on a semantic repo, drop an untracked
+  `.graphifyignore` into its checkout excluding doc dirs you don't need
+  (e.g. `static/`/images — some gateways reject image modality anyway).
+
+One failure-mode caveat (verified): if **every** LLM chunk fails (dead
+gateway, bad model id), graphify exits non-zero without writing
+`graph.json` — the successful AST results are discarded, the repo's
+ingest is logged `failed`, and the previous graph is left untouched.
+Partial chunk failures still produce a graph; re-run to fill the gaps.
+
+### Supported languages and file types
+
+The AST pass (runs in both modes) covers: Python,
+JavaScript/TypeScript (incl. JSX/TSX and Vue/Svelte/Astro components),
+Go, Rust, C, C++ (incl. CUDA/Metal), Java, Groovy/Gradle, C#, Kotlin,
+Scala, Swift, Ruby, PHP, Objective-C, Elixir, Lua, Julia, Fortran, Dart,
+Zig, PowerShell, Bash, Pascal/Delphi, Verilog, Apex, JSON, and .NET
+project files (`.sln`/`.csproj`/`.xaml`/`.razor`). SQL and
+Terraform/HCL need graphify's optional `sql`/`terraform` extras, which
+this project does not install — those files are skipped with a warning.
+
+The LLM pass (`semantic` mode only) covers doc/config files: Markdown
+(`.md`/`.mdx`), reStructuredText, plain text, HTML, and YAML — plus
+PDFs, images, and Office files if present (exclude images via
+`.graphifyignore` when your gateway lacks image modality).
+
     uv run tpk ingest                # all repos
     uv run tpk ingest --repo docs    # one repo
     uv run tpk status                # last run per repo
@@ -187,6 +228,94 @@ against the `tpk` service's database:
 
     docker compose up -d
     open http://localhost:8000
+
+## Manage the corpus
+
+Beyond `repos.toml` + `tpk ingest`, the running server exposes a management
+API and a **Manage** tab in the web UI (`http://localhost:8000`, next to the
+chat view) for adding, versioning, enabling/disabling, reindexing, and
+deleting corpus entries without editing config or restarting the server.
+
+**Versioning model.** Each corpus entry's identity is `(name, ref)`, keyed in
+the graph as `name@ref` (e.g. `helm-charts@timeplus-enterprise-v13.0.6`; a
+local-path entry with no `ref` keys as the bare `name`). Multiple `ref`s of
+the same `name` can coexist side by side — their nodes/edges live under
+distinct `repo` keys in `kg_nodes`/`kg_edges` and don't collide. The
+`enabled` flag on each entry (stored in `kg_repos`, the corpus source of
+truth) gates whether it's searchable: the chat agent and `search_entities`
+only see entries where `enabled = true` (`corpus.list_entries(...).enabled`
+filters both the live agent's corpus prompt and `KnowledgeGraph`'s query
+paths), so a disabled entry's data stays in the graph but stops showing up
+in answers. **Delete** removes the `kg_repos` row; pass `purge` to also
+delete its `kg_nodes`/`kg_edges` rows (irreversible — the Manage tab asks for
+confirmation and shows a "also delete indexed data" checkbox for this).
+
+**Release-upgrade workflow** (e.g. bumping `helm-charts` to a new chart
+release without losing the old one while you verify):
+
+1. Add the new `(name, ref)` via the API or the Manage tab's "Add corpus
+   entry" form — this creates a second entry alongside the existing one,
+   both enabled by default.
+2. Let its ingest job run (submitted automatically on add, or trigger
+   **Reindex**) and confirm it reaches `ok` with a plausible node/edge count.
+3. Verify: ask the chat agent a question that should cite the new ref, or
+   query `kg_nodes` directly for its `repo` key.
+4. Flip the old ref's **Enabled** toggle off (keep the new one on) once
+   you're satisfied — this is a soft cutover, so you can flip back instantly
+   if the new ingest looks wrong, and both old and new are searchable side
+   by side until you do.
+
+**Management API** (all under `/api`, admin-gated when `TPK_ADMIN_TOKEN` is
+set — see below):
+
+| Method & path            | Body                                                | Notes |
+|---------------------------|-----------------------------------------------------|-------|
+| `GET /api/repos`          | —                                                     | List all entries: `name`, `ref`, `entry_key`, source, `enabled`, `node_count`, last ingest status/sha/time |
+| `POST /api/repos`         | `{name, github\|path, ref, visibility, extraction, description, enabled, ingest}` | Create/update an entry; `ingest: true` (default) submits a background ingest job immediately |
+| `POST /api/repos/toggle`  | `{name, ref, enabled}`                                | Flip searchability without touching indexed data |
+| `POST /api/repos/reindex` | `{name, ref}`                                         | Re-run ingest for an existing entry (submits a job) |
+| `POST /api/repos/delete`  | `{name, ref, purge}`                                  | Remove the entry; `purge: true` also deletes its `kg_nodes`/`kg_edges` rows |
+| `GET /api/jobs`           | —                                                     | Last 50 ingest jobs (`queued`/`running`/`ok`/`failed`), newest first |
+| `GET /api/jobs/{id}`      | —                                                     | Single job status |
+
+Ingest jobs run on a background worker thread inside the server process, so
+`POST` calls return immediately with a `job_id`; poll `/api/jobs` (the
+Manage tab does this every 5s) until it reaches `ok` or `failed`.
+
+**Input validation.** `name` must match `^[A-Za-z0-9._-]+$` and must not be
+`.` or `..` (both match that regex but, used as a filesystem path segment
+for checkout/out-dir paths, would walk outside the checkout cache); `ref`
+allows `/` (for refs like `release/1.0`) but rejects a leading `-` or `/`,
+`..` path components, and any other character outside `[A-Za-z0-9._/-]` —
+all return `400`. `path`-type entries (`{"path": "..."}` instead of
+`{"github": ...}`) are only accepted through this API when
+`TPK_ADMIN_TOKEN` is set (`403` otherwise): on the default open admin gate, a
+path entry would map an arbitrary server-filesystem path into the corpus,
+which the chat agent's `read_source` tool then treats as readable — i.e. an
+arbitrary-file-read primitive reachable over the network. Seeding path-type
+entries from `repos.toml` or the `tpk` CLI is unaffected; this gate applies
+only to the `/api/repos` create/update route.
+
+**Admin gate.** Set `TPK_ADMIN_TOKEN` in `.env`/the environment to require
+every `/api/*` call to carry a matching `X-Admin-Token` header (checked
+against the exact env value in `_require_admin`); requests without it, or
+with the wrong value, get `401`. Leaving `TPK_ADMIN_TOKEN` unset leaves the
+management API open — fine for local dev, not for anything reachable outside
+localhost. The Manage tab has a token field (top toolbar) that's sent as
+`X-Admin-Token` on every request and cached in `sessionStorage` so you don't
+retype it each visit.
+
+**Legacy-key migration note.** Before versioned entries, graph rows were
+keyed by bare `repo` name with no `@ref` suffix. The first `tpk ingest`
+(CLI or a job the management API submits) after upgrading to this version
+re-keys that repo's data: it writes the new run under `name@ref` *and*
+deletes any stale rows still sitting under the bare `name` (`ingest_repo`
+passes both `{key, repo_cfg.name}` to the stale-delete pass in
+`upsert_graph`) — so a repo you haven't re-ingested since upgrading may
+briefly show both a bare-name entry and a `name@ref` entry in
+`kg_ingest_log`/query results until its next ingest runs. No manual cleanup
+is needed; re-ingesting each repo once (`tpk ingest`, or Reindex from the
+Manage tab) completes the migration.
 
 ## Use from Claude Code (MCP)
 

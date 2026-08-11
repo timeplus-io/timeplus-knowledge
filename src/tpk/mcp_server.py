@@ -9,7 +9,7 @@ from pathlib import Path
 # relies on.
 from mcp.server.mcpserver import MCPServer as FastMCP
 
-from tpk import db
+from tpk import corpus, db
 from tpk.config import Settings, load_repos
 from tpk.config import repo_paths as resolved_repo_paths
 from tpk.tools import KnowledgeGraph
@@ -62,6 +62,8 @@ def build_server(kg) -> FastMCP:
 def main() -> None:
     settings = Settings.from_env()
     client = db.get_client(settings)
+    db.ensure_schema(client)
+    corpus.seed_from_toml(client, REPOS_TOML)
     repos = load_repos(REPOS_TOML)
     kg = KnowledgeGraph(client, repo_paths=resolved_repo_paths(repos))
     build_server(kg).run()  # stdio transport

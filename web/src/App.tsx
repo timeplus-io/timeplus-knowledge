@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+import Manage from "./Manage";
 
 // Models emit <br> inside GFM table cells (cells cannot hold real
 // newlines). rehype-raw parses raw HTML, then rehype-sanitize strips it
@@ -37,6 +38,7 @@ export default function App() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [view, setView] = useState<"chat" | "manage">("chat");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   async function send() {
@@ -77,45 +79,59 @@ export default function App() {
   return (
     <div className="shell">
       <header>
-        <h1>Timeplus Knowledge</h1>
-        <p>Ask anything about Timeplus — code, architecture, deployment.</p>
-      </header>
-      <main>
-        {turns.map((t, i) => (
-          <div key={i} className={`turn ${t.role}`}>
-            {t.tools && t.tools.length > 0 && (
-              <div className="tools">🔎 {t.tools.join(" → ")}</div>
-            )}
-            <div className="bubble">
-              {t.role === "assistant" && t.content ? (
-                // Raw HTML from the model is sanitized to a safe subset
-                // (see sanitizeSchema above) — scripts/handlers/img never
-                // reach the DOM, but <br> in table cells renders.
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
-                >
-                  {t.content}
-                </ReactMarkdown>
-              ) : (
-                t.content || (busy && i === turns.length - 1 ? "…" : "")
-              )}
-            </div>
+        <div className="header-row">
+          <div>
+            <h1>Timeplus Knowledge</h1>
+            <p>Ask anything about Timeplus — code, architecture, deployment.</p>
           </div>
-        ))}
-        <div ref={bottomRef} />
-      </main>
-      <footer>
-        <textarea
-          value={input}
-          placeholder="e.g. How do materialized view checkpoints work?"
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), send())}
-        />
-        <button onClick={send} disabled={busy || !input.trim()}>
-          {busy ? "Thinking…" : "Send"}
-        </button>
-      </footer>
+          <nav className="tabs">
+            <button className={view === "chat" ? "tab active" : "tab"}
+                    onClick={() => setView("chat")}>Chat</button>
+            <button className={view === "manage" ? "tab active" : "tab"}
+                    onClick={() => setView("manage")}>Manage</button>
+          </nav>
+        </div>
+      </header>
+      {view === "chat" ? (
+        <>
+          <main>
+            {turns.map((t, i) => (
+              <div key={i} className={`turn ${t.role}`}>
+                {t.tools && t.tools.length > 0 && (
+                  <div className="tools">🔎 {t.tools.join(" → ")}</div>
+                )}
+                <div className="bubble">
+                  {t.role === "assistant" && t.content ? (
+                    // Raw HTML from the model is sanitized to a safe subset
+                    // (see sanitizeSchema above) — scripts/handlers/img never
+                    // reach the DOM, but <br> in table cells renders.
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
+                    >
+                      {t.content}
+                    </ReactMarkdown>
+                  ) : (
+                    t.content || (busy && i === turns.length - 1 ? "…" : "")
+                  )}
+                </div>
+              </div>
+            ))}
+            <div ref={bottomRef} />
+          </main>
+          <footer>
+            <textarea
+              value={input}
+              placeholder="e.g. How do materialized view checkpoints work?"
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), send())}
+            />
+            <button onClick={send} disabled={busy || !input.trim()}>
+              {busy ? "Thinking…" : "Send"}
+            </button>
+          </footer>
+        </>
+      ) : <Manage />}
     </div>
   );
 }

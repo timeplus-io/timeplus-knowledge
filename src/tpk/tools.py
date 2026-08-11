@@ -4,6 +4,7 @@ Consumed by the MCP server (this plan) and the LangGraph agent (follow-up plan).
 """
 
 import threading
+import time
 from pathlib import Path
 
 NODE_FIELDS = [
@@ -11,6 +12,29 @@ NODE_FIELDS = [
     "line_start", "line_end", "summary", "community", "visibility",
 ]
 EDGE_FIELDS = ["src", "dst", "rel", "confidence", "repo"]
+
+
+class _LockedRows:
+    """Mimics timeplus_connect's `client.query(...)` return value (just the
+    `.result_rows` attribute `tpk.corpus`'s helpers read)."""
+
+    __slots__ = ("result_rows",)
+
+    def __init__(self, rows: list[tuple]):
+        self.result_rows = rows
+
+
+class _LockedClientProxy:
+    """Adapts `KnowledgeGraph._query_rows` to the `client.query(...)
+    .result_rows` shape so `tpk.corpus` functions (written against a plain
+    timeplus_connect client) can be reused from inside KnowledgeGraph
+    without opening a second, unlocked path to `self.client`."""
+
+    def __init__(self, kg: "KnowledgeGraph"):
+        self._kg = kg
+
+    def query(self, sql: str, parameters: dict | None = None) -> _LockedRows:
+        return _LockedRows(self._kg._query_rows(sql, parameters=parameters))
 
 
 class KnowledgeGraph:
@@ -21,7 +45,9 @@ class KnowledgeGraph:
     MAX_PATH_DEPTH = 6
     MAX_SOURCE_LINES = 400
 
-    def __init__(self, client, stream_prefix: str = "", repo_paths: dict[str, Path] | None = None):
+    def __init__(self, client, stream_prefix: str = "",
+                 repo_paths: dict[str, Path] | None = None,
+                 corpus_ttl: float = 5.0):
         self.client = client
         self.prefix = stream_prefix
         self.repo_paths = repo_paths or {}
@@ -33,6 +59,10 @@ class KnowledgeGraph:
         # KnowledgeGraph per process), so every call into `self.client` must
         # be serialized through this lock.
         self._lock = threading.Lock()
+        self._corpus_ttl = corpus_ttl
+        self._corpus_cached_at = 0.0
+        self._corpus_keys: list[str] | None = None
+        self._corpus_paths: dict[str, Path] = {}
 
     # -- internals ---------------------------------------------------------
 
@@ -44,13 +74,53 @@ class KnowledgeGraph:
         with self._lock:
             return self.client.query(sql, parameters=parameters).result_rows
 
+    def _corpus_state(self) -> tuple[list[str] | None, dict[str, Path]]:
+        """Enabled entry keys + their resolved paths, cached for
+        `corpus_ttl` seconds. `(None, {})` means the kg_repos store is
+        absent/empty (or unreadable) -> no filtering, static repo_paths
+        only. An empty-but-present list (`[]`, store non-empty but every
+        entry disabled) is a real "match nothing" state, distinct from
+        `None` -- callers must not treat it as unfiltered."""
+        now = time.monotonic()
+        if self._corpus_cached_at and now - self._corpus_cached_at < self._corpus_ttl:
+            return self._corpus_keys, self._corpus_paths
+        keys: list[str] | None = None
+        paths: dict[str, Path] = {}
+        try:
+            from tpk import corpus
+
+            entries = corpus.list_entries(_LockedClientProxy(self), prefix=self.prefix)
+            if entries:
+                keys = corpus.enabled_keys_from(entries)
+                paths = corpus.entry_paths([e for e in entries if e.enabled])
+        except Exception:
+            keys, paths = None, {}
+        # Intentionally written without `self._lock`. This is a benign race
+        # under the GIL: two threads refreshing concurrently at worst both
+        # recompute and each write the (same-shaped) result -- a redundant
+        # `list_entries` round-trip, never a torn read (each assignment here
+        # is a single reference swap) or inconsistent data. Leave it
+        # unlocked: `self._lock` is a plain (non-reentrant) `threading.Lock`,
+        # and the fetch just above already goes through `_query_rows`, which
+        # itself takes `self._lock` -- wrapping this whole method in
+        # `self._lock` too would self-deadlock the thread that refreshes the
+        # cache.
+        self._corpus_keys, self._corpus_paths = keys, paths
+        self._corpus_cached_at = now
+        return keys, paths
+
     def _nodes_by_ids(self, ids: list[str]) -> list[dict]:
         if not ids:
             return []
+        clauses, params = ["id IN %(ids)s"], {"ids": ids}
+        active, _ = self._corpus_state()
+        if active is not None:
+            clauses.append("repo IN %(active_repos)s")
+            params["active_repos"] = active or ["__none__"]
         rows = self._query_rows(
             f"SELECT {', '.join(NODE_FIELDS)} FROM table({self.prefix}kg_nodes)"
-            " WHERE id IN %(ids)s",
-            parameters={"ids": ids},
+            f" WHERE {' AND '.join(clauses)}",
+            parameters=params,
         )
         return [dict(zip(NODE_FIELDS, r)) for r in rows]
 
@@ -68,6 +138,10 @@ class KnowledgeGraph:
         if confidence:
             clauses.append("confidence = %(conf)s")
             params["conf"] = confidence
+        active, _ = self._corpus_state()
+        if active is not None:
+            clauses.append("repo IN %(active_repos)s")
+            params["active_repos"] = active or ["__none__"]
         rows = self._query_rows(
             f"SELECT {', '.join(EDGE_FIELDS)} FROM table({self.prefix}kg_edges)"
             f" WHERE {' AND '.join(clauses)}",
@@ -95,6 +169,10 @@ class KnowledgeGraph:
         if repos:
             filters.append("repo IN %(repos)s")
             params["repos"] = repos
+        active, _ = self._corpus_state()
+        if active is not None:
+            filters.append("repo IN %(active_repos)s")
+            params["active_repos"] = active or ["__none__"]
 
         def _run(where_clauses, order):
             return self._query_rows(
@@ -210,10 +288,15 @@ class KnowledgeGraph:
         return path
 
     def list_communities(self, repo=None):
-        clause, params = "", {}
+        clauses, params = [], {}
         if repo:
-            clause = " WHERE repo = %(repo)s"
+            clauses.append("repo = %(repo)s")
             params["repo"] = repo
+        active, _ = self._corpus_state()
+        if active is not None:
+            clauses.append("repo IN %(active_repos)s")
+            params["active_repos"] = active or ["__none__"]
+        clause = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self._query_rows(
             f"SELECT repo, community, count() AS node_count"
             f" FROM table({self.prefix}kg_nodes){clause}"
@@ -228,9 +311,14 @@ class KnowledgeGraph:
         wider request is silently truncated to line_start + MAX_SOURCE_LINES - 1,
         it does not raise.
         """
-        root = self.repo_paths.get(repo)
+        _, corpus_paths = self._corpus_state()
+        root = corpus_paths.get(repo) or self.repo_paths.get(repo)
         if root is None:
-            raise ValueError(f"unknown repo {repo!r}; known: {sorted(self.repo_paths)}")
+            # Include the live corpus entry keys (name@ref), not just the
+            # static `repo_paths` bare names, so the LLM sees the actual
+            # valid keys to retry with.
+            known = sorted(set(self.repo_paths) | set(corpus_paths))
+            raise ValueError(f"unknown repo {repo!r}; known: {known}")
         target = (Path(root) / file_path).resolve()
         if not target.is_relative_to(Path(root).resolve()):
             raise ValueError(f"path {file_path!r} escapes repo checkout")

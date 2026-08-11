@@ -59,3 +59,13 @@ def test_fetch_reuses_and_updates_branch_ref(origin, tmp_path):
 def test_fetch_bad_ref_raises(origin):
     with pytest.raises(FetchError):
         fetch_github_repo(RepoConfig(name="r", github="fake/repo", ref="no-such-tag"))
+
+
+def test_fetch_rejects_ref_starting_with_dash(origin):
+    # Defense in depth against git-option injection via `ref` (the API
+    # route validates this too, but the fetch call site must not trust it
+    # blindly): a leading '-' is rejected before git ever sees it, on both
+    # the fresh-clone and existing-checkout-update paths (the guard runs
+    # before either branch).
+    with pytest.raises(ValueError):
+        fetch_github_repo(RepoConfig(name="r", github="fake/repo", ref="--upload-pack=x"))

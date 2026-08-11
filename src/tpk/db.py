@@ -51,10 +51,23 @@ def ensure_schema(client, prefix: str = "") -> None:
           status string
         )
     """)
+    client.command(f"""
+        CREATE MUTABLE STREAM IF NOT EXISTS {prefix}kg_repos (
+          name string,
+          ref string,
+          github string,
+          path string,
+          enabled bool,
+          visibility string,
+          extraction string,
+          description string,
+          updated_at datetime64(3, 'UTC')
+        ) PRIMARY KEY (name, ref)
+    """)
 
 
 def drop_schema(client, prefix: str) -> None:
     if not prefix:
         raise ValueError("refusing to drop unprefixed (production) streams")
-    for name in ("kg_nodes", "kg_edges", "kg_ingest_log"):
+    for name in ("kg_nodes", "kg_edges", "kg_ingest_log", "kg_repos"):
         client.command(f"DROP STREAM IF EXISTS {prefix}{name}")
