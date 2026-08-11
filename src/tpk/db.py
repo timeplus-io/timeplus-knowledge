@@ -64,10 +64,40 @@ def ensure_schema(client, prefix: str = "") -> None:
           updated_at datetime64(3, 'UTC')
         ) PRIMARY KEY (name, ref)
     """)
+    client.command(f"""
+        CREATE MUTABLE STREAM IF NOT EXISTS {prefix}kg_users (
+          username string,
+          password_hash string,
+          role string,
+          must_change_password bool,
+          disabled bool,
+          created_at datetime64(3, 'UTC'),
+          updated_at datetime64(3, 'UTC')
+        ) PRIMARY KEY (username)
+    """)
+    client.command(f"""
+        CREATE MUTABLE STREAM IF NOT EXISTS {prefix}kg_roles (
+          name string,
+          entry_keys string,
+          description string,
+          updated_at datetime64(3, 'UTC')
+        ) PRIMARY KEY (name)
+    """)
+    client.command(f"""
+        CREATE MUTABLE STREAM IF NOT EXISTS {prefix}kg_sessions (
+          token_hash string,
+          username string,
+          expires_at datetime64(3, 'UTC'),
+          created_at datetime64(3, 'UTC')
+        ) PRIMARY KEY (token_hash)
+    """)
 
 
 def drop_schema(client, prefix: str) -> None:
     if not prefix:
         raise ValueError("refusing to drop unprefixed (production) streams")
-    for name in ("kg_nodes", "kg_edges", "kg_ingest_log", "kg_repos"):
+    for name in (
+        "kg_nodes", "kg_edges", "kg_ingest_log", "kg_repos",
+        "kg_users", "kg_roles", "kg_sessions",
+    ):
         client.command(f"DROP STREAM IF EXISTS {prefix}{name}")

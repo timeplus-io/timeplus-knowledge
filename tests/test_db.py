@@ -12,7 +12,11 @@ def test_schema_created_and_idempotent(tp):
     # calling again must not raise (IF NOT EXISTS)
     db.ensure_schema(client, prefix)
     names = {r[0] for r in client.query("SHOW STREAMS").result_rows}
-    assert {f"{prefix}kg_nodes", f"{prefix}kg_edges", f"{prefix}kg_ingest_log"} <= names
+    assert {
+        f"{prefix}kg_nodes", f"{prefix}kg_edges", f"{prefix}kg_ingest_log",
+        f"{prefix}kg_repos", f"{prefix}kg_users", f"{prefix}kg_roles",
+        f"{prefix}kg_sessions",
+    } <= names
 
 
 def test_drop_schema_refuses_empty_prefix(tp):
