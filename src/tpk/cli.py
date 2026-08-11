@@ -52,5 +52,18 @@ def status():
         typer.echo(f"{repo:35s} {status_:7s} {nodes:>8} nodes {edges:>8} edges  {last_run}")
 
 
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", help="Bind address"),
+    port: int = typer.Option(8000, help="Port"),
+):
+    """Run the knowledge agent chat server (SSE /chat + web UI)."""
+    import uvicorn
+
+    from tpk.server import create_app
+
+    uvicorn.run(create_app(), host=host, port=port)
+
+
 if __name__ == "__main__":
     app()
