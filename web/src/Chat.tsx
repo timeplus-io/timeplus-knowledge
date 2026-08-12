@@ -12,10 +12,7 @@ import { readSource, type SourceResponse } from "./graph";
 // event-handler attributes are removed. We additionally drop img so model
 // output can never load external resources (tracking pixels). Ported
 // unchanged from the old App.tsx chat implementation.
-// Exported (alongside citationPlugin below) so scripts/check-citations.mjs
-// can render the EXACT rehypePlugins pipeline this component uses, instead
-// of testing a copy that could silently drift from the real code.
-export const sanitizeSchema = {
+const sanitizeSchema = {
   ...defaultSchema,
   tagNames: (defaultSchema.tagNames ?? []).filter((t) => t !== "img"),
 };
@@ -119,72 +116,6 @@ function fmtElapsed(ms: number): string {
 }
 
 // --------------------------------------------------------------------
-// Citation superscripts — [n] -> <sup><a href="#tk-source-n">[n]</a></sup>
-//
-// This is the LAST rehype plugin in the pipeline, running strictly after
-// rehypeRaw + rehypeSanitize have already reduced the model's raw markdown
-// to the safe subset (sanitizeSchema, unmodified). It never re-parses
-// untrusted text as HTML — it only ever constructs `sup`/`a` hast element
-// nodes itself (both already allowed by defaultSchema) around a digit-only
-// `[n]` match, so it cannot reintroduce anything sanitize would strip. The
-// hast tree's node shape isn't in this project's dependency graph as a
-// typed package, hence the `any`s confined to this one plugin.
-//
-// Exported for scripts/check-citations.mjs (see sanitizeSchema above for
-// why: the permanent XSS-safety test must exercise this real function).
-export function citationPlugin(sourceCount: number) {
-  return function transformer(tree: any) {
-    if (sourceCount <= 0) return;
-    walk(tree);
-  };
-
-  function walk(node: any) {
-    if (!node.children || node.children.length === 0) return;
-    // Never rewrite inside code/pre — "[1]" there is code, not a citation.
-    if (node.tagName === "code" || node.tagName === "pre") return;
-    const next: any[] = [];
-    for (const child of node.children) {
-      if (child.type === "text" && typeof child.value === "string" && /\[\d+\]/.test(child.value)) {
-        next.push(...splitText(child.value));
-      } else {
-        walk(child);
-        next.push(child);
-      }
-    }
-    node.children = next;
-  }
-
-  function splitText(text: string): any[] {
-    const out: any[] = [];
-    const re = /\[(\d+)\]/g;
-    let last = 0;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(text))) {
-      if (m.index > last) out.push({ type: "text", value: text.slice(last, m.index) });
-      const n = Number(m[1]);
-      if (n >= 1 && n <= sourceCount) {
-        out.push({
-          type: "element",
-          tagName: "sup",
-          properties: {},
-          children: [{
-            type: "element",
-            tagName: "a",
-            properties: { href: `#tk-source-${n}`, className: ["tk-citation"] },
-            children: [{ type: "text", value: `[${n}]` }],
-          }],
-        });
-      } else {
-        out.push({ type: "text", value: m[0] });
-      }
-      last = re.lastIndex;
-    }
-    if (last < text.length) out.push({ type: "text", value: text.slice(last) });
-    return out;
-  }
-}
-
-// --------------------------------------------------------------------
 // Source card — lazily fetches its own code preview via
 // GET /api/graph/source (graph.ts's readSource) once mounted, i.e. only
 // once the Sources panel actually renders it, not eagerly for every
@@ -204,9 +135,9 @@ function SourceCard({ n, source }: { n: number; source: SourceEventPayload }) {
   }, [source.repo, source.file_path, source.line_start, source.line_end]);
 
   return (
-    <div className="tk-source-card" id={`tk-source-${n}`}>
+    <div className="tk-source-card">
       <div className="tk-source-card-header">
-        <div className="tk-source-index">[{n}]</div>
+        <div className="tk-source-index">{n}.</div>
         <div className="tk-source-path">{source.file_path}</div>
       </div>
       {preview === "loading" ? (
@@ -247,7 +178,12 @@ export default function Chat({
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [corpusTags, setCorpusTags] = useState<string[]>([]);
-  const [panelClosed, setPanelClosed] = useState(false);
+  // The Sources panel is opened explicitly via each answer's "Sources (N)"
+  // button (not automatically, and not tied to any inline citation number —
+  // the model's citation text is unreliable). `activeSourcesTurn` is the turn
+  // index whose read sources the panel shows.
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [activeSourcesTurn, setActiveSourcesTurn] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -291,7 +227,8 @@ export default function Chat({
     if (!message || busy) return;
     setInput("");
     setBusy(true);
-    setPanelClosed(false);
+    setPanelOpen(false);
+    setActiveSourcesTurn(null);
     const history = turns.map((t) => ({ role: t.role, content: t.content }));
     setTurns((ts) => [...ts, newUserTurn(message), newAssistantTurn()]);
 
@@ -370,7 +307,8 @@ export default function Chat({
   function newConversation() {
     setTurns([]);
     setInput("");
-    setPanelClosed(false);
+    setPanelOpen(false);
+    setActiveSourcesTurn(null);
   }
 
   function renderTrace(turn: Turn, idx: number) {
@@ -413,12 +351,8 @@ export default function Chat({
   }
 
   const hasTurns = turns.length > 0;
-  const answeredWithSources = turns.filter(
-    (t) => t.role === "assistant" && t.status === "done" && t.sources.length > 0);
-  const sourcesTurn = answeredWithSources.length
-    ? answeredWithSources[answeredWithSources.length - 1]
-    : null;
-  const showSources = !panelClosed && sourcesTurn !== null;
+  const activeTurn = activeSourcesTurn != null ? turns[activeSourcesTurn] ?? null : null;
+  const showSources = panelOpen && activeTurn != null && activeTurn.sources.length > 0;
 
   return (
     <div className="tk-chat">
@@ -480,15 +414,10 @@ export default function Chat({
                       {turn.content ? (
                         <>
                           {/* Raw HTML from the model is sanitized to a safe
-                              subset (see sanitizeSchema above) before the
-                              citation plugin ever runs. */}
+                              subset (see sanitizeSchema) before rendering. */}
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
-                            rehypePlugins={[
-                              rehypeRaw,
-                              [rehypeSanitize, sanitizeSchema],
-                              [citationPlugin, turn.sources.length],
-                            ]}
+                            rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
                           >
                             {turn.content}
                           </ReactMarkdown>
@@ -498,22 +427,31 @@ export default function Chat({
                         <span className="tk-caret" />
                       ) : null}
                     </div>
+                    {turn.status === "done" && turn.sources.length > 0 && (
+                      <button
+                        type="button"
+                        className="tk-sources-btn"
+                        onClick={() => { setActiveSourcesTurn(i); setPanelOpen(true); }}
+                      >
+                        Sources ({turn.sources.length})
+                      </button>
+                    )}
                   </div>
                 ),
               )}
               <div ref={bottomRef} />
             </div>
           </div>
-          {showSources && sourcesTurn && (
+          {showSources && activeTurn && (
             <div className="tk-sources">
               <div className="tk-sources-header">
                 <div className="tk-sources-title">Sources</div>
-                <div className="tk-sources-count">{sourcesTurn.sources.length} cited</div>
+                <div className="tk-sources-count">{activeTurn.sources.length} read</div>
                 <div className="tk-sources-spacer" />
-                <button type="button" className="tk-sources-close" onClick={() => setPanelClosed(true)}>✕</button>
+                <button type="button" className="tk-sources-close" onClick={() => setPanelOpen(false)}>✕</button>
               </div>
               <div className="tk-sources-list">
-                {sourcesTurn.sources.map((s) => <SourceCard key={s.n} n={s.n} source={s} />)}
+                {activeTurn.sources.map((s) => <SourceCard key={s.n} n={s.n} source={s} />)}
               </div>
             </div>
           )}
