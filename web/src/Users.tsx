@@ -254,30 +254,34 @@ export default function Users() {
                         Reset password
                       </button>
                     )}
-                    <button type="button" className="tk-btn tk-btn-secondary"
-                            onClick={() => act(() => call("/api/users/update",
-                              { username: u.username, disabled: !u.disabled }))}>
-                      {u.disabled ? "Enable" : "Disable"}
-                    </button>
-                    {confirmingUser === u.username ? (
-                      <span className="tk-users-confirm">
-                        <button type="button" className="tk-btn tk-btn-solid-danger"
-                                onClick={() => {
-                                  setConfirmingUser(null);
-                                  act(() => call("/api/users/delete", { username: u.username }));
-                                }}>
-                          Confirm
-                        </button>
+                    {u.role !== "admin" && (
+                      <>
                         <button type="button" className="tk-btn tk-btn-secondary"
-                                onClick={() => setConfirmingUser(null)}>
-                          Cancel
+                                onClick={() => act(() => call("/api/users/update",
+                                  { username: u.username, disabled: !u.disabled }))}>
+                          {u.disabled ? "Enable" : "Disable"}
                         </button>
-                      </span>
-                    ) : (
-                      <button type="button" className="tk-btn tk-btn-secondary tk-btn-danger"
-                              onClick={() => setConfirmingUser(u.username)}>
-                        Delete
-                      </button>
+                        {confirmingUser === u.username ? (
+                          <span className="tk-users-confirm">
+                            <button type="button" className="tk-btn tk-btn-solid-danger"
+                                    onClick={() => {
+                                      setConfirmingUser(null);
+                                      act(() => call("/api/users/delete", { username: u.username }));
+                                    }}>
+                              Confirm
+                            </button>
+                            <button type="button" className="tk-btn tk-btn-secondary"
+                                    onClick={() => setConfirmingUser(null)}>
+                              Cancel
+                            </button>
+                          </span>
+                        ) : (
+                          <button type="button" className="tk-btn tk-btn-secondary tk-btn-danger"
+                                  onClick={() => setConfirmingUser(u.username)}>
+                            Delete
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 </td>
