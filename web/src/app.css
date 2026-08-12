@@ -24,91 +24,6 @@ body {
   line-height: 1.5;
 }
 .shell { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; height: 100vh; padding: 0 24px; }
-header { padding: 20px 0 16px; border-bottom: 1px solid var(--gray-700); }
-header h1 { font-size: 18px; font-weight: 600; line-height: 1.4; color: var(--gray-200); }
-header p { color: var(--gray-500); font-size: 12px; line-height: 1.4; }
-main { flex: 1; overflow-y: auto; padding: 16px 0; display: flex; flex-direction: column; gap: 16px; }
-.turn.user { align-self: flex-end; max-width: 80%; }
-.turn.assistant { align-self: stretch; }
-.turn.user .bubble {
-  background: var(--gray-800);
-  border: 1px solid var(--gray-700);
-  border-radius: var(--radius);
-  padding: 8px 12px;
-}
-.turn.assistant .bubble {
-  background: var(--white);
-  border: 1px solid var(--gray-700);
-  border-radius: var(--radius);
-  padding: 12px 16px;
-  overflow-x: auto;
-}
-
-/* Markdown inside assistant bubbles — Timeplus Console tokens */
-.turn.assistant .bubble > :first-child { margin-top: 0; }
-.turn.assistant .bubble > :last-child { margin-bottom: 0; }
-.turn.assistant .bubble p,
-.turn.assistant .bubble ul,
-.turn.assistant .bubble ol,
-.turn.assistant .bubble pre,
-.turn.assistant .bubble table,
-.turn.assistant .bubble blockquote { margin: 8px 0; }
-.turn.assistant .bubble h1,
-.turn.assistant .bubble h2,
-.turn.assistant .bubble h3 {
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.4;
-  color: var(--gray-200);
-  margin: 12px 0 4px;
-}
-.turn.assistant .bubble ul,
-.turn.assistant .bubble ol { padding-left: 22px; }
-.turn.assistant .bubble li { margin: 2px 0; }
-.turn.assistant .bubble code {
-  font: 12.5px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
-  background: var(--gray-800);
-  border-radius: var(--radius);
-  padding: 1px 5px;
-}
-.turn.assistant .bubble pre {
-  background: var(--gray-900);
-  border: 1px solid var(--gray-700);
-  border-radius: var(--radius);
-  padding: 10px 12px;
-  overflow-x: auto;
-}
-.turn.assistant .bubble pre code {
-  background: none;
-  padding: 0;
-}
-.turn.assistant .bubble table {
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.turn.assistant .bubble th,
-.turn.assistant .bubble td {
-  border: 1px solid var(--gray-700);
-  padding: 6px 10px;
-  text-align: left;
-}
-.turn.assistant .bubble th {
-  font-weight: 600;
-  background: var(--gray-900);
-}
-.turn.assistant .bubble a { color: var(--pink-400); }
-.turn.assistant .bubble blockquote {
-  border-left: 3px solid var(--gray-700);
-  padding-left: 12px;
-  color: var(--gray-300);
-}
-.turn.assistant .bubble hr {
-  border: 0;
-  border-top: 1px solid var(--gray-700);
-  margin: 12px 0;
-}
-.tools { color: var(--gray-500); font-size: 12px; line-height: 1.4; margin-bottom: 4px; }
-footer { display: flex; gap: 8px; align-items: flex-end; padding: 16px 0 24px; border-top: 1px solid var(--gray-700); }
 textarea {
   flex: 1; resize: none; height: 40px; min-height: 40px;
   background: var(--white); color: var(--gray-100);
@@ -117,6 +32,7 @@ textarea {
 }
 textarea::placeholder { color: var(--gray-600); }
 textarea:focus { outline: 2px solid var(--pink-500); outline-offset: 1px; border-color: var(--gray-300); }
+textarea:disabled { background: var(--gray-800); color: var(--gray-500); border-color: var(--gray-700); }
 button {
   background: var(--pink-500); color: var(--white);
   border: 0; border-radius: var(--radius);
@@ -130,7 +46,7 @@ button:disabled { background: var(--gray-700); color: var(--gray-500); cursor: d
 
 .toolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
 .toolbar input { width: 240px; }
-.manage { flex: 1; overflow-y: auto; padding: 16px 0; }
+.manage { flex: 1; overflow-y: auto; padding: 16px 0; display: flex; flex-direction: column; gap: 16px; }
 .manage-error { color: var(--red-500); font-size: 12px; margin-bottom: 8px; }
 .repo-table { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--white); }
 .repo-table th, .repo-table td {
@@ -299,3 +215,199 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 }
 .tk-toggle.on { background: var(--pink-500); }
 .tk-toggle.on::after { left: 19px; }
+
+/* ---------------------------------------------------------------------
+   Chat (mockups 1a/1b/1c). `.tk-chat` sits inside `.tk-content`'s slot; it
+   cancels that slot's 24px horizontal padding so its top bar / footer bars
+   can span edge-to-edge like the mockup, then re-applies padding on its
+   own bars at the mockup's own pixel values.
+   --------------------------------------------------------------------- */
+.tk-chat {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  margin: 0 -24px;
+}
+
+.tk-chat-topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 24px; border-bottom: 1px solid var(--gray-700);
+  background: var(--white); flex: none;
+}
+.tk-chat-topbar-title { font-size: 14px; font-weight: 600; color: var(--gray-200); }
+.tk-chat-topbar-spacer { flex: 1; }
+.tk-chat-topbar-label { font-size: 12px; color: var(--gray-500); }
+
+.tk-corpus-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.tk-corpus-tag {
+  font: 11px/1 ui-monospace, Menlo, monospace; padding: 5px 8px;
+  background: var(--gray-800); border-radius: var(--radius); color: var(--gray-300);
+}
+
+/* Empty state (1b) */
+.tk-chat-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 24px; padding: 32px;
+}
+.tk-chat-empty-heading { text-align: center; display: flex; flex-direction: column; gap: 6px; }
+.tk-chat-empty-title { font-size: 18px; font-weight: 600; line-height: 1.4; color: var(--gray-200); }
+.tk-chat-empty-subtitle { font-size: 14px; color: var(--gray-500); }
+.tk-chat-empty .tk-corpus-tags { justify-content: center; }
+
+.tk-suggested-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  width: 100%; max-width: 640px;
+}
+.tk-suggested-card {
+  background: var(--white); border: 1px solid var(--gray-700); border-radius: var(--radius);
+  padding: 14px 16px; text-align: left; cursor: pointer;
+  display: flex; flex-direction: column; gap: 2px;
+  height: auto; font: inherit; color: inherit;
+}
+.tk-suggested-card:hover:not(:disabled) { background: var(--gray-800); }
+.tk-suggested-card:focus-visible { outline: 2px solid var(--pink-500); outline-offset: 2px; }
+.tk-suggested-card-title { font-size: 14px; font-weight: 600; color: var(--gray-200); }
+.tk-suggested-card-meta { font-size: 12px; color: var(--gray-500); }
+
+/* Populated state body: centered message column + optional Sources panel */
+.tk-chat-body { flex: 1; min-height: 0; display: flex; }
+.tk-chat-messages { flex: 1; min-width: 0; overflow-y: auto; padding: 20px 32px; }
+.tk-chat-messages-inner {
+  max-width: 820px; width: 100%; margin: 0 auto;
+  display: flex; flex-direction: column; gap: 16px;
+}
+
+.tk-msg-user { align-self: flex-end; max-width: 80%; }
+.tk-msg-assistant { align-self: stretch; display: flex; flex-direction: column; gap: 8px; }
+.tk-bubble-user {
+  background: var(--gray-800); border: 1px solid var(--gray-700);
+  border-radius: var(--radius); padding: 8px 12px; white-space: pre-wrap;
+}
+.tk-bubble-assistant {
+  background: var(--white); border: 1px solid var(--gray-700);
+  border-radius: var(--radius); padding: 12px 16px; overflow-x: auto;
+}
+
+/* Markdown inside assistant bubbles — Timeplus Console tokens */
+.tk-bubble-assistant > :first-child { margin-top: 0; }
+.tk-bubble-assistant > :last-child { margin-bottom: 0; }
+.tk-bubble-assistant p,
+.tk-bubble-assistant ul,
+.tk-bubble-assistant ol,
+.tk-bubble-assistant pre,
+.tk-bubble-assistant table,
+.tk-bubble-assistant blockquote { margin: 8px 0; }
+.tk-bubble-assistant h1,
+.tk-bubble-assistant h2,
+.tk-bubble-assistant h3 {
+  font-size: 14px; font-weight: 600; line-height: 1.4;
+  color: var(--gray-200); margin: 12px 0 4px;
+}
+.tk-bubble-assistant ul,
+.tk-bubble-assistant ol { padding-left: 22px; }
+.tk-bubble-assistant li { margin: 2px 0; }
+.tk-bubble-assistant code {
+  font: 12.5px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+  background: var(--gray-800); border-radius: var(--radius); padding: 1px 5px;
+}
+.tk-bubble-assistant pre {
+  background: var(--gray-900); border: 1px solid var(--gray-700);
+  border-radius: var(--radius); padding: 10px 12px; overflow-x: auto;
+}
+.tk-bubble-assistant pre code { background: none; padding: 0; }
+.tk-bubble-assistant table { border-collapse: collapse; font-size: 13px; }
+.tk-bubble-assistant th,
+.tk-bubble-assistant td { border: 1px solid var(--gray-700); padding: 6px 10px; text-align: left; }
+.tk-bubble-assistant th { font-weight: 600; background: var(--gray-900); }
+.tk-bubble-assistant a { color: var(--pink-400); }
+.tk-bubble-assistant blockquote {
+  border-left: 3px solid var(--gray-700); padding-left: 12px; color: var(--gray-300);
+}
+.tk-bubble-assistant hr { border: 0; border-top: 1px solid var(--gray-700); margin: 12px 0; }
+
+/* Citation superscripts injected by Chat.tsx's citationPlugin */
+.tk-citation { color: var(--pink-400); font-weight: 600; text-decoration: none; }
+.tk-citation:hover { text-decoration: underline; }
+
+/* Streaming caret (1c) */
+.tk-caret {
+  display: inline-block; width: 8px; height: 15px; background: var(--pink-500);
+  vertical-align: text-bottom; margin-left: 2px;
+  animation: tk-caret-blink 1s step-end infinite;
+}
+@keyframes tk-caret-blink { 50% { opacity: 0; } }
+
+/* Tool-trace card (1a collapsed / 1c "Working") */
+.tk-trace { background: var(--white); border: 1px solid var(--gray-700); border-radius: var(--radius); }
+.tk-trace-header {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: auto;
+  padding: 8px 12px; border: 0; border-bottom: 1px solid var(--gray-700); border-radius: 0;
+  background: none; cursor: pointer; text-align: left;
+  font: 400 12px/1.4 Inter, sans-serif; color: inherit;
+}
+.tk-trace-header:hover:not(:disabled) { background: var(--gray-900); }
+.tk-trace-header:disabled { cursor: default; background: none; color: inherit; }
+.tk-trace-header:focus-visible { outline: 2px solid var(--pink-500); outline-offset: -2px; }
+.tk-trace-count { font-size: 12px; font-weight: 600; color: var(--gray-300); }
+.tk-trace-elapsed { font-size: 12px; color: var(--gray-500); }
+.tk-trace-spacer { flex: 1; }
+.tk-trace-toggle { font-size: 12px; color: var(--gray-500); }
+.tk-trace-rows { display: flex; flex-direction: column; }
+.tk-trace-row {
+  display: flex; align-items: center; gap: 10px; padding: 6px 12px;
+  font: 12px/1.6 ui-monospace, "SF Mono", Menlo, monospace;
+}
+.tk-trace-row:last-child { padding-bottom: 8px; }
+.tk-trace-dot { width: 6px; height: 6px; flex: none; border-radius: 9999px; background: var(--pink-500); }
+.tk-trace-dot.pending {
+  background: var(--white); border: 1px solid var(--pink-500); box-sizing: border-box;
+}
+.tk-trace-name { color: var(--gray-100); }
+.tk-trace-detail {
+  flex: 1; min-width: 0; color: var(--gray-500);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tk-trace-status { color: var(--gray-500); }
+.tk-trace-status.running { color: var(--pink-400); font-weight: 600; }
+
+/* Sources panel (1a) */
+.tk-sources {
+  width: 340px; flex: none; background: var(--white);
+  border-left: 1px solid var(--gray-700); display: flex; flex-direction: column;
+}
+.tk-sources-header {
+  padding: 14px 16px; border-bottom: 1px solid var(--gray-700);
+  display: flex; align-items: center; gap: 8px;
+}
+.tk-sources-title { font-size: 14px; font-weight: 600; color: var(--gray-200); }
+.tk-sources-count { font-size: 12px; color: var(--gray-500); }
+.tk-sources-spacer { flex: 1; }
+.tk-sources-close {
+  background: none; border: 0; padding: 0; height: auto;
+  font: 400 12px/1 Inter, sans-serif; color: var(--gray-500); cursor: pointer;
+}
+.tk-sources-close:hover { color: var(--gray-300); }
+.tk-sources-close:focus-visible { outline: 2px solid var(--pink-500); outline-offset: 2px; }
+.tk-sources-list { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+
+.tk-source-card { border: 1px solid var(--gray-700); border-radius: var(--radius); overflow: hidden; }
+.tk-source-card-header {
+  padding: 8px 12px; background: var(--gray-900); border-bottom: 1px solid var(--gray-700);
+  display: flex; align-items: baseline; gap: 8px;
+}
+.tk-source-index { font-size: 12px; font-weight: 600; color: var(--pink-400); }
+.tk-source-path {
+  flex: 1; min-width: 0; font: 11px/1.5 ui-monospace, Menlo, monospace;
+  color: var(--gray-100); word-break: break-all;
+}
+.tk-source-preview-status { padding: 10px 12px; font-size: 12px; color: var(--gray-500); }
+.tk-source-preview {
+  padding: 8px 0; font: 11px/1.7 ui-monospace, "SF Mono", Menlo, monospace; color: var(--gray-300);
+}
+.tk-source-line { display: flex; gap: 10px; padding: 0 12px; white-space: pre-wrap; word-break: break-all; }
+.tk-source-lineno { color: var(--gray-600); flex: none; }
+.tk-source-card-footer {
+  padding: 6px 12px; border-top: 1px solid var(--gray-700); font-size: 12px; color: var(--gray-500);
+}
+
+/* Footer input bar (both 1a/1b/1c) */
+.tk-chat-footer { padding: 16px 32px 24px; border-top: 1px solid var(--gray-700); background: var(--gray-900); flex: none; }
+.tk-chat-footer-inner { max-width: 756px; margin: 0 auto; display: flex; gap: 8px; align-items: flex-end; }
