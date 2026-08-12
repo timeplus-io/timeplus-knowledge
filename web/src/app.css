@@ -709,13 +709,12 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 }
 
 /* ---------------------------------------------------------------------
-   Users & roles (mockup screen 1f). Header reuses .tk-manage-header/
-   -title/-subtitle/-header-spacer/-error (generic, not Manage-specific).
-   A users table, then a role-cards row where each card exposes the
-   "Corpus access" checkbox grid over /api/repos entry keys. "Add user" /
-   "Add role" panels aren't drawn in the static mockup (no open-form
-   state shown) — they reuse the .tk-add-form-card pattern from Manage,
-   toggled open by the header buttons.
+   Users & roles (mockup screens 3a/3b/4a/4b). Header reuses
+   .tk-manage-header/-title/-subtitle/-header-spacer/-error (generic, not
+   Manage-specific). A Users|Roles tab bar (.tk-tabs) toggles between a
+   users table and a role-cards row where each card exposes the "Corpus
+   access" checkbox grid over /api/repos entry keys. "Add user" / "Add
+   role" open as modal dialogs reusing the shared .tk-modal* pattern.
    --------------------------------------------------------------------- */
 .tk-users { display: flex; flex-direction: column; gap: 24px; }
 

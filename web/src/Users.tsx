@@ -342,6 +342,7 @@ export default function Users() {
           >
             <div className="tk-modal-header">
               <div id="add-user-title" className="tk-modal-title">Add user</div>
+              <div className="tk-modal-spacer" />
               <button
                 type="button"
                 className="tk-modal-close"
@@ -414,6 +415,7 @@ export default function Users() {
           >
             <div className="tk-modal-header">
               <div id="add-role-title" className="tk-modal-title">Add role</div>
+              <div className="tk-modal-spacer" />
               <button
                 type="button"
                 className="tk-modal-close"
