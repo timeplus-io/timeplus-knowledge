@@ -67,26 +67,42 @@ export default function App() {
     let cancelled = false;
     (async () => {
       if (!getToken()) { setChecked(true); return; }
-      const resp = await apiFetch("/auth/me");
-      if (cancelled) return;
-      if (resp.ok) {
-        const body = await resp.json();
-        // A must_change_password answer routes straight to Login's change
-        // mode (skipping the login form — we already hold a valid token).
-        if (body.must_change_password) setPendingChangeUser(body.username);
-        else setMe({ username: body.username, role: body.role });
+      try {
+        const resp = await apiFetch("/auth/me");
+        if (cancelled) return;
+        if (resp.ok) {
+          const body = await resp.json();
+          // A must_change_password answer routes straight to Login's change
+          // mode (skipping the login form — we already hold a valid token).
+          if (body.must_change_password) setPendingChangeUser(body.username);
+          else setMe({ username: body.username, role: body.role });
+        }
+        // A 401 here already ran onUnauthorized above (token cleared, me null).
+      } catch {
+        // Network-level failure (e.g. server restarting on page load): fall
+        // through to the login gate instead of leaving the app stuck on a
+        // blank screen forever.
+        if (cancelled) return;
+        setToken(null);
+        setMe(null);
+      } finally {
+        if (!cancelled) setChecked(true);
       }
-      // A 401 here already ran onUnauthorized above (token cleared, me null).
-      setChecked(true);
     })();
     return () => { cancelled = true; };
   }, []);
 
   async function logout() {
-    await apiFetch("/auth/logout", { method: "POST" });
-    setToken(null);
-    setMe(null);
-    setView("chat");
+    try {
+      await apiFetch("/auth/logout", { method: "POST" });
+    } catch {
+      // Even if the network request fails, always clear the local session
+      // so the user isn't stranded in the authenticated view.
+    } finally {
+      setToken(null);
+      setMe(null);
+      setView("chat");
+    }
   }
 
   async function send() {

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import Depends, FastAPI
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -113,7 +114,12 @@ def create_app(agent=None, stream_prefix: str = "", auth=None) -> FastAPI:
         scope = None
         if user.role != auth_mod.ROLE_ADMIN:
             try:
-                role = auth_mod.get_role(auth._client(), user.role, prefix=stream_prefix)
+                # Off the event loop: against an unreachable-but-not-refusing
+                # store this is a blocking TCP connect timeout, which would
+                # otherwise stall every other request on the server.
+                role = await run_in_threadpool(
+                    lambda: auth_mod.get_role(auth._client(), user.role, prefix=stream_prefix)
+                )
             except Exception:
                 role = None
             # A missing/unreadable role fails closed: frozenset() = empty

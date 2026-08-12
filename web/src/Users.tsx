@@ -5,7 +5,9 @@ type ApiUser = { username: string; role: string; must_change_password: boolean; 
 type ApiRole = { name: string; entry_keys: string[]; description: string };
 type Repo = { entry_key: string };
 
-const EMPTY_USER = { username: "", password: "", role: "admin", must_change_password: true };
+// Least-privilege: force an explicit role pick rather than defaulting new
+// users to admin.
+const EMPTY_USER = { username: "", password: "", role: "", must_change_password: true };
 const EMPTY_ROLE = { name: "", entry_keys: [] as string[], description: "" };
 
 async function call(path: string, body?: unknown): Promise<any> {
@@ -163,7 +165,8 @@ export default function Users() {
                onChange={(e) => setNewUser({ ...newUser, username: e.target.value })} />
         <input placeholder="initial password" type="password" required value={newUser.password}
                onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} />
-        <select value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}>
+        <select required value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}>
+          <option value="" disabled>select role…</option>
           <option value="admin">admin</option>
           {roles.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
         </select>
@@ -172,7 +175,7 @@ export default function Users() {
                  onChange={(e) => setNewUser({ ...newUser, must_change_password: e.target.checked })} />
           must change password
         </label>
-        <button type="submit">Add user</button>
+        <button type="submit" disabled={!newUser.role}>Add user</button>
       </form>
 
       <h2>Roles</h2>
