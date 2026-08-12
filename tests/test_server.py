@@ -50,6 +50,10 @@ def _tool(name, inp):
     return {"event": "on_tool_start", "name": name, "data": {"input": inp}}
 
 
+def _tool_end(name, inp, output=""):
+    return {"event": "on_tool_end", "name": name, "data": {"input": inp, "output": output}}
+
+
 def _parse_sse(body: str) -> list[dict]:
     return [json.loads(line[len("data: "):]) for line in body.splitlines() if line.startswith("data: ")]
 
@@ -68,7 +72,96 @@ def test_chat_streams_tokens_tools_and_done():
     events = _parse_sse(resp.text)
     assert {"type": "tool", "name": "search_entities", "input": {"query": "q"}} in events
     assert {"type": "token", "text": "Hello "} in events
-    assert events[-1] == {"type": "done", "text": "Hello world"}
+    assert events[-1] == {"type": "done", "text": "Hello world", "sources": []}
+
+
+def test_chat_emits_source_event_and_done_sources():
+    read_args = {
+        "repo": "timeplus-knowledge",
+        "file_path": "src/tpk/server.py",
+        "line_start": 10,
+        "line_end": 20,
+    }
+    agent = FakeAgent(
+        [
+            _tool("read_source", read_args),
+            _tool_end("read_source", read_args, output="some code"),
+            _tok("Hello"),
+        ]
+    )
+    client = TestClient(create_app(agent=agent, auth=_StubAuth()))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+
+    expected_source = {
+        "type": "source",
+        "n": 1,
+        "repo": "timeplus-knowledge",
+        "file_path": "src/tpk/server.py",
+        "line_start": 10,
+        "line_end": 20,
+        "kind": "file",
+    }
+    assert expected_source in events
+    assert events[-1] == {"type": "done", "text": "Hello", "sources": [expected_source]}
+
+
+def test_chat_dedups_repeated_source_reads():
+    read_args = {
+        "repo": "timeplus-knowledge",
+        "file_path": "src/tpk/server.py",
+        "line_start": 10,
+        "line_end": 20,
+    }
+    other_args = {
+        "repo": "timeplus-knowledge",
+        "file_path": "src/tpk/agent.py",
+        "line_start": 1,
+        "line_end": 5,
+    }
+    agent = FakeAgent(
+        [
+            _tool_end("read_source", read_args),
+            _tool_end("read_source", read_args),  # same (repo, file_path, line_start) -> reuse n=1
+            _tool_end("read_source", other_args),  # new location -> n=2
+            _tok("Hello"),
+        ]
+    )
+    client = TestClient(create_app(agent=agent, auth=_StubAuth()))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+
+    source_events = [e for e in events if e["type"] == "source"]
+    assert [e["n"] for e in source_events] == [1, 2]
+    assert events[-1]["sources"] == source_events
+
+
+def test_chat_ignores_malformed_tool_end_event():
+    """A read_source on_tool_end missing its input args must be skipped, not
+    break the stream."""
+    agent = FakeAgent(
+        [
+            {"event": "on_tool_end", "name": "read_source", "data": {"output": "x"}},
+            _tok("Hello"),
+        ]
+    )
+    client = TestClient(create_app(agent=agent, auth=_StubAuth()))
+    resp = client.post("/chat", json={"message": "hi"})
+    assert resp.status_code == 200
+    events = _parse_sse(resp.text)
+    assert not any(e["type"] == "source" for e in events)
+    assert events[-1] == {"type": "done", "text": "Hello", "sources": []}
+
+
+def test_chat_ignores_on_tool_end_for_other_tools():
+    agent = FakeAgent(
+        [
+            _tool_end("search_entities", {"query": "q"}, output="[]"),
+            _tok("Hello"),
+        ]
+    )
+    client = TestClient(create_app(agent=agent, auth=_StubAuth()))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+    assert not any(e["type"] == "source" for e in events)
+    assert events[-1] == {"type": "done", "text": "Hello", "sources": []}
 
 
 def test_chat_streams_error_event():
@@ -109,7 +202,7 @@ def test_done_prefers_final_model_message():
     agent = FakeAgent([_tok("Let me search... "), _end("The grounded final answer.")])
     client = TestClient(create_app(agent=agent, auth=_StubAuth()))
     events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
-    assert events[-1] == {"type": "done", "text": "The grounded final answer."}
+    assert events[-1] == {"type": "done", "text": "The grounded final answer.", "sources": []}
 
 
 def test_done_fallback_when_model_emits_no_text():

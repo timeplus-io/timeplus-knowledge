@@ -45,10 +45,13 @@ def _chunk_text(chunk) -> str:
     return ""
 
 
-def _build_production_agent():
+def _build_kg_and_repos():
+    """Production path: one shared `KnowledgeGraph` (+ the parsed repo
+    config it needs) built up front in `create_app`, reused by both the
+    lazily-built chat agent and the graph API router -- instead of each
+    separately opening its own client and repeating schema/corpus setup."""
     from tpk import corpus, db
-    from tpk.agent import build_agent
-    from tpk.config import AgentConfig, Settings, load_repos
+    from tpk.config import Settings, load_repos
     from tpk.config import repo_paths as resolved_repo_paths
     from tpk.tools import KnowledgeGraph
 
@@ -61,6 +64,14 @@ def _build_production_agent():
         client,
         repo_paths=resolved_repo_paths(repos),
     )
+    return kg, repos
+
+
+def _build_production_agent(kg, repos):
+    from tpk import corpus, db
+    from tpk.agent import build_agent
+    from tpk.config import AgentConfig, Settings
+
     # Separate client for the live corpus provider: it is called from the
     # async worker thread pool on every chat turn, and sharing the
     # KnowledgeGraph's client across threads causes concurrent-session
@@ -70,7 +81,7 @@ def _build_production_agent():
     # session -- so its own access must be serialized too, the same way
     # KnowledgeGraph._query_rows serializes access to `kg.client` (see
     # tools.py:57-61).
-    provider_client = db.get_client(settings)
+    provider_client = db.get_client(Settings.from_env())
     provider_lock = threading.Lock()
 
     def _live_corpus():
@@ -85,7 +96,7 @@ def _build_production_agent():
     )
 
 
-def create_app(agent=None, stream_prefix: str = "", auth=None) -> FastAPI:
+def create_app(agent=None, stream_prefix: str = "", auth=None, kg=None) -> FastAPI:
     import tpk.auth as auth_mod
     from tpk.agent import RECURSION_LIMIT
     from tpk.api import create_api_router
@@ -96,11 +107,20 @@ def create_app(agent=None, stream_prefix: str = "", auth=None) -> FastAPI:
     app = FastAPI(title="timeplus-knowledge")
     app.include_router(create_auth_router(auth))
     app.include_router(create_api_router(prefix=stream_prefix, auth=auth))
+
+    repos_for_agent = None
+    if agent is None and kg is None:
+        # Production path only: the test path always injects `agent`
+        # (fake/no-op) and, when it wants the graph router mounted, its own
+        # `kg` built over the test stream prefix -- so this branch never
+        # runs there and never touches the network in unit tests.
+        kg, repos_for_agent = _build_kg_and_repos()
+
     state = {"agent": agent}
 
     def _agent():
         if state["agent"] is None:
-            state["agent"] = _build_production_agent()
+            state["agent"] = _build_production_agent(kg, repos_for_agent)
         return state["agent"]
 
     @app.get("/healthz")
@@ -136,6 +156,8 @@ def create_app(agent=None, stream_prefix: str = "", auth=None) -> FastAPI:
             try:
                 full: list[str] = []
                 final_text = ""
+                sources: list[dict] = []
+                source_index: dict[tuple, int] = {}
                 try:
                     async for event in _agent().astream_events(
                         {"messages": messages},
@@ -163,12 +185,42 @@ def create_app(agent=None, stream_prefix: str = "", auth=None) -> FastAPI:
                                     "input": event.get("data", {}).get("input", {}),
                                 }
                             )
+                        elif kind == "on_tool_end":
+                            # Surface cited sources for the Sources panel (Task
+                            # 4). Guarded end-to-end: a malformed event (missing
+                            # args, unexpected shape) must never break the token
+                            # stream, so any failure here is logged and skipped.
+                            try:
+                                if event.get("name") == "read_source":
+                                    args = event.get("data", {}).get("input") or {}
+                                    repo = args["repo"]
+                                    file_path = args["file_path"]
+                                    line_start = args["line_start"]
+                                    line_end = args["line_end"]
+                                    key = (repo, file_path, line_start)
+                                    if key not in source_index:
+                                        source_index[key] = len(sources) + 1
+                                        source = {
+                                            "type": "source",
+                                            "n": source_index[key],
+                                            "repo": repo,
+                                            "file_path": file_path,
+                                            "line_start": line_start,
+                                            "line_end": line_end,
+                                            "kind": "file",
+                                        }
+                                        sources.append(source)
+                                        yield _sse(source)
+                            except Exception:
+                                logger.exception(
+                                    "failed to process on_tool_end source event; skipping"
+                                )
                     done_text = final_text or "".join(full) or (
                         "The model returned no answer text for this question "
                         "(it may have spent its turns on tool calls). Please retry "
                         "or rephrase."
                     )
-                    yield _sse({"type": "done", "text": done_text})
+                    yield _sse({"type": "done", "text": done_text, "sources": sources})
                 except Exception as exc:  # stream errors must reach the client
                     # Log the full exception server-side; the client only gets
                     # the exception's class name, never the raw message, which
@@ -186,6 +238,11 @@ def create_app(agent=None, stream_prefix: str = "", auth=None) -> FastAPI:
                     ROLE_SCOPE.reset(token)
 
         return StreamingResponse(stream(), media_type="text/event-stream")
+
+    if kg is not None:
+        from tpk.graph_api import create_graph_router
+
+        app.include_router(create_graph_router(kg, auth, prefix=stream_prefix))
 
     if WEB_DIST.is_dir():
         app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="ui")

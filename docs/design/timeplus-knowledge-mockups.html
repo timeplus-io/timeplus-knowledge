@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f0eee9;font-family:Inter,-apple-system,"Segoe UI",sans-serif}
+a{color:#B83280;text-decoration:none}a:hover{text-decoration:underline}
+.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}
+.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}
+.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}
+.dv-tname{font:600 13px/1.2 Inter,sans-serif;color:#1a1a1a}
+.dv-opts{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}
+.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}
+.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}
+.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Inter,sans-serif;color:rgba(0,0,0,.55)}
+.dv-card{max-width:100%;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:8px;overflow:hidden}
+.dv-opt:target .dv-oid{background:#2a78d6;color:#fff}
+.dv-next{margin:22px 0 0;font:12px/1.5 Inter,sans-serif;color:rgba(0,0,0,.5)}
+</style>
+</helmet>
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Timeplus Knowledge Agent — elevated redesign on Timeplus Console spec (sidebar nav, tool traces, citations)</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="1a">
+<div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>Chat — mid-conversation: tool-call trace, cited answer, source preview pane</div>
+<div class="dv-card" style="width:1360px">
+<div data-screen-label="Chat" style="background:#F7F6F6;height:820px;display:flex;color:#120F1A;font-size:14px;line-height:1.5">
+<div style="width:220px;flex:none;background:#fff;border-right:1px solid #DAD9DB;display:flex;flex-direction:column;padding:16px 12px;gap:2px">
+<div style="display:flex;align-items:center;gap:10px;padding:4px 8px 20px">
+<div style="width:26px;height:26px;flex:none;background:#D53F8C;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:600">T</div>
+<div><div style="font-size:14px;font-weight:600;line-height:1.3;color:#231F2B">Timeplus</div><div style="font-size:12px;line-height:1.2;color:#7D7B82">Knowledge</div></div>
+</div>
+<div style="display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;background:#ECECED;font-weight:600;color:#120F1A;box-shadow:inset 3px 0 0 #D53F8C;cursor:pointer">Chat</div>
+<div style="display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;color:#3A3741;cursor:pointer">Explorer</div>
+<div style="display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;color:#3A3741;cursor:pointer">Manage</div>
+<div style="display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;color:#3A3741;cursor:pointer">Users</div>
+<div style="flex:1"></div>
+<div style="padding:0 10px 12px;font-size:12px;color:#7D7B82">4 corpus entries<br>934 nodes · 990 edges</div>
+<div style="display:flex;align-items:center;gap:8px;padding:10px;border-top:1px solid #DAD9DB">
+<div style="width:24px;height:24px;flex:none;background:#ECECED;border-radius:9999px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#3A3741">A</div>
+<div style="flex:1;font-size:13px;color:#120F1A">admin</div>
+<a href="#1a" style="font-size:12px;color:#B83280">Logout</a>
+</div>
+</div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column">
+<div style="padding:14px 24px;border-bottom:1px solid #DAD9DB;background:#fff;display:flex;align-items:center;gap:12px">
+<div style="font-size:14px;font-weight:600;color:#231F2B">Chat</div>
+<div style="flex:1"></div>
+<div style="font-size:12px;color:#7D7B82">answering from</div>
+<div style="display:flex;gap:6px">
+<div style="font:11px/1 ui-monospace,Menlo,monospace;padding:5px 8px;background:#ECECED;border-radius:4px;color:#3A3741">docs@v3.9.0</div>
+<div style="font:11px/1 ui-monospace,Menlo,monospace;padding:5px 8px;background:#ECECED;border-radius:4px;color:#3A3741">timeplus-cli@v3.3.1</div>
+<div style="font:11px/1 ui-monospace,Menlo,monospace;padding:5px 8px;background:#ECECED;border-radius:4px;color:#3A3741">proton@v1.6.18</div>
+</div>
+</div>
+<div style="flex:1;overflow:hidden;padding:20px 32px;display:flex;flex-direction:column;gap:16px;max-width:820px;width:100%;margin:0 auto;box-sizing:border-box">
+<div style="align-self:flex-end;max-width:80%">
+<div style="background:#ECECED;border:1px solid #DAD9DB;border-radius:4px;padding:8px 12px">How do materialized view checkpoints work?</div>
+</div>
+<div style="align-self:stretch;display:flex;flex-direction:column;gap:8px">
+<div style="background:#fff;border:1px solid #DAD9DB;border-radius:4px">
+<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #DAD9DB">
+<div style="font-size:12px;font-weight:600;color:#3A3741">3 tool calls</div>
+<div style="font-size:12px;color:#7D7B82">1.8s</div>
+<div style="flex:1"></div>
+<div style="font-size:12px;color:#7D7B82;cursor:pointer">collapse ▾</div>
+</div>
+<div style="display:flex;align-items:center;gap:10px;padding:6px 12px;font:12px/1.6 ui-monospace,'SF Mono',Menlo,monospace">
+<div style="width:6px;height:6px;flex:none;border-radius:9999px;background:#D53F8C"></div>
+<div style="color:#120F1A">search_entities</div>
+<div style="flex:1;color:#7D7B82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">query="materialized view checkpoint" kind=any</div>
+<div style="color:#7D7B82">12 matches</div>
+</div>
+<div style="display:flex;align-items:center;gap:10px;padding:6px 12px;font:12px/1.6 ui-monospace,'SF Mono',Menlo,monospace">
+<div style="width:6px;height:6px;flex:none;border-radius:9999px;background:#D53F8C"></div>
+<div style="color:#120F1A">get_entity</div>
+<div style="flex:1;color:#7D7B82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">id=proton:file:CheckpointCoordinator</div>
+<div style="color:#7D7B82">1 entity</div>
+</div>
+<div style="display:flex;align-items:center;gap:10px;padding:6px 12px 8px;font:12px/1.6 ui-monospace,'SF Mono',Menlo,monospace">
+<div style="width:6px;height:6px;flex:none;border-radius:9999px;background:#D53F8C"></div>
+<div style="color:#120F1A">read_source</div>
+<div style="flex:1;color:#7D7B82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">path=src/Checkpoint/CheckpointCoordinator.cpp lines=118-142</div>
+<div style="color:#7D7B82">24 lines</div>
+</div>
+</div>
+<div style="background:#fff;border:1px solid #DAD9DB;border-radius:4px;padding:12px 16px;display:flex;flex-direction:column;gap:8px">
+<div>Materialized views persist their processing position as <code style="font:12.5px/1.5 ui-monospace,'SF Mono',Menlo,monospace;background:#ECECED;border-radius:4px;padding:1px 5px">checkpoints</code>, so a restart resumes exactly where the query left off instead of reprocessing the stream.<sup><a href="#1a" style="color:#B83280;font-weight:600">[1]</a></sup></div>
+<div style="font-size:14px;font-weight:600;line-height:1.4;color:#231F2B">How it works</div>
+<ul style="margin:0;padding-left:22px;display:flex;flex-direction:column;gap:2px">
+<li>The pipeline periodically snapshots operator state plus the source stream sequence number.<sup><a href="#1a" style="color:#B83280;font-weight:600">[1]</a></sup></li>
+<li>On recovery the engine restores the snapshot and replays from the recorded sequence — exactly-once into the view's target stream.<sup><a href="#1a" style="color:#B83280;font-weight:600">[1]</a></sup></li>
+<li>The interval is tunable per view; shorter intervals trade write amplification for faster recovery.<sup><a href="#1a" style="color:#B83280;font-weight:600">[2]</a></sup></li>
+</ul>
+<pre style="background:#F7F6F6;border:1px solid #DAD9DB;border-radius:4px;padding:10px 12px;overflow-x:auto;margin:0"><code style="font:12.5px/1.5 ui-monospace,'SF Mono',Menlo,monospace">CREATE MATERIALIZED VIEW mv_orders
+SETTINGS checkpoint_interval = 5
+AS SELECT window_start, count() FROM tumble(orders, 5s) GROUP BY window_start;</code></pre>
+</div>
+</div>
+</div>
+<div style="padding:16px 32px 24px;border-top:1px solid #DAD9DB;background:#F7F6F6">
+<div style="max-width:756px;margin:0 auto;display:flex;gap:8px;align-items:flex-end">
+<div style="flex:1;height:40px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;padding:10px 12px;color:#B5B4B8;box-sizing:border-box">Ask a follow-up…</div>
+<div style="height:32px;padding:0 16px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#D53F8C;color:#fff;border-radius:4px;font-weight:600;cursor:pointer">Send</div>
+</div>
+</div>
+</div>
+<div style="width:340px;flex:none;background:#fff;border-left:1px solid #DAD9DB;display:flex;flex-direction:column">
+<div style="padding:14px 16px;border-bottom:1px solid #DAD9DB;display:flex;align-items:center;gap:8px">
+<div style="font-size:14px;font-weight:600;color:#231F2B">Sources</div>
+<div style="font-size:12px;color:#7D7B82">2 cited</div>
+<div style="flex:1"></div>
+<div style="font-size:12px;color:#7D7B82;cursor:pointer">✕</div>
+</div>
+<div style="flex:1;overflow:hidden;padding:16px;display:flex;flex-direction:column;gap:16px">
+<div style="border:1px solid #DAD9DB;border-radius:4px;overflow:hidden">
+<div style="padding:8px 12px;background:#F7F6F6;border-bottom:1px solid #DAD9DB;display:flex;align-items:baseline;gap:8px">
+<div style="font-size:12px;font-weight:600;color:#B83280">[1]</div>
+<div style="flex:1;font:11px/1.5 ui-monospace,Menlo,monospace;color:#120F1A;word-break:break-all">src/Checkpoint/CheckpointCoordinator.cpp</div>
+</div>
+<div style="padding:8px 0;font:11px/1.7 ui-monospace,'SF Mono',Menlo,monospace;color:#3A3741">
+<div style="display:flex;gap:10px;padding:0 12px"><span style="color:#B5B4B8">118</span><span>void CheckpointCoordinator::trigger()</span></div>
+<div style="display:flex;gap:10px;padding:0 12px;background:#ECECED"><span style="color:#B5B4B8">119</span><span>{</span></div>
+<div style="display:flex;gap:10px;padding:0 12px;background:#ECECED"><span style="color:#B5B4B8">120</span><span>&nbsp;&nbsp;auto epoch = last_epoch + 1;</span></div>
+<div style="display:flex;gap:10px;padding:0 12px;background:#ECECED"><span style="color:#B5B4B8">121</span><span>&nbsp;&nbsp;snapshotOperators(epoch);</span></div>
+<div style="display:flex;gap:10px;padding:0 12px"><span style="color:#B5B4B8">122</span><span>&nbsp;&nbsp;persistSequence(epoch, sn);</span></div>
+<div style="display:flex;gap:10px;padding:0 12px"><span style="color:#B5B4B8">123</span><span>}</span></div>
+</div>
+<div style="padding:6px 12px;border-top:1px solid #DAD9DB;font-size:12px"><span style="color:#7D7B82">proton@v1.6.18 · lines 118–142 · </span><a href="#1a">open in Explorer</a></div>
+</div>
+<div style="border:1px solid #DAD9DB;border-radius:4px;overflow:hidden">
+<div style="padding:8px 12px;background:#F7F6F6;border-bottom:1px solid #DAD9DB;display:flex;align-items:baseline;gap:8px">
+<div style="font-size:12px;font-weight:600;color:#B83280">[2]</div>
+<div style="flex:1;font:11px/1.5 ui-monospace,Menlo,monospace;color:#120F1A;word-break:break-all">docs/materialized-views.md</div>
+</div>
+<div style="padding:10px 12px;font-size:12px;line-height:1.6;color:#3A3741">"The checkpoint interval defaults to 15 minutes and can be set per view via <span style="font-family:ui-monospace,Menlo,monospace">checkpoint_interval</span>. Lower values reduce recovery time at the cost of extra writes."</div>
+<div style="padding:6px 12px;border-top:1px solid #DAD9DB;font-size:12px"><span style="color:#7D7B82">docs@v3.9.0 · document · </span><a href="#1a">open in Explorer</a></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1b">
+<div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Chat — empty state with corpus summary + suggested questions</div>
+<div class="dv-card" style="width:1080px">
+<div data-screen-label="Chat empty" style="background:#F7F6F6;height:700px;display:flex;color:#120F1A;font-size:14px;line-height:1.5">
+<div style="width:220px;flex:none;background:#fff;border-right:1px solid #DAD9DB;display:flex;flex-direction:column;padding:16px 12px;gap:2px">
+<div style="display:flex;align-items:center;gap:10px;padding:4px 8px 20px">
+<div style="width:26px;height:26px;flex:none;background:#D53F8C;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:600">T</div>
+<div><div style="font-size:14px;font-weight:600;line-height:1.3;color:#231F2B">Timeplus</div><div style="font-size:12px;line-height:1.2;color:#7D7B82">Knowledge</div></div>
+</div>
+<div style="display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;background:#ECECED;font-weight:600;color:#120F1A;box-shadow:inset 3px 0 0 #D53F8C;cursor:pointer">Chat</div>
+<div style="display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;color:#3A3741;cursor:pointer">Explorer</div>
+<div style="display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;color:#3A3741;cursor:pointer">Manage</div>
+<div style="display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;color:#3A3741;cursor:pointer">Users</div>
+<div style="flex:1"></div>
+<div style="display:flex;align-items:center;gap:8px;padding:10px;border-top:1px solid #DAD9DB">
+<div style="width:24px;height:24px;flex:none;background:#ECECED;border-radius:9999px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#3A3741">G</div>
+<div style="flex:1;font-size:13px;color:#120F1A">gang</div>
+<a href="#1b" style="font-size:12px;color:#B83280">Logout</a>
+</div>
+</div>
+<div style="flex:1;display:flex;flex-direction:column">
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;padding:32px">
+<div style="text-align:center;display:flex;flex-direction:column;gap:6px">
+<div style="font-size:18px;font-weight:600;line-height:1.4;color:#231F2B">Ask anything about Timeplus</div>
+<div style="font-size:14px;color:#7D7B82">Answers are grounded in the indexed corpus and cite the source they read.</div>
+</div>
+<div style="display:flex;gap:6px">
+<div style="font:11px/1 ui-monospace,Menlo,monospace;padding:5px 8px;background:#ECECED;border-radius:4px;color:#3A3741">docs@v3.9.0</div>
+<div style="font:11px/1 ui-monospace,Menlo,monospace;padding:5px 8px;background:#ECECED;border-radius:4px;color:#3A3741">timeplus-cli@v3.3.1</div>
+<div style="font:11px/1 ui-monospace,Menlo,monospace;padding:5px 8px;background:#ECECED;border-radius:4px;color:#3A3741">proton@v1.6.18</div>
+<div style="font:11px/1 ui-monospace,Menlo,monospace;padding:5px 8px;background:#ECECED;border-radius:4px;color:#3A3741">helm-charts@v13.0.6</div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;width:640px">
+<div style="background:#fff;border:1px solid #DAD9DB;border-radius:4px;padding:14px 16px;cursor:pointer" style-hover="background:#ECECED">
+<div style="font-size:14px;font-weight:600;color:#231F2B;margin-bottom:2px">How do materialized view checkpoints work?</div>
+<div style="font-size:12px;color:#7D7B82">architecture · proton</div>
+</div>
+<div style="background:#fff;border:1px solid #DAD9DB;border-radius:4px;padding:14px 16px;cursor:pointer" style-hover="background:#ECECED">
+<div style="font-size:14px;font-weight:600;color:#231F2B;margin-bottom:2px">What does the Helm chart set for timeplusd resources?</div>
+<div style="font-size:12px;color:#7D7B82">deployment · helm-charts</div>
+</div>
+<div style="background:#fff;border:1px solid #DAD9DB;border-radius:4px;padding:14px 16px;cursor:pointer" style-hover="background:#ECECED">
+<div style="font-size:14px;font-weight:600;color:#231F2B;margin-bottom:2px">Which CLI command creates an external stream?</div>
+<div style="font-size:12px;color:#7D7B82">usage · timeplus-cli</div>
+</div>
+<div style="background:#fff;border:1px solid #DAD9DB;border-radius:4px;padding:14px 16px;cursor:pointer" style-hover="background:#ECECED">
+<div style="font-size:14px;font-weight:600;color:#231F2B;margin-bottom:2px">Trace the call path from HTTP insert to nativelog write</div>
+<div style="font-size:12px;color:#7D7B82">code path · proton</div>
+</div>
+</div>
+</div>
+<div style="padding:16px 32px 24px;border-top:1px solid #DAD9DB">
+<div style="max-width:756px;margin:0 auto;display:flex;gap:8px;align-items:flex-end">
+<div style="flex:1;height:40px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;padding:10px 12px;color:#B5B4B8;box-sizing:border-box">e.g. How do materialized view checkpoints work?</div>
+<div style="height:32px;padding:0 16px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#DAD9DB;color:#7D7B82;border-radius:4px;font-weight:600">Send</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1c">
+<div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>Chat — streaming: live tool call + token stream</div>
+<div class="dv-card" style="width:720px">
+<div data-screen-label="Chat streaming" style="background:#F7F6F6;height:560px;display:flex;flex-direction:column;color:#120F1A;font-size:14px;line-height:1.5">
+<div style="flex:1;overflow:hidden;padding:20px 28px;display:flex;flex-direction:column;gap:16px">
+<div style="align-self:flex-end;max-width:80%">
+<div style="background:#ECECED;border:1px solid #DAD9DB;border-radius:4px;padding:8px 12px">Where is the checkpoint interval validated?</div>
+</div>
+<div style="align-self:stretch;display:flex;flex-direction:column;gap:8px">
+<div style="background:#fff;border:1px solid #DAD9DB;border-radius:4px">
+<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #DAD9DB">
+<div style="font-size:12px;font-weight:600;color:#3A3741">Working</div>
+<div style="font-size:12px;color:#7D7B82">0.6s</div>
+</div>
+<div style="display:flex;align-items:center;gap:10px;padding:6px 12px;font:12px/1.6 ui-monospace,'SF Mono',Menlo,monospace">
+<div style="width:6px;height:6px;flex:none;border-radius:9999px;background:#D53F8C"></div>
+<div style="color:#120F1A">search_entities</div>
+<div style="flex:1;color:#7D7B82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">query="checkpoint_interval validate"</div>
+<div style="color:#7D7B82">7 matches</div>
+</div>
+<div style="display:flex;align-items:center;gap:10px;padding:6px 12px 8px;font:12px/1.6 ui-monospace,'SF Mono',Menlo,monospace">
+<div style="width:6px;height:6px;flex:none;border-radius:9999px;border:1px solid #D53F8C;background:#fff;box-sizing:border-box"></div>
+<div style="color:#120F1A">read_source</div>
+<div style="flex:1;color:#7D7B82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">path=src/Storages/MaterializedView/…</div>
+<div style="color:#B83280;font-weight:600">running…</div>
+</div>
+</div>
+<div style="background:#fff;border:1px solid #DAD9DB;border-radius:4px;padding:12px 16px">The interval is validated when the view is created — settings parsing rejects non-positive values before the pipeline is<span style="display:inline-block;width:8px;height:15px;background:#D53F8C;vertical-align:text-bottom;margin-left:2px"></span></div>
+</div>
+</div>
+<div style="padding:16px 28px 24px;border-top:1px solid #DAD9DB;display:flex;gap:8px;align-items:flex-end">
+<div style="flex:1;height:40px;background:#ECECED;border:1px solid #DAD9DB;border-radius:4px;padding:10px 12px;color:#7D7B82;box-sizing:border-box"></div>
+<div style="height:32px;padding:0 16px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#DAD9DB;color:#7D7B82;border-radius:4px;font-weight:600">Thinking…</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1d">
+<div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a>Explorer — entity search, detail + neighbors subgraph</div>
+<div class="dv-card" style="width:1360px">
+<div data-screen-label="Explorer" style="background:#F7F6F6;height:820px;display:flex;color:#120F1A;font-size:14px;line-height:1.5">
+<div style="width:220px;flex:none;background:#fff;border-right:1px solid #DAD9DB;display:flex;flex-direction:column;padding:16px 12px;gap:2px">
+<div style="display:flex;align-items:center;gap:10px;padding:4px 8px 20px">
+<div style="width:26px;height:26px;flex:none;background:#D53F8C;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:600">T</div>
+<div><div style="font-size:14px;font-weight:600;line-height:1.3;color:#231F2B">Timeplus</div><div style="font-size:12px;line-height:1.2;color:#7D7B82">Knowledge</div></div>
+</div>
+<div style="display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;color:#3A3741;cursor:pointer">Chat</div>
+<div style="display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;background:#ECECED;font-weight:600;color:#120F1A;box-shadow:inset 3px 0 0 #D53F8C;cursor:pointer">Explorer</div>
+<div style="display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;color:#3A3741;cursor:pointer">Manage</div>
+<div style="display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;color:#3A3741;cursor:pointer">Users</div>
+<div style="flex:1"></div>
+<div style="display:flex;align-items:center;gap:8px;padding:10px;border-top:1px solid #DAD9DB">
+<div style="width:24px;height:24px;flex:none;background:#ECECED;border-radius:9999px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#3A3741">A</div>
+<div style="flex:1;font-size:13px;color:#120F1A">admin</div>
+<a href="#1d" style="font-size:12px;color:#B83280">Logout</a>
+</div>
+</div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column">
+<div style="padding:14px 24px;border-bottom:1px solid #DAD9DB;background:#fff;display:flex;align-items:center;gap:12px">
+<div style="font-size:14px;font-weight:600;color:#231F2B">Explorer</div>
+<div style="height:40px;width:320px;background:#fff;border:1px solid #3A3741;border-radius:4px;padding:0 12px;display:flex;align-items:center;color:#120F1A;box-sizing:border-box;outline:2px solid #D53F8C;outline-offset:1px">checkpoint</div>
+<div style="height:40px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;padding:0 12px;display:flex;align-items:center;gap:8px;color:#120F1A;box-sizing:border-box">kind: any <span style="color:#7D7B82;font-size:11px">▾</span></div>
+<div style="height:40px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;padding:0 12px;display:flex;align-items:center;gap:8px;color:#120F1A;box-sizing:border-box">repo: proton@v1.6.18 <span style="color:#7D7B82;font-size:11px">▾</span></div>
+<div style="flex:1"></div>
+<div style="font-size:12px;color:#7D7B82">34 entities</div>
+</div>
+<div style="flex:1;min-height:0;display:flex">
+<div style="width:400px;flex:none;background:#fff;border-right:1px solid #DAD9DB;overflow:hidden;display:flex;flex-direction:column">
+<div style="display:flex;gap:10px;align-items:center;padding:10px 16px;background:#ECECED;cursor:pointer">
+<div style="font:600 10px/1 ui-monospace,Menlo,monospace;padding:4px 6px;background:#fff;border:1px solid #DAD9DB;border-radius:4px;color:#3A3741">class</div>
+<div style="min-width:0"><div style="font-size:13px;font-weight:600;color:#120F1A">CheckpointCoordinator</div><div style="font:11px/1.4 ui-monospace,Menlo,monospace;color:#7D7B82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">src/Checkpoint/CheckpointCoordinator.cpp</div></div>
+</div>
+<div style="display:flex;gap:10px;align-items:center;padding:10px 16px;border-top:1px solid #DAD9DB;cursor:pointer" style-hover="background:#ECECED">
+<div style="font:600 10px/1 ui-monospace,Menlo,monospace;padding:4px 6px;background:#fff;border:1px solid #DAD9DB;border-radius:4px;color:#3A3741">function</div>
+<div style="min-width:0"><div style="font-size:13px;color:#120F1A">CheckpointCoordinator::trigger</div><div style="font:11px/1.4 ui-monospace,Menlo,monospace;color:#7D7B82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">src/Checkpoint/CheckpointCoordinator.cpp:118</div></div>
+</div>
+<div style="display:flex;gap:10px;align-items:center;padding:10px 16px;border-top:1px solid #DAD9DB;cursor:pointer" style-hover="background:#ECECED">
+<div style="font:600 10px/1 ui-monospace,Menlo,monospace;padding:4px 6px;background:#fff;border:1px solid #DAD9DB;border-radius:4px;color:#3A3741">function</div>
+<div style="min-width:0"><div style="font-size:13px;color:#120F1A">CheckpointStorage::persist</div><div style="font:11px/1.4 ui-monospace,Menlo,monospace;color:#7D7B82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">src/Checkpoint/CheckpointStorage.cpp:64</div></div>
+</div>
+<div style="display:flex;gap:10px;align-items:center;padding:10px 16px;border-top:1px solid #DAD9DB;cursor:pointer" style-hover="background:#ECECED">
+<div style="font:600 10px/1 ui-monospace,Menlo,monospace;padding:4px 6px;background:#fff;border:1px solid #DAD9DB;border-radius:4px;color:#3A3741">document</div>
+<div style="min-width:0"><div style="font-size:13px;color:#120F1A">Materialized views — checkpoints</div><div style="font:11px/1.4 ui-monospace,Menlo,monospace;color:#7D7B82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">docs/materialized-views.md</div></div>
+</div>
+<div style="display:flex;gap:10px;align-items:center;padding:10px 16px;border-top:1px solid #DAD9DB;cursor:pointer" style-hover="background:#ECECED">
+<div style="font:600 10px/1 ui-monospace,Menlo,monospace;padding:4px 6px;background:#fff;border:1px solid #DAD9DB;border-radius:4px;color:#3A3741">concept</div>
+<div style="min-width:0"><div style="font-size:13px;color:#120F1A">Exactly-once recovery</div><div style="font:11px/1.4 ui-monospace,Menlo,monospace;color:#7D7B82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">community: streaming-engine</div></div>
+</div>
+<div style="display:flex;gap:10px;align-items:center;padding:10px 16px;border-top:1px solid #DAD9DB;cursor:pointer" style-hover="background:#ECECED">
+<div style="font:600 10px/1 ui-monospace,Menlo,monospace;padding:4px 6px;background:#fff;border:1px solid #DAD9DB;border-radius:4px;color:#3A3741">file</div>
+<div style="min-width:0"><div style="font-size:13px;color:#120F1A">CheckpointRequest.h</div><div style="font:11px/1.4 ui-monospace,Menlo,monospace;color:#7D7B82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">src/Checkpoint/CheckpointRequest.h</div></div>
+</div>
+<div style="flex:1"></div>
+<div style="padding:10px 16px;border-top:1px solid #DAD9DB;font-size:12px;color:#7D7B82">Showing 6 of 34 · <a href="#1d">load more</a></div>
+</div>
+<div style="flex:1;min-width:0;overflow:hidden;padding:24px;display:flex;flex-direction:column;gap:16px">
+<div style="background:#fff;border:1px solid #DAD9DB;border-radius:4px;padding:24px;display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:center;gap:10px">
+<div style="font-size:18px;font-weight:600;line-height:1.4;color:#231F2B">CheckpointCoordinator</div>
+<div style="font:600 10px/1 ui-monospace,Menlo,monospace;padding:4px 6px;background:#ECECED;border-radius:4px;color:#3A3741">class</div>
+<div style="font:600 10px/1 ui-monospace,Menlo,monospace;padding:4px 6px;background:#ECECED;border-radius:4px;color:#3A3741">proton@v1.6.18</div>
+<div style="flex:1"></div>
+<div style="height:32px;padding:0 16px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#fff;color:#231F2B;border:1px solid #B5B4B8;border-radius:4px;font-weight:600;cursor:pointer">Read source</div>
+<div style="height:32px;padding:0 16px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#D53F8C;color:#fff;border-radius:4px;font-weight:600;cursor:pointer">Ask about this</div>
+</div>
+<div style="font:12px/1.5 ui-monospace,Menlo,monospace;color:#7D7B82">src/Checkpoint/CheckpointCoordinator.cpp · lines 42–210</div>
+<div style="color:#120F1A">Coordinates periodic checkpoint epochs across the query pipeline: triggers operator state snapshots, persists the source sequence number, and serves the restore path on recovery.</div>
+</div>
+<div style="flex:1;min-height:0;display:flex;gap:16px">
+<div style="flex:1;background:#fff;border:1px solid #DAD9DB;border-radius:4px;padding:24px;display:flex;flex-direction:column;gap:10px;overflow:hidden">
+<div style="font-size:14px;font-weight:600;color:#231F2B">Neighbors</div>
+<div style="display:flex;align-items:center;gap:10px;font-size:13px;min-width:0"><div style="width:88px;flex:none;font:600 11px/1 ui-monospace,Menlo,monospace;color:#7D7B82;text-align:right">calls →</div><a href="#1d" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">CheckpointStorage::persist</a><span style="color:#7D7B82;font-size:11px;flex:none">extracted</span></div>
+<div style="display:flex;align-items:center;gap:10px;font-size:13px;min-width:0"><div style="width:88px;flex:none;font:600 11px/1 ui-monospace,Menlo,monospace;color:#7D7B82;text-align:right">calls →</div><a href="#1d" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Operator::snapshot</a><span style="color:#7D7B82;font-size:11px;flex:none">extracted</span></div>
+<div style="display:flex;align-items:center;gap:10px;font-size:13px;min-width:0"><div style="width:88px;flex:none;font:600 11px/1 ui-monospace,Menlo,monospace;color:#7D7B82;text-align:right">← called by</div><a href="#1d" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">PipelineExecutor::run</a><span style="color:#7D7B82;font-size:11px;flex:none">extracted</span></div>
+<div style="display:flex;align-items:center;gap:10px;font-size:13px;min-width:0"><div style="width:88px;flex:none;font:600 11px/1 ui-monospace,Menlo,monospace;color:#7D7B82;text-align:right">contained in</div><a href="#1d" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">CheckpointCoordinator.cpp</a><span style="color:#7D7B82;font-size:11px;flex:none">extracted</span></div>
+<div style="display:flex;align-items:center;gap:10px;font-size:13px;min-width:0"><div style="width:88px;flex:none;font:600 11px/1 ui-monospace,Menlo,monospace;color:#7D7B82;text-align:right">related</div><a href="#1d" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Exactly-once recovery</a><span style="color:#7D7B82;font-size:11px;flex:none">inferred</span></div>
+<div style="flex:1"></div>
+<div style="font-size:12px;color:#7D7B82">BFS depth 1 · 5 of 12 edges · <a href="#1d">expand</a> · <a href="#1d">path to another entity…</a></div>
+</div>
+<div style="width:360px;flex:none;background:#fff;border:1px solid #DAD9DB;border-radius:4px;padding:16px;display:flex;flex-direction:column;gap:8px">
+<div style="font-size:14px;font-weight:600;color:#231F2B;padding:0 8px">Subgraph</div>
+<div style="position:relative;flex:1;min-height:240px">
+<svg width="100%" height="100%" viewBox="0 0 328 240" style="position:absolute;inset:0">
+<line x1="164" y1="120" x2="70" y2="40" stroke="#DAD9DB" stroke-width="1"></line>
+<line x1="164" y1="120" x2="258" y2="40" stroke="#DAD9DB" stroke-width="1"></line>
+<line x1="164" y1="120" x2="52" y2="150" stroke="#DAD9DB" stroke-width="1"></line>
+<line x1="164" y1="120" x2="276" y2="150" stroke="#DAD9DB" stroke-width="1"></line>
+<line x1="164" y1="120" x2="164" y2="210" stroke="#DAD9DB" stroke-width="1"></line>
+</svg>
+<div style="position:absolute;left:164px;top:120px;transform:translate(-50%,-50%);background:#D53F8C;color:#fff;font:600 11px/1 Inter,sans-serif;padding:7px 10px;border-radius:4px;white-space:nowrap">CheckpointCoordinator</div>
+<div style="position:absolute;left:70px;top:40px;transform:translate(-50%,-50%);background:#fff;border:1px solid #B5B4B8;color:#3A3741;font:11px/1 ui-monospace,Menlo,monospace;padding:6px 8px;border-radius:4px;white-space:nowrap">persist</div>
+<div style="position:absolute;left:258px;top:40px;transform:translate(-50%,-50%);background:#fff;border:1px solid #B5B4B8;color:#3A3741;font:11px/1 ui-monospace,Menlo,monospace;padding:6px 8px;border-radius:4px;white-space:nowrap">snapshot</div>
+<div style="position:absolute;left:52px;top:150px;transform:translate(-50%,-50%);background:#fff;border:1px solid #B5B4B8;color:#3A3741;font:11px/1 ui-monospace,Menlo,monospace;padding:6px 8px;border-radius:4px;white-space:nowrap">run</div>
+<div style="position:absolute;left:276px;top:150px;transform:translate(-50%,-50%);background:#fff;border:1px solid #B5B4B8;color:#3A3741;font:11px/1 ui-monospace,Menlo,monospace;padding:6px 8px;border-radius:4px;white-space:nowrap">recovery</div>
+<div style="position:absolute;left:164px;top:210px;transform:translate(-50%,-50%);background:#fff;border:1px dashed #B5B4B8;color:#7D7B82;font:11px/1 ui-monospace,Menlo,monospace;padding:6px 8px;border-radius:4px;white-space:nowrap">…7 more</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1e">
+<div class="dv-olabel"><a class="dv-oid" href="#1e">1e</a>Manage — corpus table with toggles + ingest job progress panel</div>
+<div class="dv-card" style="width:1360px">
+<div data-screen-label="Manage" style="background:#F7F6F6;height:820px;display:flex;color:#120F1A;font-size:14px;line-height:1.5">
+<div style="width:220px;flex:none;background:#fff;border-right:1px solid #DAD9DB;display:flex;flex-direction:column;padding:16px 12px;gap:2px">
+<div style="display:flex;align-items:center;gap:10px;padding:4px 8px 20px">
+<div style="width:26px;height:26px;flex:none;background:#D53F8C;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:600">T</div>
+<div><div style="font-size:14px;font-weight:600;line-height:1.3;color:#231F2B">Timeplus</div><div style="font-size:12px;line-height:1.2;color:#7D7B82">Knowledge</div></div>
+</div>
+<div style="display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;color:#3A3741;cursor:pointer">Chat</div>
+<div style="display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;color:#3A3741;cursor:pointer">Explorer</div>
+<div style="display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;background:#ECECED;font-weight:600;color:#120F1A;box-shadow:inset 3px 0 0 #D53F8C;cursor:pointer">Manage</div>
+<div style="display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;color:#3A3741;cursor:pointer">Users</div>
+<div style="flex:1"></div>
+<div style="display:flex;align-items:center;gap:8px;padding:10px;border-top:1px solid #DAD9DB">
+<div style="width:24px;height:24px;flex:none;background:#ECECED;border-radius:9999px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#3A3741">A</div>
+<div style="flex:1;font-size:13px;color:#120F1A">admin</div>
+<a href="#1e" style="font-size:12px;color:#B83280">Logout</a>
+</div>
+</div>
+<div style="flex:1;min-width:0;overflow:hidden;padding:24px;display:flex;flex-direction:column;gap:24px">
+<div style="display:flex;align-items:center;gap:12px">
+<div>
+<div style="font-size:18px;font-weight:600;line-height:1.4;color:#231F2B">Corpus</div>
+<div style="font-size:12px;color:#7D7B82">Versioned entries keyed name@ref — multiple releases coexist; the toggle gates searchability.</div>
+</div>
+<div style="flex:1"></div>
+<div style="height:32px;padding:0 16px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#D53F8C;color:#fff;border-radius:4px;font-weight:600;cursor:pointer">Add corpus entry</div>
+</div>
+<div style="background:#fff;border:1px solid #DAD9DB;border-radius:4px;overflow:hidden">
+<div style="display:grid;grid-template-columns:2.4fr 2fr 1fr 0.8fr 1.4fr 0.8fr 1.6fr;gap:0 12px;padding:8px 16px;background:#F7F6F6;border-bottom:1px solid #DAD9DB;font-size:12px;font-weight:600;color:#231F2B">
+<div>Entry</div><div>Source</div><div>Mode</div><div>Nodes</div><div>Last ingest</div><div>Enabled</div><div>Actions</div>
+</div>
+<div style="display:grid;grid-template-columns:2.4fr 2fr 1fr 0.8fr 1.4fr 0.8fr 1.6fr;gap:0 12px;padding:10px 16px;align-items:center;font-size:13px" style-hover="background:#ECECED">
+<div><div style="font-weight:600">docs@v3.9.0</div><div style="font-size:12px;color:#7D7B82">Official Timeplus docs</div></div>
+<div style="font:12px/1.5 ui-monospace,Menlo,monospace">timeplus-io/docs@v3.9.0</div>
+<div>semantic<div style="font-size:12px;color:#7D7B82">public</div></div>
+<div>298</div>
+<div>ok<div style="font:11px/1.4 ui-monospace,Menlo,monospace;color:#7D7B82">9f31c2ab04de</div></div>
+<div><div style="width:36px;height:20px;background:#D53F8C;border-radius:9999px;position:relative;cursor:pointer"><div style="position:absolute;right:3px;top:3px;width:14px;height:14px;background:#fff;border-radius:9999px"></div></div></div>
+<div style="display:flex;gap:6px"><div style="height:32px;padding:0 12px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#fff;color:#231F2B;border:1px solid #B5B4B8;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer">Reindex</div><div style="height:32px;padding:0 12px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#fff;color:#D12D50;border:1px solid #B5B4B8;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer">Delete</div></div>
+</div>
+<div style="display:grid;grid-template-columns:2.4fr 2fr 1fr 0.8fr 1.4fr 0.8fr 1.6fr;gap:0 12px;padding:10px 16px;align-items:center;font-size:13px;border-top:1px solid #DAD9DB" style-hover="background:#ECECED">
+<div><div style="font-weight:600">timeplus-cli@v3.3.1</div><div style="font-size:12px;color:#7D7B82">CLI source</div></div>
+<div style="font:12px/1.5 ui-monospace,Menlo,monospace">timeplus-io/timeplus-cli@v3.3.1</div>
+<div>code-only<div style="font-size:12px;color:#7D7B82">internal</div></div>
+<div>473</div>
+<div>ok<div style="font:11px/1.4 ui-monospace,Menlo,monospace;color:#7D7B82">2c8de1904b77</div></div>
+<div><div style="width:36px;height:20px;background:#D53F8C;border-radius:9999px;position:relative;cursor:pointer"><div style="position:absolute;right:3px;top:3px;width:14px;height:14px;background:#fff;border-radius:9999px"></div></div></div>
+<div style="display:flex;gap:6px"><div style="height:32px;padding:0 12px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#fff;color:#231F2B;border:1px solid #B5B4B8;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer">Reindex</div><div style="height:32px;padding:0 12px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#fff;color:#D12D50;border:1px solid #B5B4B8;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer">Delete</div></div>
+</div>
+<div style="display:grid;grid-template-columns:2.4fr 2fr 1fr 0.8fr 1.4fr 0.8fr 1.6fr;gap:0 12px;padding:10px 16px;align-items:center;font-size:13px;border-top:1px solid #DAD9DB" style-hover="background:#ECECED">
+<div><div style="font-weight:600">helm-charts@v13.0.6</div><div style="font-size:12px;color:#7D7B82">Enterprise Helm charts</div></div>
+<div style="font:12px/1.5 ui-monospace,Menlo,monospace">timeplus-io/helm-charts@…v13.0.6</div>
+<div>semantic<div style="font-size:12px;color:#7D7B82">internal</div></div>
+<div>—</div>
+<div><span style="color:#B83280;font-weight:600">running…</span><div style="font-size:12px;color:#7D7B82">job 8f21</div></div>
+<div><div style="width:36px;height:20px;background:#D53F8C;border-radius:9999px;position:relative;cursor:pointer"><div style="position:absolute;right:3px;top:3px;width:14px;height:14px;background:#fff;border-radius:9999px"></div></div></div>
+<div style="display:flex;gap:6px"><div style="height:32px;padding:0 12px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#DAD9DB;color:#7D7B82;border-radius:4px;font-size:13px;font-weight:600">Reindex</div><div style="height:32px;padding:0 12px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#fff;color:#D12D50;border:1px solid #B5B4B8;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer">Delete</div></div>
+</div>
+<div style="display:grid;grid-template-columns:2.4fr 2fr 1fr 0.8fr 1.4fr 0.8fr 1.6fr;gap:0 12px;padding:10px 16px;align-items:center;font-size:13px;border-top:1px solid #DAD9DB;color:#7D7B82" style-hover="background:#ECECED">
+<div><div style="font-weight:600">helm-charts@v12.8.2</div><div style="font-size:12px">previous release — kept for rollback</div></div>
+<div style="font:12px/1.5 ui-monospace,Menlo,monospace">timeplus-io/helm-charts@…v12.8.2</div>
+<div>semantic<div style="font-size:12px">internal</div></div>
+<div>163</div>
+<div>ok<div style="font:11px/1.4 ui-monospace,Menlo,monospace">77aa01d3c2f0</div></div>
+<div><div style="width:36px;height:20px;background:#B5B4B8;border-radius:9999px;position:relative;cursor:pointer"><div style="position:absolute;left:3px;top:3px;width:14px;height:14px;background:#fff;border-radius:9999px"></div></div></div>
+<div style="display:flex;gap:6px"><div style="height:32px;padding:0 12px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#fff;color:#231F2B;border:1px solid #B5B4B8;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer">Reindex</div><div style="height:32px;padding:0 12px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#fff;color:#D12D50;border:1px solid #B5B4B8;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer">Delete</div></div>
+</div>
+</div>
+<div style="display:flex;gap:24px;align-items:flex-start">
+<div style="flex:1;background:#fff;border:1px solid #DAD9DB;border-radius:4px;padding:24px;display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;align-items:baseline;gap:8px"><div style="font-size:14px;font-weight:600;color:#231F2B">Ingest jobs</div><div style="font-size:12px;color:#7D7B82">polled every 5s</div></div>
+<div style="display:flex;flex-direction:column;gap:6px">
+<div style="display:flex;align-items:center;gap:10px;font-size:13px">
+<div style="font:12px/1.5 ui-monospace,Menlo,monospace;width:180px;flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">helm-charts@v13.0.6</div>
+<div style="flex:1;height:6px;background:#DAD9DB;border-radius:9999px;overflow:hidden"><div style="width:62%;height:100%;background:#D53F8C"></div></div>
+<div style="color:#B83280;font-weight:600;font-size:12px;width:120px">running · 62%</div>
+</div>
+<div style="font-size:12px;color:#7D7B82;padding-left:190px">semantic pass 2 of 3 · 217 of ~350 files covered · started 04:12 PM</div>
+</div>
+<div style="border-top:1px solid #DAD9DB;padding-top:10px;display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;align-items:center;gap:10px;font-size:13px">
+<div style="font:12px/1.5 ui-monospace,Menlo,monospace;width:180px;flex:none">docs@v3.9.0</div>
+<div style="flex:1;color:#120F1A">ok · 298 nodes · 341 edges</div>
+<div style="color:#7D7B82;font-size:12px">2h ago</div>
+</div>
+<div style="display:flex;align-items:center;gap:10px;font-size:13px">
+<div style="font:12px/1.5 ui-monospace,Menlo,monospace;width:180px;flex:none">timeplus-cli@v3.3.1</div>
+<div style="flex:1;color:#120F1A">ok · 473 nodes · 839 edges</div>
+<div style="color:#7D7B82;font-size:12px">yesterday</div>
+</div>
+<div style="display:flex;align-items:center;gap:10px;font-size:13px">
+<div style="font:12px/1.5 ui-monospace,Menlo,monospace;width:180px;flex:none">proton@v1.6.17</div>
+<div style="flex:1;color:#D12D50">failed · all LLM chunks errored — previous graph left untouched · <a href="#1e">view log</a></div>
+<div style="color:#7D7B82;font-size:12px">2d ago</div>
+</div>
+</div>
+</div>
+<div style="width:420px;flex:none;background:#fff;border:1px solid #DAD9DB;border-radius:4px;padding:24px;display:flex;flex-direction:column;gap:16px">
+<div style="font-size:14px;font-weight:600;color:#231F2B">Add corpus entry</div>
+<div style="display:flex;flex-direction:column;gap:4px"><div style="font-size:12px;color:#3A3741">Name <span style="color:#D12D50">*</span></div><div style="height:40px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;padding:0 12px;display:flex;align-items:center;color:#B5B4B8;box-sizing:border-box">e.g. proton</div></div>
+<div style="display:flex;gap:16px">
+<div style="flex:1;display:flex;flex-direction:column;gap:4px"><div style="font-size:12px;color:#3A3741">GitHub org/repo</div><div style="height:40px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;padding:0 12px;display:flex;align-items:center;color:#B5B4B8;box-sizing:border-box">org/repo</div></div>
+<div style="width:130px;display:flex;flex-direction:column;gap:4px"><div style="font-size:12px;color:#3A3741">Ref</div><div style="height:40px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;padding:0 12px;display:flex;align-items:center;color:#B5B4B8;box-sizing:border-box">v1.0.0</div></div>
+</div>
+<div style="display:flex;gap:16px">
+<div style="flex:1;display:flex;flex-direction:column;gap:4px"><div style="font-size:12px;color:#3A3741">Visibility</div><div style="height:40px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;padding:0 12px;display:flex;align-items:center;justify-content:space-between;color:#120F1A;box-sizing:border-box">internal <span style="color:#7D7B82;font-size:11px">▾</span></div></div>
+<div style="flex:1;display:flex;flex-direction:column;gap:4px"><div style="font-size:12px;color:#3A3741">Extraction</div><div style="height:40px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;padding:0 12px;display:flex;align-items:center;justify-content:space-between;color:#120F1A;box-sizing:border-box">code-only <span style="color:#7D7B82;font-size:11px">▾</span></div></div>
+</div>
+<div style="font-size:12px;color:#7D7B82">code-only is free and offline; semantic adds an LLM pass over docs/YAML.</div>
+<div style="display:flex;gap:8px;justify-content:flex-end"><div style="height:32px;padding:0 16px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#fff;color:#231F2B;border:1px solid #B5B4B8;border-radius:4px;font-weight:600;cursor:pointer">Add only</div><div style="height:32px;padding:0 16px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#D53F8C;color:#fff;border-radius:4px;font-weight:600;cursor:pointer">Add &amp; index</div></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1f">
+<div class="dv-olabel"><a class="dv-oid" href="#1f">1f</a>Users &amp; roles — role-scoped corpus access</div>
+<div class="dv-card" style="width:1360px">
+<div data-screen-label="Users" style="background:#F7F6F6;height:780px;display:flex;color:#120F1A;font-size:14px;line-height:1.5">
+<div style="width:220px;flex:none;background:#fff;border-right:1px solid #DAD9DB;display:flex;flex-direction:column;padding:16px 12px;gap:2px">
+<div style="display:flex;align-items:center;gap:10px;padding:4px 8px 20px">
+<div style="width:26px;height:26px;flex:none;background:#D53F8C;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:600">T</div>
+<div><div style="font-size:14px;font-weight:600;line-height:1.3;color:#231F2B">Timeplus</div><div style="font-size:12px;line-height:1.2;color:#7D7B82">Knowledge</div></div>
+</div>
+<div style="display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;color:#3A3741;cursor:pointer">Chat</div>
+<div style="display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;color:#3A3741;cursor:pointer">Explorer</div>
+<div style="display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;color:#3A3741;cursor:pointer">Manage</div>
+<div style="display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;background:#ECECED;font-weight:600;color:#120F1A;box-shadow:inset 3px 0 0 #D53F8C;cursor:pointer">Users</div>
+<div style="flex:1"></div>
+<div style="display:flex;align-items:center;gap:8px;padding:10px;border-top:1px solid #DAD9DB">
+<div style="width:24px;height:24px;flex:none;background:#ECECED;border-radius:9999px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#3A3741">A</div>
+<div style="flex:1;font-size:13px;color:#120F1A">admin</div>
+<a href="#1f" style="font-size:12px;color:#B83280">Logout</a>
+</div>
+</div>
+<div style="flex:1;min-width:0;overflow:hidden;padding:24px;display:flex;flex-direction:column;gap:24px">
+<div style="display:flex;align-items:center;gap:12px">
+<div>
+<div style="font-size:18px;font-weight:600;line-height:1.4;color:#231F2B">Users &amp; roles</div>
+<div style="font-size:12px;color:#7D7B82">A role scopes chat and search to the corpus entries it lists; admin is unscoped.</div>
+</div>
+<div style="flex:1"></div>
+<div style="height:32px;padding:0 16px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#fff;color:#231F2B;border:1px solid #B5B4B8;border-radius:4px;font-weight:600;cursor:pointer">Add role</div>
+<div style="height:32px;padding:0 16px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#D53F8C;color:#fff;border-radius:4px;font-weight:600;cursor:pointer">Add user</div>
+</div>
+<div style="background:#fff;border:1px solid #DAD9DB;border-radius:4px;overflow:hidden">
+<div style="display:grid;grid-template-columns:1.6fr 1.4fr 1.2fr 2fr;gap:0 12px;padding:8px 16px;background:#F7F6F6;border-bottom:1px solid #DAD9DB;font-size:12px;font-weight:600;color:#231F2B">
+<div>Username</div><div>Role</div><div>Status</div><div>Actions</div>
+</div>
+<div style="display:grid;grid-template-columns:1.6fr 1.4fr 1.2fr 2fr;gap:0 12px;padding:10px 16px;align-items:center;font-size:13px" style-hover="background:#ECECED">
+<div style="display:flex;align-items:center;gap:8px"><div style="width:24px;height:24px;background:#ECECED;border-radius:9999px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#3A3741">A</div><span style="font-weight:600">admin</span></div>
+<div style="font:600 11px/1 ui-monospace,Menlo,monospace;color:#B83280">admin · unscoped</div>
+<div>active</div>
+<div style="display:flex;gap:6px"><div style="height:32px;padding:0 12px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#fff;color:#231F2B;border:1px solid #B5B4B8;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer">Reset password</div></div>
+</div>
+<div style="display:grid;grid-template-columns:1.6fr 1.4fr 1.2fr 2fr;gap:0 12px;padding:10px 16px;align-items:center;font-size:13px;border-top:1px solid #DAD9DB" style-hover="background:#ECECED">
+<div style="display:flex;align-items:center;gap:8px"><div style="width:24px;height:24px;background:#ECECED;border-radius:9999px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#3A3741">G</div><span style="font-weight:600">gang</span></div>
+<div style="height:32px;width:160px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;padding:0 12px;display:flex;align-items:center;justify-content:space-between;box-sizing:border-box">engineering <span style="color:#7D7B82;font-size:11px">▾</span></div>
+<div>active</div>
+<div style="display:flex;gap:6px"><div style="height:32px;padding:0 12px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#fff;color:#231F2B;border:1px solid #B5B4B8;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer">Reset password</div><div style="height:32px;padding:0 12px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#fff;color:#231F2B;border:1px solid #B5B4B8;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer">Disable</div><div style="height:32px;padding:0 12px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#fff;color:#D12D50;border:1px solid #B5B4B8;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer">Delete</div></div>
+</div>
+<div style="display:grid;grid-template-columns:1.6fr 1.4fr 1.2fr 2fr;gap:0 12px;padding:10px 16px;align-items:center;font-size:13px;border-top:1px solid #DAD9DB;color:#7D7B82" style-hover="background:#ECECED">
+<div style="display:flex;align-items:center;gap:8px"><div style="width:24px;height:24px;background:#ECECED;border-radius:9999px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600">S</div><div><span style="font-weight:600">support-demo</span><div style="font-size:12px">must change password</div></div></div>
+<div style="height:32px;width:160px;background:#ECECED;border:1px solid #DAD9DB;border-radius:4px;padding:0 12px;display:flex;align-items:center;justify-content:space-between;box-sizing:border-box">support <span style="font-size:11px">▾</span></div>
+<div>disabled</div>
+<div style="display:flex;gap:6px"><div style="height:32px;padding:0 12px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#fff;color:#231F2B;border:1px solid #B5B4B8;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer">Enable</div><div style="height:32px;padding:0 12px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#fff;color:#D12D50;border:1px solid #B5B4B8;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer">Delete</div></div>
+</div>
+</div>
+<div style="display:flex;gap:24px;align-items:flex-start">
+<div style="flex:1;background:#fff;border:1px solid #DAD9DB;border-radius:4px;padding:24px;display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;align-items:center;gap:10px">
+<div style="font-size:14px;font-weight:600;color:#231F2B">engineering</div>
+<div style="font-size:12px;color:#7D7B82">2 members · full internal corpus</div>
+<div style="flex:1"></div>
+<div style="height:32px;padding:0 12px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#fff;color:#231F2B;border:1px solid #B5B4B8;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer">Save</div>
+<div style="height:32px;padding:0 12px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#fff;color:#D12D50;border:1px solid #B5B4B8;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer">Delete</div>
+</div>
+<div style="font-size:12px;color:#3A3741">Corpus access</div>
+<div style="display:flex;flex-wrap:wrap;gap:8px 20px">
+<div style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><div style="width:14px;height:14px;background:#D53F8C;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:600">✓</div><span style="font:12px/1.5 ui-monospace,Menlo,monospace">docs@v3.9.0</span></div>
+<div style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><div style="width:14px;height:14px;background:#D53F8C;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:600">✓</div><span style="font:12px/1.5 ui-monospace,Menlo,monospace">timeplus-cli@v3.3.1</span></div>
+<div style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><div style="width:14px;height:14px;background:#D53F8C;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:600">✓</div><span style="font:12px/1.5 ui-monospace,Menlo,monospace">proton@v1.6.18</span></div>
+<div style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><div style="width:14px;height:14px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;box-sizing:border-box"></div><span style="font:12px/1.5 ui-monospace,Menlo,monospace">helm-charts@v13.0.6</span></div>
+<div style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><div style="width:14px;height:14px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;box-sizing:border-box"></div><span style="font:12px/1.5 ui-monospace,Menlo,monospace">helm-charts@v12.8.2</span></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:4px"><div style="font-size:12px;color:#3A3741">Description</div><div style="height:40px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;padding:0 12px;display:flex;align-items:center;color:#120F1A;box-sizing:border-box">Engineering — code + docs, no deploy charts</div></div>
+</div>
+<div style="flex:1;background:#fff;border:1px solid #DAD9DB;border-radius:4px;padding:24px;display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;align-items:center;gap:10px">
+<div style="font-size:14px;font-weight:600;color:#231F2B">support</div>
+<div style="font-size:12px;color:#7D7B82">1 member · public docs only</div>
+<div style="flex:1"></div>
+<div style="height:32px;padding:0 12px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#fff;color:#231F2B;border:1px solid #B5B4B8;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer">Save</div>
+<div style="height:32px;padding:0 12px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#fff;color:#D12D50;border:1px solid #B5B4B8;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer">Delete</div>
+</div>
+<div style="font-size:12px;color:#3A3741">Corpus access</div>
+<div style="display:flex;flex-wrap:wrap;gap:8px 20px">
+<div style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><div style="width:14px;height:14px;background:#D53F8C;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:600">✓</div><span style="font:12px/1.5 ui-monospace,Menlo,monospace">docs@v3.9.0</span></div>
+<div style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><div style="width:14px;height:14px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;box-sizing:border-box"></div><span style="font:12px/1.5 ui-monospace,Menlo,monospace">timeplus-cli@v3.3.1</span></div>
+<div style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><div style="width:14px;height:14px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;box-sizing:border-box"></div><span style="font:12px/1.5 ui-monospace,Menlo,monospace">proton@v1.6.18</span></div>
+<div style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><div style="width:14px;height:14px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;box-sizing:border-box"></div><span style="font:12px/1.5 ui-monospace,Menlo,monospace">helm-charts@v13.0.6</span></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:4px"><div style="font-size:12px;color:#3A3741">Description</div><div style="height:40px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;padding:0 12px;display:flex;align-items:center;color:#120F1A;box-sizing:border-box">Support — public docs corpus only</div></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1g">
+<div class="dv-olabel"><a class="dv-oid" href="#1g">1g</a>Login + forced password change</div>
+<div class="dv-card" style="width:908px">
+<div data-screen-label="Login" style="background:#F7F6F6;height:560px;display:flex;align-items:center;justify-content:center;gap:48px;color:#120F1A;font-size:14px;line-height:1.5">
+<div style="width:320px;background:#fff;border:1px solid #DAD9DB;border-radius:4px;padding:24px;display:flex;flex-direction:column;gap:16px">
+<div style="display:flex;align-items:center;gap:10px">
+<div style="width:26px;height:26px;background:#D53F8C;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:600">T</div>
+<div style="font-size:18px;font-weight:600;color:#231F2B">Timeplus Knowledge</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;flex-direction:column;gap:4px"><div style="font-size:12px;color:#3A3741">Username</div>
+<div style="height:40px;background:#fff;border:1px solid #3A3741;border-radius:4px;padding:0 12px;display:flex;align-items:center;color:#120F1A;box-sizing:border-box;outline:2px solid #D53F8C;outline-offset:1px">admin</div></div>
+<div style="display:flex;flex-direction:column;gap:4px"><div style="font-size:12px;color:#3A3741">Password</div>
+<div style="height:40px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;padding:0 12px;display:flex;align-items:center;color:#120F1A;letter-spacing:2px;box-sizing:border-box">••••••••</div></div>
+<div style="height:32px;margin-top:4px;display:flex;align-items:center;justify-content:center;background:#D53F8C;color:#fff;border-radius:4px;font-weight:600;cursor:pointer">Sign in</div>
+</div>
+</div>
+<div style="width:320px;background:#fff;border:1px solid #DAD9DB;border-radius:4px;padding:24px;display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:center;gap:10px">
+<div style="width:26px;height:26px;background:#D53F8C;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:600">T</div>
+<div style="font-size:18px;font-weight:600;color:#231F2B">Timeplus Knowledge</div>
+</div>
+<div style="font-size:12px;color:#7D7B82">You must change your password before continuing.</div>
+<div style="display:flex;flex-direction:column;gap:4px"><div style="font-size:12px;color:#3A3741">Current password</div>
+<div style="height:40px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;padding:0 12px;display:flex;align-items:center;letter-spacing:2px;box-sizing:border-box">••••••••</div></div>
+<div style="display:flex;flex-direction:column;gap:4px"><div style="font-size:12px;color:#3A3741">New password</div>
+<div style="height:40px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;padding:0 12px;display:flex;align-items:center;letter-spacing:2px;box-sizing:border-box">••••••••••</div></div>
+<div style="display:flex;flex-direction:column;gap:4px"><div style="font-size:12px;color:#D12D50">Confirm new password</div>
+<div style="height:40px;background:#fff;border:1px solid #D12D50;border-radius:4px;padding:0 12px;display:flex;align-items:center;letter-spacing:2px;box-sizing:border-box">•••••••</div></div>
+<div style="color:#D12D50;font-size:12px">new password and confirmation do not match</div>
+<div style="height:32px;margin-top:4px;display:flex;align-items:center;justify-content:center;background:#D53F8C;color:#fff;border-radius:4px;font-weight:600;cursor:pointer">Change password</div>
+</div>
+</div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "make the tool trace in <a class="dv-oid" href="#1a">1a</a> collapsible with per-call expansion" · "faithful-to-current baseline versions for comparison" · "dark mode pass"</p>
+</section>
+</x-dc>
+</body>
+</html>
