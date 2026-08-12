@@ -156,6 +156,8 @@ def create_app(agent=None, stream_prefix: str = "", auth=None, kg=None) -> FastA
             try:
                 full: list[str] = []
                 final_text = ""
+                sources: list[dict] = []
+                source_index: dict[tuple, int] = {}
                 try:
                     async for event in _agent().astream_events(
                         {"messages": messages},
@@ -183,12 +185,42 @@ def create_app(agent=None, stream_prefix: str = "", auth=None, kg=None) -> FastA
                                     "input": event.get("data", {}).get("input", {}),
                                 }
                             )
+                        elif kind == "on_tool_end":
+                            # Surface cited sources for the Sources panel (Task
+                            # 4). Guarded end-to-end: a malformed event (missing
+                            # args, unexpected shape) must never break the token
+                            # stream, so any failure here is logged and skipped.
+                            try:
+                                if event.get("name") == "read_source":
+                                    args = event.get("data", {}).get("input") or {}
+                                    repo = args["repo"]
+                                    file_path = args["file_path"]
+                                    line_start = args["line_start"]
+                                    line_end = args["line_end"]
+                                    key = (repo, file_path, line_start)
+                                    if key not in source_index:
+                                        source_index[key] = len(sources) + 1
+                                        source = {
+                                            "type": "source",
+                                            "n": source_index[key],
+                                            "repo": repo,
+                                            "file_path": file_path,
+                                            "line_start": line_start,
+                                            "line_end": line_end,
+                                            "kind": "file",
+                                        }
+                                        sources.append(source)
+                                        yield _sse(source)
+                            except Exception:
+                                logger.exception(
+                                    "failed to process on_tool_end source event; skipping"
+                                )
                     done_text = final_text or "".join(full) or (
                         "The model returned no answer text for this question "
                         "(it may have spent its turns on tool calls). Please retry "
                         "or rephrase."
                     )
-                    yield _sse({"type": "done", "text": done_text})
+                    yield _sse({"type": "done", "text": done_text, "sources": sources})
                 except Exception as exc:  # stream errors must reach the client
                     # Log the full exception server-side; the client only gets
                     # the exception's class name, never the raw message, which
