@@ -339,3 +339,76 @@ def corpus_entries_for(client, prefix):
 def test_empty_corpus_store_means_no_filter(kg):
     # the kg fixture seeds nodes but never touches kg_repos -> unfiltered
     assert kg.search_entities("checkpoint")
+
+
+def test_role_scope_restricts_results(tp, tmp_path):
+    from tpk.ingest import upsert_graph
+    from tpk.tools import KnowledgeGraph, ROLE_SCOPE
+
+    client, prefix = tp
+    docs_node = replace(SEED_NODES[0], id="rsdocsn", repo="docs@main")
+    internal_node = replace(SEED_NODES[0], id="rsintn", repo="internal@v1")
+    upsert_graph(client, prefix, [docs_node, internal_node], [], datetime.now(timezone.utc))
+    _seed_corpus_entry(client, prefix, "docs", "main", enabled=True)
+    _seed_corpus_entry(client, prefix, "internal", "v1", enabled=True)
+
+    kg = KnowledgeGraph(client, stream_prefix=prefix, corpus_ttl=0)
+    _eventually(lambda: len(kg.search_entities("checkpoint")), lambda v: v >= 2)
+
+    token = ROLE_SCOPE.set(frozenset({"docs@main"}))
+    try:
+        hits = kg.search_entities("checkpoint")
+        assert {h["repo"] for h in hits} == {"docs@main"}
+        rows = kg.list_communities()
+        assert {r["repo"] for r in rows} == {"docs@main"}
+    finally:
+        ROLE_SCOPE.reset(token)
+
+    # after reset: both repos visible again
+    assert {h["repo"] for h in kg.search_entities("checkpoint")} == {"docs@main", "internal@v1"}
+
+
+def test_role_scope_empty_intersection_matches_nothing(tp):
+    from tpk.ingest import upsert_graph
+    from tpk.tools import KnowledgeGraph, ROLE_SCOPE
+
+    client, prefix = tp
+    docs_node = replace(SEED_NODES[0], id="eidocsn", repo="docs@main")
+    upsert_graph(client, prefix, [docs_node], [], datetime.now(timezone.utc))
+    _seed_corpus_entry(client, prefix, "docs", "main", enabled=True)
+
+    kg = KnowledgeGraph(client, stream_prefix=prefix, corpus_ttl=0)
+    _eventually(lambda: len(kg.search_entities("checkpoint")), lambda v: v >= 1)
+
+    token = ROLE_SCOPE.set(frozenset({"absent@v9"}))
+    try:
+        assert kg.search_entities("checkpoint") == []
+        assert kg.list_communities() == []
+    finally:
+        ROLE_SCOPE.reset(token)
+
+
+def test_role_scope_applies_without_corpus_store(kg):
+    from tpk.ingest import upsert_graph
+    from tpk.tools import ROLE_SCOPE
+
+    # kg fixture never touches kg_repos -> corpus state is None (unfiltered
+    # by corpus); scope alone must still filter.
+    docs_node = replace(SEED_NODES[0], id="nsdocsn", repo="docs@main")
+    internal_node = replace(SEED_NODES[0], id="nsintn", repo="internal@v1")
+    upsert_graph(kg.client, kg.prefix, [docs_node, internal_node], [], datetime.now(timezone.utc))
+    _eventually(lambda: len(kg.search_entities("checkpoint")), lambda v: v >= 5)
+
+    token = ROLE_SCOPE.set(frozenset({"docs@main"}))
+    try:
+        hits = kg.search_entities("checkpoint")
+        assert {h["repo"] for h in hits} == {"docs@main"}
+        # read_source must refuse a repo outside scope, even a static
+        # repo_paths entry that predates any corpus/role concept.
+        with pytest.raises(ValueError):
+            kg.read_source("r1", "m.py", 1, 2)
+    finally:
+        ROLE_SCOPE.reset(token)
+
+    # after reset: read_source against the static repo works again
+    assert kg.read_source("r1", "m.py", 1, 2) == "line1\nline2\n"

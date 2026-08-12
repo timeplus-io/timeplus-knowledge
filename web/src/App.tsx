@@ -1,9 +1,12 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+import { apiFetch, getToken, onPasswordChangeRequired, onUnauthorized, setToken } from "./api";
+import Login from "./Login";
 import Manage from "./Manage";
+import Users from "./Users";
 
 // Models emit <br> inside GFM table cells (cells cannot hold real
 // newlines). rehype-raw parses raw HTML, then rehype-sanitize strips it
@@ -16,6 +19,7 @@ const sanitizeSchema = {
 };
 
 type Turn = { role: "user" | "assistant"; content: string; tools?: string[] };
+type Me = { username: string; role: string };
 
 async function* sseEvents(resp: Response): AsyncGenerator<any> {
   const reader = resp.body!.getReader();
@@ -38,8 +42,68 @@ export default function App() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [view, setView] = useState<"chat" | "manage">("chat");
+  const [view, setView] = useState<"chat" | "manage" | "users">("chat");
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Auth: null `me` (and no pending change) renders the Login gate. `checked`
+  // guards the one render before the mount-time /auth/me check resolves, so
+  // a logged-in reload doesn't flash the login form.
+  const [me, setMe] = useState<Me | null>(null);
+  const [pendingChangeUser, setPendingChangeUser] = useState<string | null>(null);
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    onUnauthorized(() => { setMe(null); setPendingChangeUser(null); });
+    // Centralized in api.ts: fires on a 403 password_change_required from
+    // ANY apiFetch call (chat, Manage, Users) — not just chat's send().
+    // Uses the setMe functional-updater form to read the current identity
+    // without a stale closure over `me`.
+    onPasswordChangeRequired(() => {
+      setMe((prev) => { setPendingChangeUser(prev?.username ?? null); return null; });
+    });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!getToken()) { setChecked(true); return; }
+      try {
+        const resp = await apiFetch("/auth/me");
+        if (cancelled) return;
+        if (resp.ok) {
+          const body = await resp.json();
+          // A must_change_password answer routes straight to Login's change
+          // mode (skipping the login form — we already hold a valid token).
+          if (body.must_change_password) setPendingChangeUser(body.username);
+          else setMe({ username: body.username, role: body.role });
+        }
+        // A 401 here already ran onUnauthorized above (token cleared, me null).
+      } catch {
+        // Network-level failure (e.g. server restarting on page load): fall
+        // through to the login gate instead of leaving the app stuck on a
+        // blank screen forever.
+        if (cancelled) return;
+        setToken(null);
+        setMe(null);
+      } finally {
+        if (!cancelled) setChecked(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  async function logout() {
+    try {
+      await apiFetch("/auth/logout", { method: "POST" });
+    } catch {
+      // Even if the network request fails, always clear the local session
+      // so the user isn't stranded in the authenticated view.
+    } finally {
+      setToken(null);
+      setMe(null);
+      setView("chat");
+    }
+  }
 
   async function send() {
     const message = input.trim();
@@ -53,7 +117,10 @@ export default function App() {
       setTurns((ts) => [...ts.slice(0, -1), fn(ts[ts.length - 1])]);
 
     try {
-      const resp = await fetch("/chat", {
+      // A 403 password_change_required here is handled centrally by
+      // api.ts's onPasswordChangeRequired hook (registered above), which
+      // routes to the change screen before this call sees the response.
+      const resp = await apiFetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message, history }),
@@ -76,6 +143,25 @@ export default function App() {
     }
   }
 
+  if (!checked) return null;
+
+  if (pendingChangeUser !== null) {
+    return (
+      <div className="shell">
+        <Login initialMode="change" initialUsername={pendingChangeUser}
+               onDone={(m) => { setPendingChangeUser(null); setMe(m); }} />
+      </div>
+    );
+  }
+
+  if (!me) {
+    return (
+      <div className="shell">
+        <Login onDone={setMe} />
+      </div>
+    );
+  }
+
   return (
     <div className="shell">
       <header>
@@ -87,9 +173,19 @@ export default function App() {
           <nav className="tabs">
             <button className={view === "chat" ? "tab active" : "tab"}
                     onClick={() => setView("chat")}>Chat</button>
-            <button className={view === "manage" ? "tab active" : "tab"}
-                    onClick={() => setView("manage")}>Manage</button>
+            {me.role === "admin" && (
+              <button className={view === "manage" ? "tab active" : "tab"}
+                      onClick={() => setView("manage")}>Manage</button>
+            )}
+            {me.role === "admin" && (
+              <button className={view === "users" ? "tab active" : "tab"}
+                      onClick={() => setView("users")}>Users</button>
+            )}
           </nav>
+          <div className="account">
+            <span className="muted">{me.username}</span>
+            <button className="secondary" onClick={logout}>Logout</button>
+          </div>
         </div>
       </header>
       {view === "chat" ? (
@@ -131,7 +227,7 @@ export default function App() {
             </button>
           </footer>
         </>
-      ) : <Manage />}
+      ) : view === "manage" ? <Manage /> : <Users />}
     </div>
   );
 }

@@ -6,7 +6,8 @@ import threading
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -84,12 +85,17 @@ def _build_production_agent():
     )
 
 
-def create_app(agent=None, stream_prefix: str = "") -> FastAPI:
+def create_app(agent=None, stream_prefix: str = "", auth=None) -> FastAPI:
+    import tpk.auth as auth_mod
     from tpk.agent import RECURSION_LIMIT
     from tpk.api import create_api_router
+    from tpk.auth import AuthLayer, User, create_auth_router
+    from tpk.tools import ROLE_SCOPE
 
+    auth = auth or AuthLayer(stream_prefix)
     app = FastAPI(title="timeplus-knowledge")
-    app.include_router(create_api_router(prefix=stream_prefix))
+    app.include_router(create_auth_router(auth))
+    app.include_router(create_api_router(prefix=stream_prefix, auth=auth))
     state = {"agent": agent}
 
     def _agent():
@@ -102,57 +108,82 @@ def create_app(agent=None, stream_prefix: str = "") -> FastAPI:
         return {"status": "ok"}
 
     @app.post("/chat")
-    async def chat(req: ChatRequest):
+    async def chat(req: ChatRequest, user: User = Depends(auth.require_user)):
         messages = [(t.role, t.content) for t in req.history] + [("user", req.message)]
 
-        async def stream():
-            full: list[str] = []
-            final_text = ""
+        scope = None
+        if user.role != auth_mod.ROLE_ADMIN:
             try:
-                async for event in _agent().astream_events(
-                    {"messages": messages},
-                    version="v2",
-                    config={"recursion_limit": RECURSION_LIMIT},
-                ):
-                    kind = event.get("event")
-                    if kind == "on_chat_model_stream":
-                        text = _chunk_text(event["data"]["chunk"])
-                        if text:
-                            full.append(text)
-                            yield _sse({"type": "token", "text": text})
-                    elif kind == "on_chat_model_end":
-                        # The last model turn's message is the authoritative
-                        # answer — token deltas can miss it entirely for
-                        # models that stream on a reasoning channel (gpt-oss).
-                        end_text = _chunk_text(event.get("data", {}).get("output"))
-                        if end_text:
-                            final_text = end_text
-                    elif kind == "on_tool_start":
-                        yield _sse(
-                            {
-                                "type": "tool",
-                                "name": event.get("name", ""),
-                                "input": event.get("data", {}).get("input", {}),
-                            }
-                        )
-                done_text = final_text or "".join(full) or (
-                    "The model returned no answer text for this question "
-                    "(it may have spent its turns on tool calls). Please retry "
-                    "or rephrase."
+                # Off the event loop: against an unreachable-but-not-refusing
+                # store this is a blocking TCP connect timeout, which would
+                # otherwise stall every other request on the server.
+                role = await run_in_threadpool(
+                    lambda: auth_mod.get_role(auth._client(), user.role, prefix=stream_prefix)
                 )
-                yield _sse({"type": "done", "text": done_text})
-            except Exception as exc:  # stream errors must reach the client
-                # Log the full exception server-side; the client only gets
-                # the exception's class name, never the raw message, which
-                # can leak internal details (stack context, credentials in
-                # a driver error, etc.) into the browser.
-                logger.exception("chat stream failed")
-                yield _sse(
-                    {
-                        "type": "error",
-                        "message": f"{type(exc).__name__}: request failed; see server logs",
-                    }
-                )
+            except Exception:
+                role = None
+            # A missing/unreadable role fails closed: frozenset() = empty
+            # scope = tools see nothing, rather than falling through to
+            # unrestricted (None) access.
+            scope = frozenset(role.entry_keys) if role else frozenset()
+
+        async def stream():
+            # Set inside stream(), not the handler body: the generator runs
+            # after `chat` returns (StreamingResponse drives it lazily), so
+            # the ContextVar must wrap the agent run here to cover every
+            # tool call langchain-core dispatches during it.
+            token = ROLE_SCOPE.set(scope) if scope is not None else None
+            try:
+                full: list[str] = []
+                final_text = ""
+                try:
+                    async for event in _agent().astream_events(
+                        {"messages": messages},
+                        version="v2",
+                        config={"recursion_limit": RECURSION_LIMIT},
+                    ):
+                        kind = event.get("event")
+                        if kind == "on_chat_model_stream":
+                            text = _chunk_text(event["data"]["chunk"])
+                            if text:
+                                full.append(text)
+                                yield _sse({"type": "token", "text": text})
+                        elif kind == "on_chat_model_end":
+                            # The last model turn's message is the authoritative
+                            # answer — token deltas can miss it entirely for
+                            # models that stream on a reasoning channel (gpt-oss).
+                            end_text = _chunk_text(event.get("data", {}).get("output"))
+                            if end_text:
+                                final_text = end_text
+                        elif kind == "on_tool_start":
+                            yield _sse(
+                                {
+                                    "type": "tool",
+                                    "name": event.get("name", ""),
+                                    "input": event.get("data", {}).get("input", {}),
+                                }
+                            )
+                    done_text = final_text or "".join(full) or (
+                        "The model returned no answer text for this question "
+                        "(it may have spent its turns on tool calls). Please retry "
+                        "or rephrase."
+                    )
+                    yield _sse({"type": "done", "text": done_text})
+                except Exception as exc:  # stream errors must reach the client
+                    # Log the full exception server-side; the client only gets
+                    # the exception's class name, never the raw message, which
+                    # can leak internal details (stack context, credentials in
+                    # a driver error, etc.) into the browser.
+                    logger.exception("chat stream failed")
+                    yield _sse(
+                        {
+                            "type": "error",
+                            "message": f"{type(exc).__name__}: request failed; see server logs",
+                        }
+                    )
+            finally:
+                if token is not None:
+                    ROLE_SCOPE.reset(token)
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 

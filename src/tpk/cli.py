@@ -74,8 +74,20 @@ def serve(
     """Run the knowledge agent chat server (SSE /chat + web UI)."""
     import uvicorn
 
+    from tpk import auth as auth_mod
     from tpk.server import create_app
 
+    client = db.get_client(Settings.from_env())
+    db.ensure_schema(client)
+    if REPOS_TOML.exists():
+        corpus.seed_from_toml(client, REPOS_TOML)
+    # Eager bootstrap (issue #6): seed the admin user before uvicorn starts
+    # serving. `serve` here always runs as a single uvicorn process (no
+    # `workers=` argument), so the list_users-then-upsert_user race in
+    # seed_admin() cannot happen between two processes of this command; and
+    # even if it somehow raced, kg_users' PRIMARY KEY makes a double-seed of
+    # the same "admin" row converge to one final row anyway.
+    auth_mod.seed_admin(client)
     uvicorn.run(create_app(), host=host, port=port)
 
 

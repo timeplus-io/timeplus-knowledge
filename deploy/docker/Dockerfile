@@ -47,6 +47,17 @@ COPY --from=webbuild /web/dist /opt/tpk/web/dist
 COPY deploy/docker/repos.container.toml /opt/tpk/repos.toml
 COPY deploy/timeplusd-dev/small-segments.yaml /etc/timeplusd-server/config.d/small-segments.yaml
 
+# Wrapper entrypoint: renders a users.d override (dedicated `tpk` DB user;
+# `default` password-locked with the same password) from TIMEPLUS_PASSWORD
+# before handing off to the base image's entrypoint. The base image ships
+# users.d/ as dr-x------ (read-only, even to its owner, UID 101); grant the
+# owner write access so the entrypoint (which runs as UID 101 at runtime)
+# can create the override file there.
+COPY deploy/docker/tpk-entrypoint.sh /usr/local/bin/tpk-entrypoint.sh
+RUN chmod +x /usr/local/bin/tpk-entrypoint.sh \
+    && chmod u+w /etc/timeplusd-server/users.d
+ENTRYPOINT ["/usr/local/bin/tpk-entrypoint.sh"]
+
 # Wrappers on PATH. The venv bin dir is prepended so run_graphify's
 # subprocess finds the `graphify` CLI.
 RUN printf '#!/bin/sh\nPATH=/opt/tpk/.venv/bin:$PATH exec /opt/tpk/.venv/bin/tpk "$@"\n' > /usr/local/bin/tpk \

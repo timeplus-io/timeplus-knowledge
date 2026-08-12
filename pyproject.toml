@@ -8,6 +8,7 @@ authors = [
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.121.0",
+    "argon2-cffi>=25.1.0",
     "fastapi>=0.141.1",
     "graphifyy[claude,openai]>=0.9.38",
     "langchain-anthropic>=1.5.4",
