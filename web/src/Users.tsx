@@ -38,7 +38,8 @@ async function call(path: string, body?: unknown): Promise<any> {
   return data;
 }
 
-export default function Users({ capabilities }: { capabilities: string[] }) {
+export default function Users({ capabilities, isAdmin }:
+    { capabilities: string[]; isAdmin: boolean }) {
   // Whether this admin/manager may mutate (users:manage). With only
   // users:view the screen is read-only.
   const canManage = hasCap(capabilities, CAP.usersManage);
@@ -260,7 +261,7 @@ export default function Users({ capabilities }: { capabilities: string[] }) {
                     <select className="tk-select tk-user-role-select" value={u.role}
                             onChange={(e) => act(() => call("/api/users/update",
                               { username: u.username, role: e.target.value }))}>
-                      <option value="admin">admin</option>
+                      {isAdmin && <option value="admin">admin</option>}
                       {roles.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
                     </select>
                   ) : (
@@ -459,7 +460,7 @@ export default function Users({ capabilities }: { capabilities: string[] }) {
                   <select id="usr-role" className="tk-select" required value={newUser.role}
                           onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}>
                     <option value="" disabled>select role…</option>
-                    <option value="admin">admin</option>
+                    {isAdmin && <option value="admin">admin</option>}
                     {roles.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
                   </select>
                 </div>

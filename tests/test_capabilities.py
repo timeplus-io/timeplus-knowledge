@@ -230,6 +230,16 @@ def test_manager_cannot_manage_admin_users(c, client, prefix, manager):
                   headers=_hdr(manager)).status_code == 403
 
 
+def test_manager_cannot_overwrite_role_beyond_own(c, client, prefix, manager):
+    # A pre-existing role more privileged than the manager may not be
+    # overwritten/neutered, even with within-bound new values.
+    _mk_role(client, prefix, "senior", [CAP_CORPUS_MANAGE, CAP_USERS_MANAGE])
+    _eventually(lambda: auth.get_role(client, "senior", prefix=prefix) is not None)
+    r = c.post("/api/roles", json={"name": "senior", "entry_keys": [],
+                                   "capabilities": [CAP_CHAT]}, headers=_hdr(manager))
+    assert r.status_code == 403
+
+
 def test_manager_cannot_delete_role_beyond_own(c, client, prefix, manager):
     _mk_role(client, prefix, "bigrole", [CAP_CORPUS_MANAGE])
     _eventually(lambda: auth.get_role(client, "bigrole", prefix=prefix) is not None)

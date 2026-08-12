@@ -142,7 +142,7 @@ export default function App() {
       ) : view === "manage" ? (
         <Manage capabilities={me.capabilities} />
       ) : view === "users" ? (
-        <Users capabilities={me.capabilities} />
+        <Users capabilities={me.capabilities} isAdmin={me.role === "admin"} />
       ) : null}
     </Shell>
   );

@@ -405,6 +405,13 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
         if unknown:
             raise HTTPException(400, f"unknown capabilities: {', '.join(unknown)}")
         client = _client()
+        # Guard both the new values AND (when overwriting) the role's current
+        # privileges -- else a non-admin manager could neuter a role more
+        # privileged than their own grant, stripping its members (mirrors the
+        # delete-path guard).
+        existing = auth_mod.get_role(client, body.name, prefix=prefix)
+        if existing is not None:
+            _guard_grant(client, actor, existing.capabilities, existing.entry_keys)
         _guard_grant(client, actor, caps, body.entry_keys)
         auth_mod.upsert_role(client, auth_mod.Role(
             body.name, body.entry_keys, body.description, caps), prefix=prefix)
