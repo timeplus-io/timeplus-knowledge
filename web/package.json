@@ -6,8 +6,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "check:sanitize": "node scripts/sanitize-check.mjs",
-    "check:citations": "node scripts/check-citations.mjs"
+    "check:sanitize": "node scripts/sanitize-check.mjs"
   },
   "dependencies": {
     "react": "^18.3.0",
