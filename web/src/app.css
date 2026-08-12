@@ -652,3 +652,75 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 .tk-form-field-narrow { width: 130px; flex: none; }
 .tk-form-hint { font-size: 12px; color: var(--gray-500); }
 .tk-form-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+
+/* ---------------------------------------------------------------------
+   Users & roles (mockup screen 1f). Header reuses .tk-manage-header/
+   -title/-subtitle/-header-spacer/-error (generic, not Manage-specific).
+   A users table, then a role-cards row where each card exposes the
+   "Corpus access" checkbox grid over /api/repos entry keys. "Add user" /
+   "Add role" panels aren't drawn in the static mockup (no open-form
+   state shown) — they reuse the .tk-add-form-card pattern from Manage,
+   toggled open by the header buttons.
+   --------------------------------------------------------------------- */
+.tk-users { display: flex; flex-direction: column; gap: 24px; }
+
+.tk-users-table-card { background: var(--white); border: 1px solid var(--gray-700); border-radius: var(--radius); overflow: hidden; }
+.tk-users-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13px; }
+.tk-users-table col:nth-child(1) { width: 28%; }
+.tk-users-table col:nth-child(2) { width: 24%; }
+.tk-users-table col:nth-child(3) { width: 16%; }
+.tk-users-table col:nth-child(4) { width: 32%; }
+.tk-users-table th,
+.tk-users-table td { padding: 10px 16px; text-align: left; vertical-align: middle; border-top: 1px solid var(--gray-700); }
+.tk-users-table thead th {
+  padding: 8px 16px; background: var(--gray-900); font-size: 12px; font-weight: 600;
+  color: var(--gray-200); border-top: 0; border-bottom: 1px solid var(--gray-700);
+}
+.tk-users-table tbody tr:hover { background: var(--gray-900); }
+.tk-users-row-disabled td { color: var(--gray-500); }
+
+.tk-user-identity { display: flex; align-items: center; gap: 8px; }
+.tk-user-name { font-weight: 600; color: var(--gray-100); }
+.tk-users-row-disabled .tk-user-name { color: var(--gray-500); }
+.tk-user-sub { font-size: 12px; color: var(--gray-500); }
+
+.tk-user-role-select { width: 100%; }
+.tk-user-role-admin { font: 600 11px/1 ui-monospace, Menlo, monospace; color: var(--pink-400); }
+
+.tk-users-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.tk-users-confirm { display: inline-flex; gap: 8px; align-items: center; font-size: 12px; flex-wrap: wrap; }
+.tk-inline-input {
+  height: 32px; background: var(--white); color: var(--gray-100);
+  border: 1px solid var(--gray-600); border-radius: var(--radius);
+  padding: 0 10px; font: 400 13px/1.4 Inter, sans-serif; width: 140px;
+}
+.tk-inline-input:focus { outline: 2px solid var(--pink-500); outline-offset: 1px; }
+
+/* Role cards */
+.tk-role-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; align-items: start; }
+.tk-role-card {
+  background: var(--white); border: 1px solid var(--gray-700); border-radius: var(--radius);
+  padding: 24px; display: flex; flex-direction: column; gap: 14px;
+}
+.tk-role-card-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tk-role-card-name { font-size: 14px; font-weight: 600; color: var(--gray-200); }
+.tk-role-card-meta { font-size: 12px; color: var(--gray-500); }
+.tk-role-card-header-spacer { flex: 1; }
+
+.tk-corpus-access-label { font-size: 12px; color: var(--gray-300); }
+.tk-corpus-access-grid { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.tk-corpus-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: none; border: 0; padding: 0; height: auto; cursor: pointer;
+  font: inherit; color: inherit;
+}
+.tk-corpus-chip:focus-visible { outline: 2px solid var(--pink-500); outline-offset: 2px; }
+.tk-corpus-chip-box {
+  width: 14px; height: 14px; flex: none; box-sizing: border-box;
+  border-radius: var(--radius); border: 1px solid var(--gray-600); background: var(--white);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--white); font-size: 10px; font-weight: 600;
+}
+.tk-corpus-chip-box.checked { background: var(--pink-500); border-color: var(--pink-500); }
+.tk-corpus-chip-key { font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--gray-100); }
+.tk-corpus-chip-empty { font-size: 12px; color: var(--gray-500); }
