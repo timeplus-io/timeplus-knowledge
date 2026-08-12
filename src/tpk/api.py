@@ -1,18 +1,18 @@
 """Management API: corpus CRUD + background ingest jobs."""
 
-import os
 import queue
 import re
-import secrets
 import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+import tpk.auth as auth_mod
 from tpk import corpus, db
+from tpk.auth import AuthLayer, User
 from tpk.config import RepoConfig, Settings, entry_key, load_llm
 from tpk.ingest import ingest_repo
 
@@ -31,14 +31,7 @@ _NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 # components, or anything outside this character class (incl. whitespace)
 # is rejected.
 _REF_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
-
-
-def _require_admin(x_admin_token: str | None) -> None:
-    expected = os.environ.get("TPK_ADMIN_TOKEN")
-    if not expected:
-        return
-    if x_admin_token is None or not secrets.compare_digest(x_admin_token, expected):
-        raise HTTPException(status_code=401, detail="missing or invalid X-Admin-Token")
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 class AddRepo(BaseModel):
@@ -66,6 +59,34 @@ class DeleteRepo(EntryRef):
     purge: bool = False
 
 
+class AddUser(BaseModel):
+    username: str
+    password: str
+    role: str
+    must_change_password: bool = True
+
+
+class UpdateUser(BaseModel):
+    username: str
+    role: str | None = None
+    disabled: bool | None = None
+    password: str | None = None          # admin reset; sets must_change_password
+
+
+class DeleteUser(BaseModel):
+    username: str
+
+
+class UpsertRole(BaseModel):
+    name: str
+    entry_keys: list[str]
+    description: str = ""
+
+
+class DeleteRole(BaseModel):
+    name: str
+
+
 def _validate(body: AddRepo) -> RepoConfig:
     if not _NAME_RE.match(body.name) or body.name in (".", ".."):
         raise HTTPException(400, "name must match ^[A-Za-z0-9._-]+$ and not be '.' or '..'")
@@ -82,17 +103,6 @@ def _validate(body: AddRepo) -> RepoConfig:
         raise HTTPException(422, "set exactly one of 'github' or 'path'")
     if body.github and not body.ref:
         raise HTTPException(422, "'github' requires a 'ref' (tag/branch)")
-    if body.path and not os.environ.get("TPK_ADMIN_TOKEN"):
-        # A path-type entry maps an arbitrary server-filesystem path into the
-        # corpus, which the chat agent's read_source tool then treats as
-        # readable. On the default open admin gate (TPK_ADMIN_TOKEN unset)
-        # that's an arbitrary-file-read primitive reachable over the network,
-        # so path entries via this API require the admin token to be
-        # configured. Seeding from repos.toml and CLI use are unaffected --
-        # this gate applies only to this create/update route.
-        raise HTTPException(
-            403, "path-type entries require TPK_ADMIN_TOKEN to be configured"
-        )
     if body.visibility not in ("internal", "public"):
         raise HTTPException(422, "visibility must be internal|public")
     if body.extraction not in ("code-only", "semantic"):
@@ -177,17 +187,33 @@ class JobManager:
 
 
 def create_api_router(prefix: str = "", auth=None) -> APIRouter:
-    # `auth` is accepted but unused in this task -- Task 3 wires these
-    # routes to `auth.require_admin` in place of the X-Admin-Token gate.
+    auth = auth or AuthLayer(prefix)
     router = APIRouter(prefix="/api")
     jobs = JobManager(prefix=prefix)
 
     def _client():
         return db.get_client(Settings.from_env())
 
+    def _user_json(u):
+        return {"username": u.username, "role": u.role,
+                "must_change_password": u.must_change_password,
+                "disabled": u.disabled}
+
+    def _check_role_exists(client, name: str):
+        if name != auth_mod.ROLE_ADMIN and auth_mod.get_role(client, name, prefix=prefix) is None:
+            raise HTTPException(400, f"role {name!r} does not exist")
+
+    def _guard_last_admin(client, username: str, new_role: str | None, new_disabled: bool | None):
+        u = auth_mod.get_user(client, username, prefix=prefix)
+        if u is None or u.role != auth_mod.ROLE_ADMIN or u.disabled:
+            return
+        demoted = new_role is not None and new_role != auth_mod.ROLE_ADMIN
+        disabled = new_disabled is True
+        if (demoted or disabled) and auth_mod.admin_count(client, prefix=prefix) <= 1:
+            raise HTTPException(400, "cannot demote/disable/delete the last admin")
+
     @router.get("/repos")
-    def list_repos(x_admin_token: str | None = Header(None)):
-        _require_admin(x_admin_token)
+    def list_repos(admin: User = Depends(auth.require_admin)):
         client = _client()
         entries = corpus.list_entries(client, prefix=prefix)
         counts = dict(
@@ -217,47 +243,124 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
         return out
 
     @router.post("/repos")
-    def add_repo(body: AddRepo, x_admin_token: str | None = Header(None)):
-        _require_admin(x_admin_token)
+    def add_repo(body: AddRepo, admin: User = Depends(auth.require_admin)):
         cfg = _validate(body)
         corpus.upsert_entry(_client(), cfg, prefix=prefix)
         job_id = jobs.submit(cfg) if body.ingest else None
         return {"entry_key": entry_key(cfg), "job_id": job_id}
 
     @router.post("/repos/toggle")
-    def toggle_repo(body: ToggleRepo, x_admin_token: str | None = Header(None)):
-        _require_admin(x_admin_token)
+    def toggle_repo(body: ToggleRepo, admin: User = Depends(auth.require_admin)):
         if not corpus.set_enabled(_client(), body.name, body.ref, body.enabled, prefix=prefix):
             raise HTTPException(404, "no such corpus entry")
         return {"ok": True}
 
     @router.post("/repos/delete")
-    def delete_repo(body: DeleteRepo, x_admin_token: str | None = Header(None)):
-        _require_admin(x_admin_token)
+    def delete_repo(body: DeleteRepo, admin: User = Depends(auth.require_admin)):
         if not corpus.delete_entry(_client(), body.name, body.ref, prefix=prefix,
                                    purge=body.purge):
             raise HTTPException(404, "no such corpus entry")
         return {"ok": True}
 
     @router.post("/repos/reindex")
-    def reindex_repo(body: EntryRef, x_admin_token: str | None = Header(None)):
-        _require_admin(x_admin_token)
+    def reindex_repo(body: EntryRef, admin: User = Depends(auth.require_admin)):
         cfg = corpus.find_entry(_client(), body.name, body.ref, prefix=prefix)
         if cfg is None:
             raise HTTPException(404, "no such corpus entry")
         return {"job_id": jobs.submit(cfg)}
 
     @router.get("/jobs")
-    def list_jobs(x_admin_token: str | None = Header(None)):
-        _require_admin(x_admin_token)
+    def list_jobs(admin: User = Depends(auth.require_admin)):
         return sorted(jobs.snapshot(), key=lambda j: j["submitted_at"], reverse=True)[:50]
 
     @router.get("/jobs/{job_id}")
-    def get_job(job_id: str, x_admin_token: str | None = Header(None)):
-        _require_admin(x_admin_token)
+    def get_job(job_id: str, admin: User = Depends(auth.require_admin)):
         rec = jobs.get(job_id)
         if rec is None:
             raise HTTPException(404, "no such job")
         return rec
+
+    @router.get("/users")
+    def api_list_users(admin: User = Depends(auth.require_admin)):
+        return [_user_json(u) for u in auth_mod.list_users(_client(), prefix=prefix)]
+
+    @router.post("/users")
+    def api_add_user(body: AddUser, admin: User = Depends(auth.require_admin)):
+        if not _USERNAME_RE.match(body.username) or body.username in (".", ".."):
+            raise HTTPException(400, "username must match ^[A-Za-z0-9._-]+$")
+        err = auth_mod.validate_new_password(body.password)
+        if err:
+            raise HTTPException(400, err)
+        client = _client()
+        if auth_mod.get_user(client, body.username, prefix=prefix) is not None:
+            raise HTTPException(409, "user already exists")
+        _check_role_exists(client, body.role)
+        auth_mod.upsert_user(client, auth_mod.User(
+            body.username, auth_mod.hash_password(body.password), body.role,
+            must_change_password=body.must_change_password), prefix=prefix)
+        return {"ok": True}
+
+    @router.post("/users/update")
+    def api_update_user(body: UpdateUser, admin: User = Depends(auth.require_admin)):
+        client = _client()
+        u = auth_mod.get_user(client, body.username, prefix=prefix)
+        if u is None:
+            raise HTTPException(404, "no such user")
+        _guard_last_admin(client, body.username, body.role, body.disabled)
+        role = body.role if body.role is not None else u.role
+        if body.role is not None:
+            _check_role_exists(client, role)
+        disabled = body.disabled if body.disabled is not None else u.disabled
+        password_hash, must_change = u.password_hash, u.must_change_password
+        if body.password is not None:
+            err = auth_mod.validate_new_password(body.password)
+            if err:
+                raise HTTPException(400, err)
+            password_hash, must_change = auth_mod.hash_password(body.password), True
+        auth_mod.upsert_user(client, auth_mod.User(
+            u.username, password_hash, role, must_change, disabled), prefix=prefix)
+        if disabled or body.password is not None:
+            auth_mod.delete_user_sessions(client, u.username, prefix=prefix)
+        return {"ok": True}
+
+    @router.post("/users/delete")
+    def api_delete_user(body: DeleteUser, admin: User = Depends(auth.require_admin)):
+        client = _client()
+        u = auth_mod.get_user(client, body.username, prefix=prefix)
+        if u is None:
+            raise HTTPException(404, "no such user")
+        if u.role == auth_mod.ROLE_ADMIN and not u.disabled \
+                and auth_mod.admin_count(client, prefix=prefix) <= 1:
+            raise HTTPException(400, "cannot demote/disable/delete the last admin")
+        auth_mod.delete_user(client, body.username, prefix=prefix)
+        auth_mod.delete_user_sessions(client, body.username, prefix=prefix)
+        return {"ok": True}
+
+    @router.get("/roles")
+    def api_list_roles(admin: User = Depends(auth.require_admin)):
+        return [{"name": r.name, "entry_keys": r.entry_keys, "description": r.description}
+                for r in auth_mod.list_roles(_client(), prefix=prefix)]
+
+    @router.post("/roles")
+    def api_upsert_role(body: UpsertRole, admin: User = Depends(auth.require_admin)):
+        if body.name == auth_mod.ROLE_ADMIN:
+            raise HTTPException(400, "'admin' is a reserved role name")
+        if not _USERNAME_RE.match(body.name):
+            raise HTTPException(400, "role name must match ^[A-Za-z0-9._-]+$")
+        if any(not isinstance(k, str) or not k for k in body.entry_keys):
+            raise HTTPException(400, "entry_keys must be non-empty strings")
+        auth_mod.upsert_role(_client(), auth_mod.Role(
+            body.name, body.entry_keys, body.description), prefix=prefix)
+        return {"ok": True}
+
+    @router.post("/roles/delete")
+    def api_delete_role(body: DeleteRole, admin: User = Depends(auth.require_admin)):
+        client = _client()
+        if auth_mod.get_role(client, body.name, prefix=prefix) is None:
+            raise HTTPException(404, "no such role")
+        if auth_mod.usernames_with_role(client, body.name, prefix=prefix):
+            raise HTTPException(409, "role is assigned to users")
+        auth_mod.delete_role(client, body.name, prefix=prefix)
+        return {"ok": True}
 
     return router

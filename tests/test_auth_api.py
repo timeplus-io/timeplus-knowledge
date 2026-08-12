@@ -84,12 +84,15 @@ def test_must_change_password_gate_and_flow(c, client, prefix):
     body = _login(c, "admin", "changeme").json()
     assert body["must_change_password"] is True
     t = body["token"]
-    # gated endpoint blocked with the distinct code (POST /chat gets
-    # Depends(auth.require_user) in this task; /api routes still use the
-    # old X-Admin-Token gate until Task 3)
+    # gated endpoints blocked with the distinct code: both /chat
+    # (Depends(auth.require_user)) and /api/* (Depends(auth.require_admin),
+    # which itself calls require_user first) enforce the must-change gate.
     blocked = c.post("/chat", headers=_hdr(t), json={"message": "hi"})
     assert blocked.status_code == 403
     assert blocked.json()["detail"]["code"] == "password_change_required"
+    blocked_api = c.get("/api/users", headers=_hdr(t))
+    assert blocked_api.status_code == 403
+    assert blocked_api.json()["detail"]["code"] == "password_change_required"
     # policy failures
     assert c.post("/auth/change-password", headers=_hdr(t),
                   json={"old_password": "changeme", "new_password": "short"}).status_code == 400
