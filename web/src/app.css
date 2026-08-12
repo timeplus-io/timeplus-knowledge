@@ -669,6 +669,40 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 .tk-form-hint { font-size: 12px; color: var(--gray-500); }
 .tk-form-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 
+/* Add-corpus-entry modal (mockup screen 2a). A modal is a deliberate
+   elevation exception to the flat/no-shadow rule: it floats over a dimmed
+   page. The dim + shadow use the gray-100 rgb (18,15,26) with alpha. */
+.tk-modal-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(18, 15, 26, 0.4);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.tk-modal {
+  width: 520px; max-width: 100%; max-height: 100%;
+  background: var(--white); border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(18, 15, 26, 0.24);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.tk-modal-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 16px 24px; border-bottom: 1px solid var(--gray-700);
+}
+.tk-modal-title { font-size: 16px; font-weight: 600; color: var(--gray-200); }
+.tk-modal-spacer { flex: 1; }
+.tk-modal-close {
+  height: auto; padding: 0; background: none; border: 0;
+  color: var(--gray-500); font-size: 14px; font-weight: 400; cursor: pointer;
+}
+.tk-modal-close:hover:not(:disabled) { background: none; color: var(--gray-300); }
+.tk-modal-body {
+  padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto;
+}
+.tk-modal-footer {
+  display: flex; gap: 8px; justify-content: flex-end;
+  padding: 16px 24px; border-top: 1px solid var(--gray-700);
+  background: var(--gray-900); border-radius: 0 0 var(--radius) var(--radius);
+}
+
 /* ---------------------------------------------------------------------
    Users & roles (mockup screen 1f). Header reuses .tk-manage-header/
    -title/-subtitle/-header-spacer/-error (generic, not Manage-specific).

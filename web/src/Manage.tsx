@@ -53,7 +53,18 @@ export default function Manage() {
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState<string | null>(null);
   const [purge, setPurge] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
+
+  function openAdd() { setForm({ ...EMPTY_FORM }); setError(""); setAddOpen(true); }
+  function closeAdd() { setAddOpen(false); setError(""); }
+
+  useEffect(() => {
+    if (!addOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setAddOpen(false); setError(""); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [addOpen]);
 
   async function refresh() {
     try {
@@ -83,6 +94,7 @@ export default function Manage() {
     act(async () => {
       await api("/api/repos", { ...form, ingest });
       setForm({ ...EMPTY_FORM });
+      setAddOpen(false);
     });
   }
 
@@ -103,14 +115,7 @@ export default function Manage() {
           </div>
         </div>
         <div className="tk-manage-header-spacer" />
-        <button
-          type="button"
-          className="tk-btn"
-          onClick={() => {
-            nameInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-            nameInputRef.current?.focus();
-          }}
-        >
+        <button type="button" className="tk-btn" onClick={openAdd}>
           Add corpus entry
         </button>
       </div>
@@ -270,72 +275,79 @@ export default function Manage() {
           )}
         </div>
 
-        <div className="tk-add-form-card">
-          <div className="tk-add-form-title">Add corpus entry</div>
-          <form
-            className="tk-add-form-fields"
-            onSubmit={(e) => { e.preventDefault(); addEntry(true); }}
-          >
-            <div className="tk-form-field">
-              <label htmlFor="mng-name">Name <span className="tk-form-required">*</span></label>
-              <input id="mng-name" ref={nameInputRef} className="tk-input" placeholder="e.g. proton" required
-                     value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            </div>
-
-            <div className="tk-form-row">
-              <div className="tk-form-field">
-                <label htmlFor="mng-github">GitHub org/repo</label>
-                <input id="mng-github" className="tk-input" placeholder="org/repo" value={form.github}
-                       onChange={(e) => setForm({ ...form, github: e.target.value })} />
-              </div>
-              <div className="tk-form-field tk-form-field-narrow">
-                <label htmlFor="mng-ref">Ref</label>
-                <input id="mng-ref" className="tk-input" placeholder="v1.0.0" value={form.ref}
-                       onChange={(e) => setForm({ ...form, ref: e.target.value })} />
-              </div>
-            </div>
-
-            <div className="tk-form-field">
-              <label htmlFor="mng-path">Local path (dev mode — alternative to GitHub)</label>
-              <input id="mng-path" className="tk-input" placeholder="/path/to/repo" value={form.path}
-                     onChange={(e) => setForm({ ...form, path: e.target.value })} />
-            </div>
-
-            <div className="tk-form-row">
-              <div className="tk-form-field">
-                <label htmlFor="mng-visibility">Visibility</label>
-                <select id="mng-visibility" className="tk-select" value={form.visibility}
-                        onChange={(e) => setForm({ ...form, visibility: e.target.value })}>
-                  <option value="internal">internal</option>
-                  <option value="public">public</option>
-                </select>
-              </div>
-              <div className="tk-form-field">
-                <label htmlFor="mng-extraction">Extraction</label>
-                <select id="mng-extraction" className="tk-select" value={form.extraction}
-                        onChange={(e) => setForm({ ...form, extraction: e.target.value })}>
-                  <option value="code-only">code-only</option>
-                  <option value="semantic">semantic</option>
-                </select>
-              </div>
-            </div>
-            <div className="tk-form-hint">code-only is free and offline; semantic adds an LLM pass over docs/YAML.</div>
-
-            <div className="tk-form-field">
-              <label htmlFor="mng-description">Description</label>
-              <input id="mng-description" className="tk-input" placeholder="optional" value={form.description}
-                     onChange={(e) => setForm({ ...form, description: e.target.value })} />
-            </div>
-
-            <div className="tk-form-actions">
-              <button type="button" className="tk-btn tk-btn-secondary" onClick={() => addEntry(false)}>
-                Add only
-              </button>
-              <button type="submit" className="tk-btn">Add &amp; index</button>
-            </div>
-          </form>
-        </div>
       </div>
+
+      {addOpen && (
+        <div className="tk-modal-overlay" onClick={closeAdd}>
+          <div className="tk-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="tk-modal-header">
+              <div className="tk-modal-title">Add corpus entry</div>
+              <div className="tk-modal-spacer" />
+              <button type="button" className="tk-modal-close" onClick={closeAdd} aria-label="Close">✕</button>
+            </div>
+            <form className="tk-modal-body" onSubmit={(e) => { e.preventDefault(); addEntry(true); }}>
+              <div className="tk-form-field">
+                <label htmlFor="mng-name">Name <span className="tk-form-required">*</span></label>
+                <input id="mng-name" ref={nameInputRef} className="tk-input" placeholder="e.g. proton" required autoFocus
+                       value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              </div>
+
+              <div className="tk-form-row">
+                <div className="tk-form-field">
+                  <label htmlFor="mng-github">GitHub org/repo</label>
+                  <input id="mng-github" className="tk-input" placeholder="org/repo" value={form.github}
+                         onChange={(e) => setForm({ ...form, github: e.target.value })} />
+                </div>
+                <div className="tk-form-field tk-form-field-narrow">
+                  <label htmlFor="mng-ref">Ref</label>
+                  <input id="mng-ref" className="tk-input" placeholder="v1.0.0" value={form.ref}
+                         onChange={(e) => setForm({ ...form, ref: e.target.value })} />
+                </div>
+              </div>
+
+              <div className="tk-form-field">
+                <label htmlFor="mng-path">Local path (dev mode — alternative to GitHub)</label>
+                <input id="mng-path" className="tk-input" placeholder="/path/to/repo" value={form.path}
+                       onChange={(e) => setForm({ ...form, path: e.target.value })} />
+              </div>
+
+              <div className="tk-form-row">
+                <div className="tk-form-field">
+                  <label htmlFor="mng-visibility">Visibility</label>
+                  <select id="mng-visibility" className="tk-select" value={form.visibility}
+                          onChange={(e) => setForm({ ...form, visibility: e.target.value })}>
+                    <option value="internal">internal</option>
+                    <option value="public">public</option>
+                  </select>
+                </div>
+                <div className="tk-form-field">
+                  <label htmlFor="mng-extraction">Extraction</label>
+                  <select id="mng-extraction" className="tk-select" value={form.extraction}
+                          onChange={(e) => setForm({ ...form, extraction: e.target.value })}>
+                    <option value="code-only">code-only</option>
+                    <option value="semantic">semantic</option>
+                  </select>
+                </div>
+              </div>
+              <div className="tk-form-hint">code-only is free and offline; semantic adds an LLM pass over docs/YAML.</div>
+
+              <div className="tk-form-field">
+                <label htmlFor="mng-description">Description</label>
+                <input id="mng-description" className="tk-input" placeholder="optional" value={form.description}
+                       onChange={(e) => setForm({ ...form, description: e.target.value })} />
+              </div>
+
+              {error && <div className="tk-manage-error">{error}</div>}
+
+              <div className="tk-modal-footer">
+                <button type="button" className="tk-btn tk-btn-secondary" onClick={closeAdd}>Cancel</button>
+                <button type="button" className="tk-btn tk-btn-secondary" onClick={() => addEntry(false)}>Add only</button>
+                <button type="submit" className="tk-btn">Add &amp; index</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
