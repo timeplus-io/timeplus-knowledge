@@ -132,7 +132,7 @@ function fmtElapsed(ms: number): string {
 //
 // Exported for scripts/check-citations.mjs (see sanitizeSchema above for
 // why: the permanent XSS-safety test must exercise this real function).
-export function citationPlugin(sourceCount: number) {
+export function citationPlugin(sourceCount: number, turnKey: number = 0) {
   return function transformer(tree: any) {
     if (sourceCount <= 0) return;
     walk(tree);
@@ -170,7 +170,7 @@ export function citationPlugin(sourceCount: number) {
           children: [{
             type: "element",
             tagName: "a",
-            properties: { href: `#tk-source-${n}`, className: ["tk-citation"] },
+            properties: { href: `#tk-source-${turnKey}-${n}`, className: ["tk-citation"] },
             children: [{ type: "text", value: `[${n}]` }],
           }],
         });
@@ -191,7 +191,7 @@ export function citationPlugin(sourceCount: number) {
 // citation while the answer is still streaming.
 // --------------------------------------------------------------------
 
-function SourceCard({ n, source }: { n: number; source: SourceEventPayload }) {
+function SourceCard({ turnKey, n, source }: { turnKey: number; n: number; source: SourceEventPayload }) {
   const [preview, setPreview] = useState<SourceResponse | "loading" | "error">("loading");
 
   useEffect(() => {
@@ -204,7 +204,7 @@ function SourceCard({ n, source }: { n: number; source: SourceEventPayload }) {
   }, [source.repo, source.file_path, source.line_start, source.line_end]);
 
   return (
-    <div className="tk-source-card" id={`tk-source-${n}`}>
+    <div className="tk-source-card" id={`tk-source-${turnKey}-${n}`}>
       <div className="tk-source-card-header">
         <div className="tk-source-index">[{n}]</div>
         <div className="tk-source-path">{source.file_path}</div>
@@ -248,31 +248,34 @@ export default function Chat({
   const [busy, setBusy] = useState(false);
   const [corpusTags, setCorpusTags] = useState<string[]>([]);
   // The Sources panel opens only when the reader clicks an inline [n]
-  // citation (not automatically). `scrollToSource` scrolls to the matching
-  // card once the panel has rendered.
+  // citation (not automatically), and shows the sources of the TURN that
+  // citation belongs to — each turn's citations and cards are namespaced by
+  // turn index (#tk-source-{turn}-{n}), so a later answer's sources don't
+  // shadow an earlier one's. `scrollTargetId` scrolls to the matching card
+  // once the panel has rendered.
   const [panelOpen, setPanelOpen] = useState(false);
-  const [scrollToSource, setScrollToSource] = useState<number | null>(null);
+  const [activeSourcesTurn, setActiveSourcesTurn] = useState<number | null>(null);
+  const [scrollTargetId, setScrollTargetId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (scrollToSource == null) return;
-    document.getElementById(`tk-source-${scrollToSource}`)
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    setScrollToSource(null);
-  }, [scrollToSource, panelOpen]);
+    if (!scrollTargetId) return;
+    document.getElementById(scrollTargetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setScrollTargetId(null);
+  }, [scrollTargetId, panelOpen]);
 
   // Delegated click on the message area: a [n] citation link (rendered by
-  // citationPlugin as <a class="tk-citation" href="#tk-source-N">) opens the
-  // Sources panel and scrolls to card N, instead of the default hash jump.
+  // citationPlugin as <a class="tk-citation" href="#tk-source-{turn}-{n}">)
+  // opens THAT turn's Sources panel and scrolls to its card n.
   function onMessagesClick(e: React.MouseEvent) {
     const a = (e.target as HTMLElement).closest("a.tk-citation") as HTMLAnchorElement | null;
     if (!a) return;
     e.preventDefault();
-    const n = Number(a.getAttribute("href")?.replace("#tk-source-", ""));
-    if (!Number.isNaN(n)) {
-      setPanelOpen(true);
-      setScrollToSource(n);
-    }
+    const m = /^#tk-source-(\d+)-(\d+)$/.exec(a.getAttribute("href") || "");
+    if (!m) return;
+    setActiveSourcesTurn(Number(m[1]));
+    setPanelOpen(true);
+    setScrollTargetId(`tk-source-${m[1]}-${m[2]}`);
   }
 
   useEffect(() => {
@@ -317,6 +320,7 @@ export default function Chat({
     setInput("");
     setBusy(true);
     setPanelOpen(false);
+    setActiveSourcesTurn(null);
     const history = turns.map((t) => ({ role: t.role, content: t.content }));
     setTurns((ts) => [...ts, newUserTurn(message), newAssistantTurn()]);
 
@@ -396,6 +400,7 @@ export default function Chat({
     setTurns([]);
     setInput("");
     setPanelOpen(false);
+    setActiveSourcesTurn(null);
   }
 
   function renderTrace(turn: Turn, idx: number) {
@@ -438,12 +443,8 @@ export default function Chat({
   }
 
   const hasTurns = turns.length > 0;
-  const answeredWithSources = turns.filter(
-    (t) => t.role === "assistant" && t.status === "done" && t.sources.length > 0);
-  const sourcesTurn = answeredWithSources.length
-    ? answeredWithSources[answeredWithSources.length - 1]
-    : null;
-  const showSources = panelOpen && sourcesTurn !== null;
+  const activeTurn = activeSourcesTurn != null ? turns[activeSourcesTurn] ?? null : null;
+  const showSources = panelOpen && activeTurn != null && activeTurn.sources.length > 0;
 
   return (
     <div className="tk-chat">
@@ -512,7 +513,7 @@ export default function Chat({
                             rehypePlugins={[
                               rehypeRaw,
                               [rehypeSanitize, sanitizeSchema],
-                              [citationPlugin, turn.sources.length],
+                              [citationPlugin, turn.sources.length, i],
                             ]}
                           >
                             {turn.content}
@@ -529,16 +530,18 @@ export default function Chat({
               <div ref={bottomRef} />
             </div>
           </div>
-          {showSources && sourcesTurn && (
+          {showSources && activeTurn && activeSourcesTurn != null && (
             <div className="tk-sources">
               <div className="tk-sources-header">
                 <div className="tk-sources-title">Sources</div>
-                <div className="tk-sources-count">{sourcesTurn.sources.length} cited</div>
+                <div className="tk-sources-count">{activeTurn.sources.length} cited</div>
                 <div className="tk-sources-spacer" />
                 <button type="button" className="tk-sources-close" onClick={() => setPanelOpen(false)}>✕</button>
               </div>
               <div className="tk-sources-list">
-                {sourcesTurn.sources.map((s) => <SourceCard key={s.n} n={s.n} source={s} />)}
+                {activeTurn.sources.map((s) => (
+                  <SourceCard key={s.n} turnKey={activeSourcesTurn} n={s.n} source={s} />
+                ))}
               </div>
             </div>
           )}

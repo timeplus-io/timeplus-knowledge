@@ -66,11 +66,11 @@ if (!sanitizeSchema || !Array.isArray(sanitizeSchema.tagNames)) {
 
 // The exact rehypePlugins array Chat.tsx passes to ReactMarkdown for an
 // assistant bubble (see Chat.tsx's render()).
-function render(md, sourceCount) {
+function render(md, sourceCount, turnKey = 0) {
   return renderToStaticMarkup(
     createElement(ReactMarkdown, {
       remarkPlugins: [remarkGfm],
-      rehypePlugins: [rehypeRaw, [rehypeSanitize, sanitizeSchema], [citationPlugin, sourceCount]],
+      rehypePlugins: [rehypeRaw, [rehypeSanitize, sanitizeSchema], [citationPlugin, sourceCount, turnKey]],
     }, md),
   );
 }
@@ -85,18 +85,26 @@ function check(name, cond) {
 
 const inRange = render("Checkpoints persist state.[1] Interval is tunable.[2]", 2);
 check(
-  "in-range [1] -> sup>a href=#tk-source-1 class=tk-citation",
-  /<sup><a href="#tk-source-1" class="tk-citation">\[1\]<\/a><\/sup>/.test(inRange),
+  "in-range [1] -> sup>a href=#tk-source-0-1 class=tk-citation",
+  /<sup><a href="#tk-source-0-1" class="tk-citation">\[1\]<\/a><\/sup>/.test(inRange),
 );
 check(
-  "in-range [2] -> sup>a href=#tk-source-2 class=tk-citation",
-  /<sup><a href="#tk-source-2" class="tk-citation">\[2\]<\/a><\/sup>/.test(inRange),
+  "in-range [2] -> sup>a href=#tk-source-0-2 class=tk-citation",
+  /<sup><a href="#tk-source-0-2" class="tk-citation">\[2\]<\/a><\/sup>/.test(inRange),
+);
+
+// Citations are namespaced by turn index so an earlier answer's [n] doesn't
+// collide with a later answer's [n] (both would otherwise be #tk-source-n).
+const turnScoped = render("On this later turn.[1]", 2, 3);
+check(
+  "turnKey=3 namespaces the anchor -> #tk-source-3-1",
+  /<sup><a href="#tk-source-3-1" class="tk-citation">\[1\]<\/a><\/sup>/.test(turnScoped),
 );
 
 const outOfRange = render("See [5] for details.", 2);
 check(
   "out-of-range [5] (sourceCount=2) left as plain text",
-  outOfRange.includes("[5]") && !outOfRange.includes('href="#tk-source-5"') && !outOfRange.includes("tk-citation"),
+  outOfRange.includes("[5]") && !outOfRange.includes('href="#tk-source-') && !outOfRange.includes("tk-citation"),
 );
 
 const noSources = render("array[1] access example.", 0);
@@ -117,7 +125,7 @@ check(
 const multiDigit = render("See the full trace.[12]", 12);
 check(
   "multi-digit [12] parses as n=12, not two separate digits",
-  /<sup><a href="#tk-source-12" class="tk-citation">\[12\]<\/a><\/sup>/.test(multiDigit),
+  /<sup><a href="#tk-source-0-12" class="tk-citation">\[12\]<\/a><\/sup>/.test(multiDigit),
 );
 
 // --- adversarial / XSS safety --------------------------------------------
