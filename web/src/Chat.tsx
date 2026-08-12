@@ -247,8 +247,33 @@ export default function Chat({
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [corpusTags, setCorpusTags] = useState<string[]>([]);
-  const [panelClosed, setPanelClosed] = useState(false);
+  // The Sources panel opens only when the reader clicks an inline [n]
+  // citation (not automatically). `scrollToSource` scrolls to the matching
+  // card once the panel has rendered.
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [scrollToSource, setScrollToSource] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollToSource == null) return;
+    document.getElementById(`tk-source-${scrollToSource}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setScrollToSource(null);
+  }, [scrollToSource, panelOpen]);
+
+  // Delegated click on the message area: a [n] citation link (rendered by
+  // citationPlugin as <a class="tk-citation" href="#tk-source-N">) opens the
+  // Sources panel and scrolls to card N, instead of the default hash jump.
+  function onMessagesClick(e: React.MouseEvent) {
+    const a = (e.target as HTMLElement).closest("a.tk-citation") as HTMLAnchorElement | null;
+    if (!a) return;
+    e.preventDefault();
+    const n = Number(a.getAttribute("href")?.replace("#tk-source-", ""));
+    if (!Number.isNaN(n)) {
+      setPanelOpen(true);
+      setScrollToSource(n);
+    }
+  }
 
   useEffect(() => {
     if (initialInput) {
@@ -291,7 +316,7 @@ export default function Chat({
     if (!message || busy) return;
     setInput("");
     setBusy(true);
-    setPanelClosed(false);
+    setPanelOpen(false);
     const history = turns.map((t) => ({ role: t.role, content: t.content }));
     setTurns((ts) => [...ts, newUserTurn(message), newAssistantTurn()]);
 
@@ -370,7 +395,7 @@ export default function Chat({
   function newConversation() {
     setTurns([]);
     setInput("");
-    setPanelClosed(false);
+    setPanelOpen(false);
   }
 
   function renderTrace(turn: Turn, idx: number) {
@@ -418,7 +443,7 @@ export default function Chat({
   const sourcesTurn = answeredWithSources.length
     ? answeredWithSources[answeredWithSources.length - 1]
     : null;
-  const showSources = !panelClosed && sourcesTurn !== null;
+  const showSources = panelOpen && sourcesTurn !== null;
 
   return (
     <div className="tk-chat">
@@ -466,7 +491,7 @@ export default function Chat({
         </div>
       ) : (
         <div className="tk-chat-body">
-          <div className="tk-chat-messages">
+          <div className="tk-chat-messages" onClick={onMessagesClick}>
             <div className="tk-chat-messages-inner">
               {turns.map((turn, i) =>
                 turn.role === "user" ? (
@@ -510,7 +535,7 @@ export default function Chat({
                 <div className="tk-sources-title">Sources</div>
                 <div className="tk-sources-count">{sourcesTurn.sources.length} cited</div>
                 <div className="tk-sources-spacer" />
-                <button type="button" className="tk-sources-close" onClick={() => setPanelClosed(true)}>✕</button>
+                <button type="button" className="tk-sources-close" onClick={() => setPanelOpen(false)}>✕</button>
               </div>
               <div className="tk-sources-list">
                 {sourcesTurn.sources.map((s) => <SourceCard key={s.n} n={s.n} source={s} />)}
