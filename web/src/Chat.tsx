@@ -364,6 +364,15 @@ export default function Chat({
     setTurns((ts) => ts.map((t, i) => (i === idx ? { ...t, traceExpanded: !t.traceExpanded } : t)));
   }
 
+  // Clear the conversation and return to the empty state. Disabled while a
+  // response is streaming (like the input) so a lingering stream can't write
+  // into a cleared/new conversation; mid-stream abort is future work (#10).
+  function newConversation() {
+    setTurns([]);
+    setInput("");
+    setPanelClosed(false);
+  }
+
   function renderTrace(turn: Turn, idx: number) {
     if (turn.tools.length === 0) return null;
     const streaming = turn.status === "streaming";
@@ -523,6 +532,17 @@ export default function Chat({
           <button type="button" onClick={() => send()} disabled={busy || !input.trim()}>
             {busy ? "Thinking…" : "Send"}
           </button>
+          {hasTurns && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={newConversation}
+              disabled={busy}
+              title="Clear this conversation and start a new one"
+            >
+              New chat
+            </button>
+          )}
         </div>
       </div>
     </div>
