@@ -85,6 +85,57 @@ def test_search_filters_by_kind_and_repo(kg):
     assert {h["id"] for h in kg.search_entities("checkpoint", repos=["docs"])} == {"d1"}
 
 
+def test_search_repos_accepts_bare_name_or_entry_key(tp):
+    """The `repos` filter matches a node keyed `name@ref` when given either the
+    full entry key OR the bare name — the agent frequently passes just the
+    name (e.g. "proton-enterprise") while nodes are keyed "name@ref"."""
+    from tpk.ingest import upsert_graph
+    from tpk.tools import KnowledgeGraph
+
+    client, prefix = tp
+    nodes = [
+        Node(id="v1", repo="proj@v3.3.1", kind="function", name="set_log_level",
+             qualified_name="s.set_log_level", file_path="s.cpp", line_start=1,
+             line_end=2, summary="", community="c", visibility="internal"),
+    ]
+    upsert_graph(client, prefix, nodes, [], datetime.now(timezone.utc))
+    kg = KnowledgeGraph(client, stream_prefix=prefix)
+    _eventually(lambda: len(kg.search_entities("set_log_level")), lambda v: v == 1)
+
+    assert {h["id"] for h in kg.search_entities("set_log_level", repos=["proj@v3.3.1"])} == {"v1"}
+    assert {h["id"] for h in kg.search_entities("set_log_level", repos=["proj"])} == {"v1"}  # bare name
+    assert kg.search_entities("set_log_level", repos=["other"]) == []  # unrelated name -> nothing
+
+
+def test_read_source_accepts_bare_name_or_entry_key(tp, tmp_path: Path):
+    """read_source resolves a repo arg given either the full entry key or the
+    bare name (matched to the single entry key by its name part)."""
+    from tpk.tools import KnowledgeGraph
+
+    client, prefix = tp
+    (tmp_path / "s.cpp").write_text("l1\nl2\nl3\n")
+    kg = KnowledgeGraph(client, stream_prefix=prefix, repo_paths={"proj@v3.3.1": tmp_path})
+
+    assert kg.read_source("proj@v3.3.1", "s.cpp", 1, 2) == "l1\nl2\n"  # full key
+    assert kg.read_source("proj", "s.cpp", 1, 2) == "l1\nl2\n"          # bare name
+    with pytest.raises(ValueError):
+        kg.read_source("nope", "s.cpp", 1, 2)
+
+
+def test_read_source_bare_name_ambiguous_across_refs(tp, tmp_path: Path):
+    """A bare name matching two refs is ambiguous -> raise, so the agent must
+    retry with an explicit name@ref."""
+    from tpk.tools import KnowledgeGraph
+
+    client, prefix = tp
+    (tmp_path / "a.txt").write_text("x\n")
+    kg = KnowledgeGraph(client, stream_prefix=prefix,
+                        repo_paths={"proj@v1": tmp_path, "proj@v2": tmp_path})
+    with pytest.raises(ValueError):
+        kg.read_source("proj", "a.txt", 1, 1)
+    assert kg.read_source("proj@v1", "a.txt", 1, 1) == "x\n"  # explicit key still works
+
+
 def test_get_entity(kg):
     assert kg.get_entity("a1")["name"] == "alpha"
     assert kg.get_entity("nope") is None
