@@ -94,6 +94,7 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 .login-field-error .login-label { color: var(--red-500); }
 .login-field-error .tk-input { border-color: var(--red-500); }
 .login-field-error .tk-input:focus { outline-color: var(--red-500); }
+.login-mismatch { color: var(--red-500); font-size: 12px; }
 .login-submit { width: 100%; margin-top: 4px; }
 
 /* ---------------------------------------------------------------------

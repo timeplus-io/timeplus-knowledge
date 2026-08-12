@@ -146,7 +146,16 @@ export default function Login({
               <input className="tk-input" type="password" value={confirmPassword} required
                      onChange={(e) => setConfirmPassword(e.target.value)} />
             </label>
-            {error && <div className="error">{error}</div>}
+            {confirmMismatch && (
+              <div className="login-mismatch">new password and confirmation do not match</div>
+            )}
+            {/* Avoid rendering the identical mismatch copy twice: the live
+                confirmMismatch check above already covers it while the user
+                is still mid-edit. Any other error (e.g. a wrong current
+                password from the server) still renders here unchanged. */}
+            {error && !(confirmMismatch && error === "new password and confirmation do not match") && (
+              <div className="error">{error}</div>
+            )}
             <button type="submit" className="tk-btn login-submit" disabled={busy}>
               {busy ? "Saving…" : "Change password"}
             </button>
