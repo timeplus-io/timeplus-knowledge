@@ -26,14 +26,27 @@ do not use it in production.
 
 ## Docker compose (quickest start)
 
-    cp .env.example .env        # add ANTHROPIC_API_KEY / OPENAI_API_KEY there
+    cp .env.example .env        # add ANTHROPIC_API_KEY / OPENAI_API_KEY, and
+                                 # set TIMEPLUS_PASSWORD (see below)
     docker compose up -d        # or: make up
     docker compose exec tpk tpk ingest
     claude mcp add timeplus-knowledge -- docker compose exec -T tpk tpk-mcp
+    open http://localhost:8000  # log in as admin / changeme (forced change)
 
 `.env` (gitignored) carries the LLM keys for semantic extraction and an
 optional `REPOS_MOUNT` override; graph data lives in the named volume
 `tpk-data` and survives `docker compose down`.
+
+**`TIMEPLUS_PASSWORD` is required** — `docker compose up` fails fast without
+it. It provisions two DB users on the `tpk` service: a dedicated `tpk` user
+(used by both the `tpk` and `agent` services to talk to timeplusd) and the
+built-in `default` user, locked to the same password rather than left with
+the base image's empty password. Both services authenticate as `tpk`, not
+`default`; use `TIMEPLUS_USER=tpk TIMEPLUS_PASSWORD=...` if you connect to
+the compose stack's DB directly (`uv run tpk status`, manual SQL, `pytest`).
+This only applies inside docker compose — a bare `timeplusd` container
+started per the [Setup](#setup) section above still runs with the
+unauthenticated `default` user unless you configure it otherwise.
 
 ## Docker image (all-in-one)
 
@@ -265,18 +278,18 @@ release without losing the old one while you verify):
    if the new ingest looks wrong, and both old and new are searchable side
    by side until you do.
 
-**Management API** (all under `/api`, admin-gated when `TPK_ADMIN_TOKEN` is
-set — see below):
+**Management API** (all under `/api`, always admin-gated — see
+[Users & roles](#users--roles) below):
 
-| Method & path            | Body                                                | Notes |
-|---------------------------|-----------------------------------------------------|-------|
-| `GET /api/repos`          | —                                                     | List all entries: `name`, `ref`, `entry_key`, source, `enabled`, `node_count`, last ingest status/sha/time |
-| `POST /api/repos`         | `{name, github\|path, ref, visibility, extraction, description, enabled, ingest}` | Create/update an entry; `ingest: true` (default) submits a background ingest job immediately |
-| `POST /api/repos/toggle`  | `{name, ref, enabled}`                                | Flip searchability without touching indexed data |
-| `POST /api/repos/reindex` | `{name, ref}`                                         | Re-run ingest for an existing entry (submits a job) |
-| `POST /api/repos/delete`  | `{name, ref, purge}`                                  | Remove the entry; `purge: true` also deletes its `kg_nodes`/`kg_edges` rows |
-| `GET /api/jobs`           | —                                                     | Last 50 ingest jobs (`queued`/`running`/`ok`/`failed`), newest first |
-| `GET /api/jobs/{id}`      | —                                                     | Single job status |
+| Method & path            | Auth               | Body                                                | Notes |
+|---------------------------|--------------------|-----------------------------------------------------|-------|
+| `GET /api/repos`          | admin bearer token | —                                                     | List all entries: `name`, `ref`, `entry_key`, source, `enabled`, `node_count`, last ingest status/sha/time |
+| `POST /api/repos`         | admin bearer token | `{name, github\|path, ref, visibility, extraction, description, enabled, ingest}` | Create/update an entry; `ingest: true` (default) submits a background ingest job immediately |
+| `POST /api/repos/toggle`  | admin bearer token | `{name, ref, enabled}`                                | Flip searchability without touching indexed data |
+| `POST /api/repos/reindex` | admin bearer token | `{name, ref}`                                         | Re-run ingest for an existing entry (submits a job) |
+| `POST /api/repos/delete`  | admin bearer token | `{name, ref, purge}`                                  | Remove the entry; `purge: true` also deletes its `kg_nodes`/`kg_edges` rows |
+| `GET /api/jobs`           | admin bearer token | —                                                     | Last 50 ingest jobs (`queued`/`running`/`ok`/`failed`), newest first |
+| `GET /api/jobs/{id}`      | admin bearer token | —                                                     | Single job status |
 
 Ingest jobs run on a background worker thread inside the server process, so
 `POST` calls return immediately with a `job_id`; poll `/api/jobs` (the
@@ -288,22 +301,13 @@ for checkout/out-dir paths, would walk outside the checkout cache); `ref`
 allows `/` (for refs like `release/1.0`) but rejects a leading `-` or `/`,
 `..` path components, and any other character outside `[A-Za-z0-9._/-]` —
 all return `400`. `path`-type entries (`{"path": "..."}` instead of
-`{"github": ...}`) are only accepted through this API when
-`TPK_ADMIN_TOKEN` is set (`403` otherwise): on the default open admin gate, a
-path entry would map an arbitrary server-filesystem path into the corpus,
-which the chat agent's `read_source` tool then treats as readable — i.e. an
-arbitrary-file-read primitive reachable over the network. Seeding path-type
-entries from `repos.toml` or the `tpk` CLI is unaffected; this gate applies
-only to the `/api/repos` create/update route.
-
-**Admin gate.** Set `TPK_ADMIN_TOKEN` in `.env`/the environment to require
-every `/api/*` call to carry a matching `X-Admin-Token` header (checked
-against the exact env value in `_require_admin`); requests without it, or
-with the wrong value, get `401`. Leaving `TPK_ADMIN_TOKEN` unset leaves the
-management API open — fine for local dev, not for anything reachable outside
-localhost. The Manage tab has a token field (top toolbar) that's sent as
-`X-Admin-Token` on every request and cached in `sessionStorage` so you don't
-retype it each visit.
+`{"github": ...}`) would map an arbitrary server-filesystem path into the
+corpus, which the chat agent's `read_source` tool then treats as
+readable — i.e. an arbitrary-file-read primitive reachable over the
+network — but every `/api/repos` create/update call already requires an
+admin bearer token (see [Users & roles](#users--roles)), so this isn't
+reachable without admin credentials in the first place. Seeding path-type
+entries from `repos.toml` or the `tpk` CLI is unaffected.
 
 **Legacy-key migration note.** Before versioned entries, graph rows were
 keyed by bare `repo` name with no `@ref` suffix. The first `tpk ingest`
@@ -316,6 +320,77 @@ briefly show both a bare-name entry and a `name@ref` entry in
 `kg_ingest_log`/query results until its next ingest runs. No manual cleanup
 is needed; re-ingesting each repo once (`tpk ingest`, or Reindex from the
 Manage tab) completes the migration.
+
+### Users & roles
+
+`tpk serve` requires a login: `GET /healthz` is the only unauthenticated
+route, everything else — the chat UI at `/`, `POST /chat`, and every
+`/api/*` management call — needs a valid session (`401` without one, or with
+an expired/invalid token).
+
+**Login model.** `POST /auth/login` with `{username, password}` returns a
+bearer `token` (send as `Authorization: Bearer <token>` on every subsequent
+call), the user's `role`, and `must_change_password`. Sessions live in
+`kg_users`/`kg_roles`/`kg_sessions` (mutable streams, same store as the
+graph) and expire after `TPK_SESSION_TTL` seconds (default `86400` = 24h;
+expired sessions are deleted lazily on next access, not by a background
+sweep). `POST /auth/logout` deletes the current session; `GET /auth/me`
+returns the caller's identity.
+
+**Seeded admin.** The first time `tpk serve` starts against an empty
+`kg_users` table, it seeds one user: `admin` / `changeme`, with
+`must_change_password = true`. Every route except `/auth/*` (login,
+change-password, me, logout) returns `403 password_change_required` for a
+user in that state — `POST /auth/change-password` with
+`{old_password, new_password}` (new password ≥ 8 characters, not the
+seeded default, different from the old one) clears the flag and revokes
+every other session for that user. Change it before doing anything else.
+
+**Roles.** A role is a named access list: `{name, entry_keys, description}`,
+where each `entry_key` is a corpus entry identity in the same `name@ref` (or
+bare `name` for local-path entries) form used throughout
+[Manage the corpus](#manage-the-corpus) — e.g. `docs@main`,
+`helm-charts@timeplus-enterprise-v13.0.6`. A non-admin user's chat and
+search are scoped to the union of their role's `entry_keys`: the agent
+answers only from those corpus entries and won't cite anything outside the
+list, even if it's indexed and enabled. `admin` is reserved — it isn't a
+`kg_roles` row; a user with `role = "admin"` always has unscoped access to
+every entry and is the only role allowed to call `/api/*`. Role names must
+match `^[A-Za-z0-9._-]+$`; a role can't be deleted while any user still has
+it assigned.
+
+**User/role management API** (admin bearer token only, `403` for any other
+role, `401` unauthenticated):
+
+| Method & path           | Body                                                      | Notes |
+|--------------------------|------------------------------------------------------------|-------|
+| `GET /api/users`         | —                                                            | List users: `username`, `role`, `must_change_password`, `disabled` (no password hashes) |
+| `POST /api/users`        | `{username, password, role, must_change_password}`          | Create a user; `role` must be `admin` or an existing role name |
+| `POST /api/users/update` | `{username, role?, password?, must_change_password?, disabled?}` | Partial update; setting `password` forces a reset (`must_change_password` defaults to `true` unless given) and revokes the user's other sessions |
+| `POST /api/users/delete` | `{username}`                                                 | Delete a user and their sessions |
+| `GET /api/roles`         | —                                                            | List roles: `name`, `entry_keys`, `description` |
+| `POST /api/roles`        | `{name, entry_keys, description}`                            | Create/update a role; `entry_keys` must be non-empty strings; `name = "admin"` is rejected |
+| `POST /api/roles/delete` | `{name}`                                                      | Delete a role; `409` if any user still has it assigned |
+
+The last enabled `admin` account is protected: demoting, disabling, or
+deleting it when it's the only one left returns `400`. The web UI's
+**Users** tab (visible only when logged in as `admin`) covers all of this —
+create/edit/delete users and roles, and tick corpus entries by checkbox
+when building a role's `entry_keys` — without hand-writing these requests.
+
+**Break-glass (locked out of every admin account).** The API's last-admin
+guard only stops you from doing this through `/api`; if every admin row is
+gone or disabled another way (e.g. direct SQL, a bug), there's no in-app
+recovery path. Reset the whole auth store and let `tpk serve` re-seed it:
+
+    echo "DELETE FROM kg_users WHERE 1=1" | \
+      curl "http://${TIMEPLUS_HOST}:8123/" -u "${TIMEPLUS_USER:-tpk}:${TIMEPLUS_PASSWORD}" --data-binary @-
+
+Restart the server afterward (`docker compose restart agent`, or `tpk
+serve`) — seeding only runs against an empty `kg_users` table, so the next
+startup re-creates `admin` / `changeme` with `must_change_password = true`.
+This also deletes every non-admin user; recreate them (and any roles you
+still need — `kg_roles` is untouched by this) after logging back in.
 
 ## Use from Claude Code (MCP)
 
@@ -345,6 +420,16 @@ Tests marked as requiring Timeplus are skipped automatically when
 `TIMEPLUS_HOST` is unset (see `tests/conftest.py`); set it (plus
 `TIMEPLUS_USER`/`TIMEPLUS_PASSWORD` if not using the `default` user with an
 empty password) to run the full suite against a live timeplusd.
+
+Against the docker-compose stack (which password-locks `default` — see
+[Docker compose](#docker-compose-quickest-start)), `default`/empty-password
+auth fails, so point the suite at the `tpk` user instead:
+
+    TIMEPLUS_HOST=localhost TIMEPLUS_USER=tpk TIMEPLUS_PASSWORD=<your TIMEPLUS_PASSWORD> \
+      uv run pytest -q
+
+This also exercises the credentialed connection path end-to-end, not just
+the unauthenticated dev default.
 
 ## Manual queries
 

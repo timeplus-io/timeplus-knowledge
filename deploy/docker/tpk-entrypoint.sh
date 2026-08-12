@@ -15,7 +15,7 @@ users:
         networks:
             ip: "::/0"
     default:
-        # The base users.yaml sets a plaintext `password: ''` for `default`;
+        # The base users.yaml sets a plaintext \`password: ''\` for \`default\`;
         # YAML config merging unions sibling keys rather than replacing them,
         # so without an explicit removal timeplusd fails to start ("More than
         # one field of 'password', 'password_sha256_hex', ... are used").
