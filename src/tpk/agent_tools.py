@@ -55,7 +55,10 @@ def build_agent_tools(kg) -> list:
         depth: int = 1,
         confidence: str | None = None,
     ) -> dict | str:
-        """Local subgraph around an entity (BFS, depth capped at 3).
+        """Local subgraph around an entity (BFS, depth capped at 3): its
+        callers, callees, containers, and related nodes. This is the tool for
+        "what calls X / what does X call / who uses X" questions — get the
+        entity id from search_entities first, then call neighbors(id).
         direction: out|in|both. confidence: EXTRACTED|INFERRED filters edges."""
         return _safe(
             kg.neighbors,
@@ -65,7 +68,12 @@ def build_agent_tools(kg) -> list:
     @tool
     def path_between(id_a: str, id_b: str, max_depth: int = 4) -> list[dict] | None | str:
         """Shortest connection between two entities (depth capped at 6), or
-        null if none found."""
+        null if none found. Use this to trace a connection or call path
+        between two endpoints: search_entities for each endpoint's id, then
+        path_between(id_a, id_b). A null result means no path within
+        max_depth — the extracted call graph can be incomplete (C++ virtual
+        dispatch, templates), so a missing path does not prove the code lacks
+        the relationship; fall back to neighbors on each endpoint."""
         return _safe(kg.path_between, id_a, id_b, max_depth=max_depth)
 
     @tool
