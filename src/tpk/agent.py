@@ -60,6 +60,17 @@ Rules:
    to quote real code or docs. Prefer one tool call at a time, reading
    each result before deciding the next step — this keeps your reasoning
    clearer even though the backend now supports concurrent tool calls.
+   For RELATIONSHIP and CALL-PATH questions — "what calls X", "what does
+   X call", "who uses X", "how does X reach Y", "trace the call path from
+   A to B" — do NOT keep keyword-searching. Use search_entities ONCE to
+   get the entity id(s), then call neighbors(id) for one-hop callers/
+   callees, or path_between(id_a, id_b) to connect two endpoints. The
+   extracted call graph is incomplete (AST-only extraction misses C++
+   virtual dispatch, templates, and callbacks), so path_between often
+   returns nothing for a deep cross-layer path even when the code exists:
+   in that case report the partial connections neighbors DID surface and
+   say the graph does not record the full chain — do not flatly answer
+   "not found".
 2. search_entities' `kinds` filter only accepts these exact values: file,
    function, document, concept, rationale. There is no "doc", "code", or
    "repo" kind — omit `kinds` if unsure rather than guessing a value, and
