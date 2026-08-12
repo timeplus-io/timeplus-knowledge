@@ -1,16 +1,24 @@
 // Typed client for the read-only, role-scoped graph query endpoints
-// (src/tpk/graph_api.py) that back the Explorer view. Stub for Task 3 —
-// wired up by Task 5's Explorer.tsx.
+// (src/tpk/graph_api.py) that back the Explorer view. Consumed by
+// Explorer.tsx (entity search/detail/neighbors/subgraph) and Chat.tsx
+// (source previews in the Sources panel).
 
 import { apiFetch } from "./api";
 
+// Mirrors src/tpk/tools.py's NODE_FIELDS exactly -- every /api/graph/search,
+// /entity and /neighbors "center"/"other" node is a dict with these keys.
 export type Entity = {
   id: string;
-  name: string;
+  repo: string;
   kind: string;
-  repo?: string | null;
-  path?: string | null;
-  summary?: string | null;
+  name: string;
+  qualified_name: string;
+  file_path: string;
+  line_start: number;
+  line_end: number;
+  summary: string | null;
+  community: string | null;
+  visibility: string;
   [key: string]: unknown;
 };
 

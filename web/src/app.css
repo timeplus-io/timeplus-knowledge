@@ -411,3 +411,134 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 /* Footer input bar (both 1a/1b/1c) */
 .tk-chat-footer { padding: 16px 32px 24px; border-top: 1px solid var(--gray-700); background: var(--gray-900); flex: none; }
 .tk-chat-footer-inner { max-width: 756px; margin: 0 auto; display: flex; gap: 8px; align-items: flex-end; }
+
+/* ---------------------------------------------------------------------
+   Explorer (mockup screen 1d). Search + kind/repo filters, a results
+   rail, an entity detail card (with inline source preview reusing the
+   .tk-source-* classes from the Chat Sources panel above), a Neighbors
+   list and a radial Subgraph SVG. `.tk-explorer` cancels `.tk-content`'s
+   24px padding for its full-bleed top bar / results rail, same pattern
+   as `.tk-chat`.
+   --------------------------------------------------------------------- */
+.tk-explorer { flex: 1; min-height: 0; display: flex; flex-direction: column; margin: 0 -24px; }
+
+.tk-explorer-topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 24px; border-bottom: 1px solid var(--gray-700);
+  background: var(--white); flex: none;
+}
+.tk-explorer-title { font-size: 14px; font-weight: 600; color: var(--gray-200); flex: none; }
+.tk-explorer-search-form { display: flex; }
+.tk-explorer-search-input { width: 320px; }
+.tk-explorer-search-btn { height: 40px; }
+
+.tk-select {
+  height: 40px; background: var(--white); color: var(--gray-100);
+  border: 1px solid var(--gray-600); border-radius: var(--radius);
+  padding: 0 12px; font: 400 14px/1.4 Inter, sans-serif; cursor: pointer;
+}
+.tk-select:focus { outline: 2px solid var(--pink-500); outline-offset: 1px; }
+
+.tk-explorer-topbar-spacer { flex: 1; }
+.tk-explorer-count { font-size: 12px; color: var(--gray-500); flex: none; white-space: nowrap; }
+
+.tk-explorer-body { flex: 1; min-height: 0; display: flex; }
+
+/* Left results rail */
+.tk-explorer-results {
+  width: 400px; flex: none; background: var(--white);
+  border-right: 1px solid var(--gray-700);
+  overflow: hidden; display: flex; flex-direction: column;
+}
+.tk-explorer-results-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+.tk-result-row {
+  display: flex; gap: 10px; align-items: center; padding: 10px 16px;
+  border: 0; border-top: 1px solid var(--gray-700); border-radius: 0;
+  background: none; height: auto; width: 100%;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.tk-explorer-results-list .tk-result-row:first-child { border-top: 0; }
+.tk-result-row:hover:not(.selected) { background: var(--gray-900); }
+.tk-result-row.selected { background: var(--gray-800); }
+.tk-result-row:focus-visible { outline: 2px solid var(--pink-500); outline-offset: -2px; }
+.tk-result-kind {
+  flex: none; font: 600 10px/1 ui-monospace, Menlo, monospace; padding: 4px 6px;
+  background: var(--white); border: 1px solid var(--gray-700); border-radius: var(--radius);
+  color: var(--gray-300);
+}
+.tk-result-meta { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tk-result-name { font-size: 13px; color: var(--gray-100); }
+.tk-result-row.selected .tk-result-name { font-weight: 600; }
+.tk-result-path {
+  font: 11px/1.4 ui-monospace, Menlo, monospace; color: var(--gray-500);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.tk-explorer-status { padding: 24px 16px; font-size: 13px; color: var(--gray-500); text-align: center; }
+.tk-explorer-status-error { color: var(--red-500); }
+
+/* Right side: detail card + neighbors/subgraph row */
+.tk-explorer-detail { flex: 1; min-width: 0; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+
+.tk-detail-card { display: flex; flex-direction: column; gap: 12px; }
+.tk-detail-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tk-detail-name { font-size: 18px; font-weight: 600; line-height: 1.4; color: var(--gray-200); }
+.tk-badge {
+  font: 600 10px/1 ui-monospace, Menlo, monospace; padding: 4px 6px;
+  background: var(--gray-800); border-radius: var(--radius); color: var(--gray-300);
+}
+.tk-detail-spacer { flex: 1; }
+.tk-detail-path { font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--gray-500); }
+.tk-detail-summary { color: var(--gray-100); }
+
+/* Inline "Read source" panel -- reuses .tk-source-preview/-line/-lineno
+   from the Chat Sources panel above; only the header is Explorer-local. */
+.tk-explorer-source { border: 1px solid var(--gray-700); border-radius: var(--radius); overflow: hidden; }
+.tk-explorer-source-header {
+  padding: 8px 12px; background: var(--gray-900); border-bottom: 1px solid var(--gray-700);
+  display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--gray-300);
+}
+
+.tk-explorer-lower { flex: 1; min-height: 0; display: flex; gap: 16px; }
+
+.tk-neighbors-card {
+  flex: 1; min-width: 0; background: var(--white); border: 1px solid var(--gray-700); border-radius: var(--radius);
+  padding: 24px; display: flex; flex-direction: column; gap: 10px; overflow: hidden;
+}
+.tk-neighbors-title { font-size: 14px; font-weight: 600; color: var(--gray-200); }
+.tk-neighbors-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.tk-neighbor-row { display: flex; align-items: center; gap: 10px; font-size: 13px; min-width: 0; }
+.tk-neighbor-rel {
+  width: 88px; flex: none; font: 600 11px/1 ui-monospace, Menlo, monospace;
+  color: var(--gray-500); text-align: right;
+}
+.tk-neighbor-link {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--pink-400); text-decoration: none; background: none; border: 0; padding: 0;
+  height: auto; font: inherit; cursor: pointer; text-align: left;
+}
+.tk-neighbor-link:hover { text-decoration: underline; }
+.tk-neighbor-link:focus-visible { outline: 2px solid var(--pink-500); outline-offset: 2px; }
+.tk-neighbor-link-dangling { color: var(--gray-500); cursor: default; }
+.tk-neighbor-tag { color: var(--gray-500); font-size: 11px; flex: none; }
+.tk-neighbors-footer { font-size: 12px; color: var(--gray-500); }
+
+/* Subgraph SVG -- geometry (x/y/width/rx/x1.../textAnchor) is computed in
+   Explorer.tsx and passed as SVG attributes, never CSS; only fill/stroke/
+   font/cursor live here as classes. */
+.tk-subgraph-card {
+  width: 360px; flex: none; background: var(--white); border: 1px solid var(--gray-700); border-radius: var(--radius);
+  padding: 16px; display: flex; flex-direction: column; gap: 8px;
+}
+.tk-subgraph-title { font-size: 14px; font-weight: 600; color: var(--gray-200); padding: 0 8px; }
+.tk-subgraph-canvas { position: relative; flex: 1; min-height: 240px; }
+.tk-subgraph-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.tk-subgraph-line { stroke: var(--gray-700); stroke-width: 1; }
+.tk-subgraph-node-center-rect { fill: var(--pink-500); }
+.tk-subgraph-node-center-text { fill: var(--white); font: 600 11px/1 Inter, sans-serif; text-anchor: middle; }
+.tk-subgraph-node-rect { fill: var(--white); stroke: var(--gray-600); stroke-width: 1; }
+.tk-subgraph-node-text { fill: var(--gray-300); font: 11px/1 ui-monospace, Menlo, monospace; text-anchor: middle; }
+.tk-subgraph-node-more-rect { fill: var(--white); stroke: var(--gray-600); stroke-width: 1; stroke-dasharray: 3 3; }
+.tk-subgraph-node-more-text { fill: var(--gray-500); font: 11px/1 ui-monospace, Menlo, monospace; text-anchor: middle; }
+.tk-subgraph-node-clickable { cursor: pointer; }
+.tk-subgraph-node-clickable:focus-visible .tk-subgraph-node-rect { stroke: var(--pink-500); stroke-width: 2; }

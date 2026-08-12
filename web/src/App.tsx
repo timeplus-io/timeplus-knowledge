@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch, getToken, onPasswordChangeRequired, onUnauthorized, setToken } from "./api";
 import Chat from "./Chat";
+import Explorer from "./Explorer";
 import Login from "./Login";
 import Manage from "./Manage";
 import Shell, { type View } from "./Shell";
@@ -17,6 +18,17 @@ export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [pendingChangeUser, setPendingChangeUser] = useState<string | null>(null);
   const [checked, setChecked] = useState(false);
+
+  // Explorer's "Ask about this" -> Chat handoff: a question typed here is
+  // stashed until the view switches to Chat, which consumes it into its
+  // input box (via initialInput/onConsumeInitial) and clears it so it
+  // doesn't reappear on a later visit to Chat.
+  const [chatPrefill, setChatPrefill] = useState<string | undefined>(undefined);
+
+  function askAboutEntity(text: string) {
+    setChatPrefill(text);
+    setView("chat");
+  }
 
   useEffect(() => {
     onUnauthorized(() => { setMe(null); setPendingChangeUser(null); });
@@ -93,10 +105,9 @@ export default function App() {
   return (
     <Shell me={me} view={view} onNavigate={setView} onLogout={logout}>
       {view === "chat" ? (
-        <Chat />
+        <Chat initialInput={chatPrefill} onConsumeInitial={() => setChatPrefill(undefined)} />
       ) : view === "explorer" ? (
-        // Placeholder — Task 5 builds the real Explorer.tsx.
-        <div className="tk-placeholder">Explorer — coming soon</div>
+        <Explorer onAsk={askAboutEntity} />
       ) : view === "manage" ? (
         <Manage />
       ) : (
