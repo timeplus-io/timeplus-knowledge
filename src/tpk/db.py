@@ -1,8 +1,13 @@
 """Timeplus client factory and knowledge-graph schema DDL."""
 
+import logging
+import time
+
 import timeplus_connect
 
 from tpk.config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 def get_client(settings: Settings):
@@ -12,6 +17,34 @@ def get_client(settings: Settings):
         username=settings.user,
         password=settings.password,
     )
+
+
+def connect_with_retry(settings: Settings, timeout_s: float = 60.0,
+                       interval_s: float = 2.0):
+    """Return a client, waiting up to `timeout_s` for timeplusd to accept
+    connections.
+
+    On `docker compose up` the agent's eager `tpk serve` bootstrap can start
+    before timeplusd is listening on its HTTP port (compose `depends_on` only
+    waits for the container to start, not for the DB to be ready). Without
+    this, the first connection raises `Connection refused` and the process
+    exits, recovering only via a container restart — a noisy crash-loop on
+    every startup. Retrying makes startup wait for the DB instead.
+    """
+    deadline = time.monotonic() + timeout_s
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            return get_client(settings)
+        except Exception as exc:  # connection refused, DNS not ready, etc.
+            if time.monotonic() >= deadline:
+                raise
+            logger.warning(
+                "timeplusd not ready (attempt %d: %s); retrying in %.0fs",
+                attempt, type(exc).__name__, interval_s,
+            )
+            time.sleep(interval_s)
 
 
 def ensure_schema(client, prefix: str = "") -> None:

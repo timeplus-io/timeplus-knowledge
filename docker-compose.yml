@@ -57,12 +57,25 @@ services:
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
     restart: unless-stopped
+    # timeplusd answers HTTP on `/` (200) before it accepts SQL; the agent
+    # additionally retries the connection (db.connect_with_retry), so this
+    # healthcheck just gates `depends_on` so the agent doesn't start into a
+    # refused connection on `up`. `/ping` is not implemented by timeplusd.
+    healthcheck:
+      # wget-or-curl fallback so a base-image change dropping either tool
+      # can't silently wedge the agent (both ship in the base image today).
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8123/ || curl -sf http://localhost:8123/ -o /dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
 
   agent:
     image: timeplus/tpk:dev
     container_name: tpk-agent
     depends_on:
-      - tpk
+      tpk:
+        condition: service_healthy
     entrypoint: ["tpk"]
     command: ["serve", "--host", "0.0.0.0", "--port", "8000"]
     ports:
