@@ -346,37 +346,50 @@ user in that state — `POST /auth/change-password` with
 seeded default, different from the old one) clears the flag and revokes
 every other session for that user. Change it before doing anything else.
 
-**Roles.** A role is a named access list: `{name, entry_keys, description}`,
-where each `entry_key` is a corpus entry identity in the same `name@ref` (or
-bare `name` for local-path entries) form used throughout
-[Manage the corpus](#manage-the-corpus) — e.g. `docs@main`,
-`helm-charts@timeplus-enterprise-v13.0.6`. A non-admin user's chat and
-search are scoped to the union of their role's `entry_keys`: the agent
-answers only from those corpus entries and won't cite anything outside the
-list, even if it's indexed and enabled. `admin` is reserved — it isn't a
-`kg_roles` row; a user with `role = "admin"` always has unscoped access to
-every entry and is the only role allowed to call `/api/*`. Role names must
-match `^[A-Za-z0-9._-]+$`; a role can't be deleted while any user still has
-it assigned.
+**Roles.** A role is `{name, entry_keys, capabilities, description}` and
+governs access along two orthogonal axes:
 
-**User/role management API** (admin bearer token only, `403` for any other
-role, `401` unauthenticated):
+- **Function capabilities** — which features a member can reach. Any subset
+  of `chat`, `explore`, `corpus:view`, `corpus:manage`, `users:view`,
+  `users:manage` (`:manage` implies `:view`), enforced identically on the
+  API (each endpoint requires its capability) and the UI (the sidebar and
+  each screen show only what the caller holds). Omitting `capabilities` when
+  creating a role defaults it to chat-only; roles created before this
+  feature migrate to chat-only on upgrade.
+- **Corpus scope** — `entry_keys`, each a corpus entry identity in the same
+  `name@ref` (or bare `name` for local-path entries) form used throughout
+  [Manage the corpus](#manage-the-corpus). A non-admin's `chat`/`explore`
+  results are scoped to the union of their role's `entry_keys`: the agent
+  answers only from those entries and won't cite anything outside the list.
 
-| Method & path           | Body                                                      | Notes |
-|--------------------------|------------------------------------------------------------|-------|
-| `GET /api/users`         | —                                                            | List users: `username`, `role`, `must_change_password`, `disabled` (no password hashes) |
-| `POST /api/users`        | `{username, password, role, must_change_password}`          | Create a user; `role` must be `admin` or an existing role name |
-| `POST /api/users/update` | `{username, role?, password?, must_change_password?, disabled?}` | Partial update; setting `password` forces a reset (`must_change_password` defaults to `true` unless given) and revokes the user's other sessions |
-| `POST /api/users/delete` | `{username}`                                                 | Delete a user and their sessions |
-| `GET /api/roles`         | —                                                            | List roles: `name`, `entry_keys`, `description` |
-| `POST /api/roles`        | `{name, entry_keys, description}`                            | Create/update a role; `entry_keys` must be non-empty strings; `name = "admin"` is rejected |
-| `POST /api/roles/delete` | `{name}`                                                      | Delete a role; `409` if any user still has it assigned |
+`admin` is reserved — it isn't a `kg_roles` row; a user with `role =
+"admin"` is the super-role, holding every capability with unscoped corpus
+access. **Bounded delegation:** a non-admin with `users:manage` can never
+mint admins or manage admin users, and can only grant capabilities and
+corpus entries within its own grant. Role names must match
+`^[A-Za-z0-9._-]+$`; a role can't be deleted while any user still has it
+assigned.
 
-The last enabled `admin` account is protected: demoting, disabling, or
-deleting it when it's the only one left returns `400`. The web UI's
-**Users** tab (visible only when logged in as `admin`) covers all of this —
-create/edit/delete users and roles, and tick corpus entries by checkbox
-when building a role's `entry_keys` — without hand-writing these requests.
+**User/role management API** (each route requires its capability — see the
+table — with `403` when the caller lacks it, `401` unauthenticated):
+
+| Method & path           | Capability      | Body                                                      | Notes |
+|--------------------------|-----------------|------------------------------------------------------------|-------|
+| `GET /api/users`         | `users:view`    | —                                                            | List users: `username`, `role`, `must_change_password`, `disabled` (no password hashes) |
+| `POST /api/users`        | `users:manage`  | `{username, password, role, must_change_password}`          | Create a user; `role` must be `admin` or an existing role name |
+| `POST /api/users/update` | `users:manage`  | `{username, role?, password?, must_change_password?, disabled?}` | Partial update; setting `password` forces a reset (`must_change_password` defaults to `true` unless given) and revokes the user's other sessions |
+| `POST /api/users/delete` | `users:manage`  | `{username}`                                                 | Delete a user and their sessions |
+| `GET /api/roles`         | `users:view`    | —                                                            | List roles: `name`, `entry_keys`, `capabilities`, `description` |
+| `POST /api/roles`        | `users:manage`  | `{name, entry_keys, capabilities?, description}`             | Create/update a role; `entry_keys` must be non-empty strings; unknown capabilities and `name = "admin"` are rejected |
+| `POST /api/roles/delete` | `users:manage`  | `{name}`                                                      | Delete a role; `409` if any user still has it assigned |
+
+The corpus routes under `/api/repos` and `/api/jobs` are gated the same way
+(`corpus:view` to read, `corpus:manage` to mutate). The last enabled
+`admin` account is protected: demoting, disabling, or deleting it when it's
+the only one left returns `400`. The web UI's **Users** console (visible
+with `users:view`) covers all of this — create/edit/delete users and roles,
+tick capabilities and corpus entries by checkbox — without hand-writing
+these requests; it is read-only for a `users:view`-only caller.
 
 **Break-glass (locked out of every admin account).** The API's last-admin
 guard only stops you from doing this through `/api`; if every admin row is
