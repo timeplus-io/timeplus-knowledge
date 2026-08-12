@@ -166,3 +166,25 @@ button.danger:hover:not(:disabled) { background: #751025; }
   outline: 2px solid var(--pink-500); outline-offset: 1px;
 }
 h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200); }
+
+.account { display: flex; align-items: center; gap: 12px; }
+
+.checkbox-field { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--gray-100); }
+.checkbox-field input { width: auto; height: auto; }
+.entry-keys { display: flex; flex-wrap: wrap; gap: 4px 14px; max-width: 320px; }
+
+.login-shell { flex: 1; display: flex; align-items: center; justify-content: center; }
+.login-card {
+  width: 320px; background: var(--white); border: 1px solid var(--gray-700);
+  border-radius: var(--radius); padding: 24px;
+}
+.login-card h1 { font-size: 18px; font-weight: 600; color: var(--gray-200); margin-bottom: 16px; }
+.login-form { display: flex; flex-direction: column; gap: 12px; }
+.login-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--gray-300); }
+.login-form input {
+  height: 40px; background: var(--white); color: var(--gray-100);
+  border: 1px solid var(--gray-600); border-radius: var(--radius);
+  padding: 0 12px; font: 400 14px/1.4 Inter, sans-serif;
+}
+.login-form input:focus { outline: 2px solid var(--pink-500); outline-offset: 1px; }
+.login-form button { margin-top: 4px; }

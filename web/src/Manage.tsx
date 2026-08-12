@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { apiFetch } from "./api";
 
 type Repo = {
   name: string; ref: string; entry_key: string; github: string; path: string;
@@ -12,17 +13,16 @@ type Job = { id: string; entry_key: string; status: string; nodes: number;
 const EMPTY_FORM = { name: "", github: "", ref: "", path: "", visibility: "internal",
   extraction: "code-only", description: "" };
 
-async function api(path: string, token: string, body?: unknown) {
+async function api(path: string, body?: unknown) {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  if (token) headers["X-Admin-Token"] = token;
-  const resp = await fetch(path, body === undefined ? { headers } : {
+  const resp = await apiFetch(path, body === undefined ? { headers } : {
     method: "POST",
     headers,
     body: JSON.stringify(body),
   });
   if (!resp.ok) {
-    if (resp.status === 401) throw new Error("Unauthorized — set the admin token");
+    if (resp.status === 401) throw new Error("Unauthorized — please sign in again");
     throw new Error(`${resp.status}: ${await resp.text()}`);
   }
   return resp.json();
@@ -35,23 +35,11 @@ export default function Manage() {
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState<string | null>(null);
   const [purge, setPurge] = useState(false);
-  const [token, setToken] = useState(() => sessionStorage.getItem("tpk_admin_token") ?? "");
-  // Mirrors `token` for the mount-once polling effect below: reading state
-  // there would either go stale (empty deps) or reset the interval on every
-  // keystroke ([token] deps). The ref lets refresh() always see the latest
-  // token without the effect depending on it.
-  const tokenRef = useRef(token);
-
-  function updateToken(value: string) {
-    setToken(value);
-    tokenRef.current = value;
-    sessionStorage.setItem("tpk_admin_token", value);
-  }
 
   async function refresh() {
     try {
-      setRepos(await api("/api/repos", tokenRef.current));
-      setJobs(await api("/api/jobs", tokenRef.current));
+      setRepos(await api("/api/repos"));
+      setJobs(await api("/api/jobs"));
       setError("");
     } catch (e) {
       setError(String(e));
@@ -62,9 +50,6 @@ export default function Manage() {
     refresh();
     const t = setInterval(refresh, 5000);
     return () => clearInterval(t);
-    // Mount-once: refresh() reads tokenRef.current, not the `token` state,
-    // so the interval's identity stays stable while typing (see tokenRef).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const activeJob = (key: string) =>
@@ -76,12 +61,6 @@ export default function Manage() {
 
   return (
     <main className="manage">
-      <div className="toolbar">
-        <input type="password" placeholder="Admin token (if required)" value={token}
-               onChange={(e) => updateToken(e.target.value)}
-               onBlur={refresh}
-               onKeyDown={(e) => e.key === "Enter" && refresh()} />
-      </div>
       {error && <div className="manage-error">{error}</div>}
       <table className="repo-table">
         <thead>
@@ -108,7 +87,7 @@ export default function Manage() {
                           if (sibling && !window.confirm(
                             `${sibling.entry_key} is already enabled. Enable ${r.entry_key} too? ` +
                             "(Both versions will appear in answers.)")) return;
-                          act(() => api("/api/repos/toggle", token,
+                          act(() => api("/api/repos/toggle",
                             { name: r.name, ref: r.ref, enabled: !r.enabled }));
                         }}>
                   {r.enabled ? "Disable" : "Enable"}
@@ -116,7 +95,7 @@ export default function Manage() {
               </td>
               <td className="actions">
                 <button className="secondary" disabled={!!activeJob(r.entry_key)}
-                        onClick={() => act(() => api("/api/repos/reindex", token,
+                        onClick={() => act(() => api("/api/repos/reindex",
                           { name: r.name, ref: r.ref }))}>Reindex</button>
                 {confirming === r.entry_key ? (
                   <span className="confirm">
@@ -125,7 +104,7 @@ export default function Manage() {
                       also delete indexed data</label>
                     <button className="danger"
                             onClick={() => { setConfirming(null);
-                              act(() => api("/api/repos/delete", token,
+                              act(() => api("/api/repos/delete",
                                 { name: r.name, ref: r.ref, purge })); }}>Confirm</button>
                     <button className="secondary"
                             onClick={() => setConfirming(null)}>Cancel</button>
@@ -143,7 +122,7 @@ export default function Manage() {
 
       <h2>Add corpus entry</h2>
       <form className="add-form" onSubmit={(e) => { e.preventDefault();
-        act(async () => { await api("/api/repos", token, { ...form, ingest: true });
+        act(async () => { await api("/api/repos", { ...form, ingest: true });
           setForm({ ...EMPTY_FORM }); }); }}>
         <input placeholder="name" required value={form.name}
                onChange={(e) => setForm({ ...form, name: e.target.value })} />
