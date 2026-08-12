@@ -44,6 +44,15 @@ button:focus-visible { outline: 2px solid var(--pink-500); outline-offset: 2px; 
 button:disabled { background: var(--gray-700); color: var(--gray-500); cursor: default; }
 .error { color: var(--red-500); }
 
+/* Chat stays mounted across nav (App.tsx) so its in-progress turns/SSE
+   stream survive a Chat -> Explorer -> Chat round trip. `display: contents`
+   makes the wrapper transparent to `.tk-content`'s flex layout while active
+   (so `.tk-chat`'s `flex: 1` still applies as if it were a direct child);
+   `.tk-hidden` fully removes the wrapper (and Chat) from layout when another
+   view is active, so there's no leftover box, scroll area, or a11y node. */
+.tk-chat-slot { display: contents; }
+.tk-chat-slot.tk-hidden { display: none; }
+
 .toolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
 .toolbar input { width: 240px; }
 .manage { flex: 1; overflow-y: auto; padding: 16px 0; display: flex; flex-direction: column; gap: 16px; }

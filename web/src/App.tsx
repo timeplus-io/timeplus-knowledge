@@ -104,15 +104,22 @@ export default function App() {
 
   return (
     <Shell me={me} view={view} onNavigate={setView} onLogout={logout}>
-      {view === "chat" ? (
+      {/* Chat stays mounted across nav (unlike Explorer/Manage/Users, which
+          are cheap to remount) so its turns state and any in-flight SSE
+          stream survive a Chat -> Explorer -> Chat round trip; it's just
+          hidden via display:none while another view is active. See the
+          final-review regression this fixes: App.tsx used to unmount Chat
+          on every navigation. */}
+      <div className={view === "chat" ? "tk-chat-slot" : "tk-chat-slot tk-hidden"}>
         <Chat initialInput={chatPrefill} onConsumeInitial={() => setChatPrefill(undefined)} />
-      ) : view === "explorer" ? (
+      </div>
+      {view === "explorer" ? (
         <Explorer onAsk={askAboutEntity} />
       ) : view === "manage" ? (
         <Manage />
-      ) : (
+      ) : view === "users" ? (
         <Users />
-      )}
+      ) : null}
     </Shell>
   );
 }

@@ -73,6 +73,20 @@ export function getNeighbors(
   return getJSON(`/api/graph/neighbors?${params}`);
 }
 
+// The backend (src/tpk/graph_api.py, backed by kg.read_source) returns
+// `lines` as a single newline-joined string, not an array -- see
+// tests/test_graph_api.py's `lines == "line2\nline3\n"` assertion. This is
+// the single seam where that string is normalized into the string[] shape
+// the SourceResponse type promises and Chat.tsx/Explorer.tsx consume via
+// `.map`. read_source joins lines WITH trailing newlines, so element i
+// lines up with line (line_start + i) once the one trailing "\n" is
+// stripped and the rest is split on "\n".
+function normalizeLines(raw: string): string[] {
+  if (raw === "") return [];
+  const trimmed = raw.endsWith("\n") ? raw.slice(0, -1) : raw;
+  return trimmed.split("\n");
+}
+
 export function readSource(
   repo: string,
   filePath: string,
@@ -85,5 +99,7 @@ export function readSource(
     line_start: String(lineStart),
     line_end: String(lineEnd),
   });
-  return getJSON(`/api/graph/source?${params}`);
+  return getJSON<Omit<SourceResponse, "lines"> & { lines: string }>(
+    `/api/graph/source?${params}`,
+  ).then((r) => ({ ...r, lines: normalizeLines(r.lines) }));
 }
