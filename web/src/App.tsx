@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import { apiFetch, getToken, onPasswordChangeRequired, onUnauthorized, setToken } from "./api";
 import Login from "./Login";
 import Manage from "./Manage";
+import Shell, { type View } from "./Shell";
 import Users from "./Users";
 
 // Models emit <br> inside GFM table cells (cells cannot hold real
@@ -42,7 +43,7 @@ export default function App() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [view, setView] = useState<"chat" | "manage" | "users">("chat");
+  const [view, setView] = useState<View>("chat");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // Auth: null `me` (and no pending change) renders the Login gate. `checked`
@@ -163,33 +164,13 @@ export default function App() {
   }
 
   return (
-    <div className="shell">
-      <header>
-        <div className="header-row">
-          <div>
-            <h1>Timeplus Knowledge</h1>
-            <p>Ask anything about Timeplus — code, architecture, deployment.</p>
-          </div>
-          <nav className="tabs">
-            <button className={view === "chat" ? "tab active" : "tab"}
-                    onClick={() => setView("chat")}>Chat</button>
-            {me.role === "admin" && (
-              <button className={view === "manage" ? "tab active" : "tab"}
-                      onClick={() => setView("manage")}>Manage</button>
-            )}
-            {me.role === "admin" && (
-              <button className={view === "users" ? "tab active" : "tab"}
-                      onClick={() => setView("users")}>Users</button>
-            )}
-          </nav>
-          <div className="account">
-            <span className="muted">{me.username}</span>
-            <button className="secondary" onClick={logout}>Logout</button>
-          </div>
-        </div>
-      </header>
+    <Shell me={me} view={view} onNavigate={setView} onLogout={logout}>
       {view === "chat" ? (
         <>
+          <header>
+            <h1>Timeplus Knowledge</h1>
+            <p>Ask anything about Timeplus — code, architecture, deployment.</p>
+          </header>
           <main>
             {turns.map((t, i) => (
               <div key={i} className={`turn ${t.role}`}>
@@ -227,7 +208,14 @@ export default function App() {
             </button>
           </footer>
         </>
-      ) : view === "manage" ? <Manage /> : <Users />}
-    </div>
+      ) : view === "explorer" ? (
+        // Placeholder — Task 5 builds the real Explorer.tsx.
+        <div className="tk-placeholder">Explorer — coming soon</div>
+      ) : view === "manage" ? (
+        <Manage />
+      ) : (
+        <Users />
+      )}
+    </Shell>
   );
 }
