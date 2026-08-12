@@ -77,7 +77,12 @@ def serve(
     from tpk import auth as auth_mod
     from tpk.server import create_app
 
-    client = db.get_client(Settings.from_env())
+    # Wait for timeplusd rather than crash-looping when the agent container
+    # starts before the DB is ready (see db.connect_with_retry).
+    client = db.connect_with_retry(
+        Settings.from_env(),
+        timeout_s=float(os.environ.get("TPK_DB_WAIT_SECONDS", "60")),
+    )
     db.ensure_schema(client)
     if REPOS_TOML.exists():
         corpus.seed_from_toml(client, REPOS_TOML)
