@@ -238,6 +238,13 @@ def _session_ttl() -> int:
     return int(os.environ.get("TPK_SESSION_TTL", "86400"))
 
 
+# Precomputed at import time so an unknown-username login still pays the
+# same argon2 cost as a known-user/wrong-password login -- otherwise the
+# `user is None` short-circuit is a timing oracle for username enumeration
+# even though both paths return the identical 401 body.
+_DUMMY_HASH = hash_password(secrets.token_hex(8))
+
+
 class AuthLayer:
     """FastAPI dependencies over the auth store. One fresh client per
     request (matches api.py's `_client()` style); fails closed (503) when
@@ -306,17 +313,29 @@ def create_auth_router(auth_layer: AuthLayer) -> APIRouter:
             user = get_user(client, body.username, prefix=prefix)
         except Exception:
             raise HTTPException(503, "auth store unavailable")
-        if user is None or user.disabled or not verify_password(user.password_hash, body.password):
+        # Always run an argon2 verify, even for an unknown username, so the
+        # two paths cost the same wall-clock time (see _DUMMY_HASH above).
+        password_hash = user.password_hash if user is not None else _DUMMY_HASH
+        password_ok = verify_password(password_hash, body.password)
+        if user is None or user.disabled or not password_ok:
             raise HTTPException(401, "invalid credentials")
-        token = create_session(client, user.username, _session_ttl(), prefix=prefix)
+        try:
+            token = create_session(client, user.username, _session_ttl(), prefix=prefix)
+        except Exception:
+            raise HTTPException(503, "auth store unavailable")
         return {"token": token, "role": user.role,
                 "must_change_password": user.must_change_password}
 
     @router.post("/logout", status_code=204)
     def logout(authorization: str | None = Header(None),
                user: User = Depends(auth_layer.require_user_any)):
-        delete_session(auth_layer._client(),
-                       authorization.removeprefix("Bearer "), prefix=prefix)
+        try:
+            delete_session(auth_layer._client(),
+                           authorization.removeprefix("Bearer "), prefix=prefix)
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(503, "auth store unavailable")
 
     @router.get("/me")
     def me(user: User = Depends(auth_layer.require_user_any)):
@@ -332,12 +351,17 @@ def create_auth_router(auth_layer: AuthLayer) -> APIRouter:
         err = validate_new_password(body.new_password, old=body.old_password)
         if err:
             raise HTTPException(400, err)
-        client = auth_layer._client()
-        upsert_user(client, User(user.username, hash_password(body.new_password),
-                                 user.role, must_change_password=False,
-                                 disabled=user.disabled), prefix=prefix)
-        delete_user_sessions(client, user.username, prefix=prefix,
-                             keep_token=authorization.removeprefix("Bearer "))
+        try:
+            client = auth_layer._client()
+            upsert_user(client, User(user.username, hash_password(body.new_password),
+                                     user.role, must_change_password=False,
+                                     disabled=user.disabled), prefix=prefix)
+            delete_user_sessions(client, user.username, prefix=prefix,
+                                 keep_token=authorization.removeprefix("Bearer "))
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(503, "auth store unavailable")
         return {"ok": True}
 
     return router

@@ -115,3 +115,51 @@ def test_change_password_invalidates_other_sessions(c, client, prefix):
 
 def test_chat_requires_user(c):
     assert c.post("/chat", json={"message": "hi"}).status_code == 401
+
+
+def test_login_unknown_username_returns_uniform_body(c):
+    # No such user in the store: login() still runs an argon2 verify
+    # against auth._DUMMY_HASH before returning, so this path costs the
+    # same as a known-user/wrong-password attempt instead of being a
+    # timing shortcut for username enumeration (timing itself isn't
+    # asserted here -- only that the response is identical either way).
+    r = _login(c, "definitely-not-a-user", "whatever")
+    assert r.status_code == 401
+    assert r.json() == {"detail": "invalid credentials"}
+
+
+def test_login_store_error_after_lookup_returns_503(c, client, prefix, monkeypatch):
+    auth.upsert_user(client, auth.User("erin", auth.hash_password("password-1"), "support"), prefix=prefix)
+    _eventually(lambda: _login(c, "erin", "password-1").status_code == 200)
+
+    def boom(*a, **k):
+        raise RuntimeError("store down")
+
+    monkeypatch.setattr(auth, "create_session", boom)
+    assert _login(c, "erin", "password-1").status_code == 503
+
+
+def test_logout_store_error_returns_503(c, client, prefix, monkeypatch):
+    auth.upsert_user(client, auth.User("frank", auth.hash_password("password-1"), "support"), prefix=prefix)
+    _eventually(lambda: _login(c, "frank", "password-1").status_code == 200)
+    token = _login(c, "frank", "password-1").json()["token"]
+
+    def boom(*a, **k):
+        raise RuntimeError("store down")
+
+    monkeypatch.setattr(auth, "delete_session", boom)
+    assert c.post("/auth/logout", headers=_hdr(token)).status_code == 503
+
+
+def test_change_password_store_error_returns_503(c, client, prefix, monkeypatch):
+    auth.upsert_user(client, auth.User("gary", auth.hash_password("password-1"), "support"), prefix=prefix)
+    _eventually(lambda: _login(c, "gary", "password-1").status_code == 200)
+    token = _login(c, "gary", "password-1").json()["token"]
+
+    def boom(*a, **k):
+        raise RuntimeError("store down")
+
+    monkeypatch.setattr(auth, "upsert_user", boom)
+    r = c.post("/auth/change-password", headers=_hdr(token),
+               json={"old_password": "password-1", "new_password": "password-2xy"})
+    assert r.status_code == 503
