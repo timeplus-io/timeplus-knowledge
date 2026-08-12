@@ -45,10 +45,13 @@ def _chunk_text(chunk) -> str:
     return ""
 
 
-def _build_production_agent():
+def _build_kg_and_repos():
+    """Production path: one shared `KnowledgeGraph` (+ the parsed repo
+    config it needs) built up front in `create_app`, reused by both the
+    lazily-built chat agent and the graph API router -- instead of each
+    separately opening its own client and repeating schema/corpus setup."""
     from tpk import corpus, db
-    from tpk.agent import build_agent
-    from tpk.config import AgentConfig, Settings, load_repos
+    from tpk.config import Settings, load_repos
     from tpk.config import repo_paths as resolved_repo_paths
     from tpk.tools import KnowledgeGraph
 
@@ -61,6 +64,14 @@ def _build_production_agent():
         client,
         repo_paths=resolved_repo_paths(repos),
     )
+    return kg, repos
+
+
+def _build_production_agent(kg, repos):
+    from tpk import corpus, db
+    from tpk.agent import build_agent
+    from tpk.config import AgentConfig, Settings
+
     # Separate client for the live corpus provider: it is called from the
     # async worker thread pool on every chat turn, and sharing the
     # KnowledgeGraph's client across threads causes concurrent-session
@@ -70,7 +81,7 @@ def _build_production_agent():
     # session -- so its own access must be serialized too, the same way
     # KnowledgeGraph._query_rows serializes access to `kg.client` (see
     # tools.py:57-61).
-    provider_client = db.get_client(settings)
+    provider_client = db.get_client(Settings.from_env())
     provider_lock = threading.Lock()
 
     def _live_corpus():
@@ -85,7 +96,7 @@ def _build_production_agent():
     )
 
 
-def create_app(agent=None, stream_prefix: str = "", auth=None) -> FastAPI:
+def create_app(agent=None, stream_prefix: str = "", auth=None, kg=None) -> FastAPI:
     import tpk.auth as auth_mod
     from tpk.agent import RECURSION_LIMIT
     from tpk.api import create_api_router
@@ -96,11 +107,20 @@ def create_app(agent=None, stream_prefix: str = "", auth=None) -> FastAPI:
     app = FastAPI(title="timeplus-knowledge")
     app.include_router(create_auth_router(auth))
     app.include_router(create_api_router(prefix=stream_prefix, auth=auth))
+
+    repos_for_agent = None
+    if agent is None and kg is None:
+        # Production path only: the test path always injects `agent`
+        # (fake/no-op) and, when it wants the graph router mounted, its own
+        # `kg` built over the test stream prefix -- so this branch never
+        # runs there and never touches the network in unit tests.
+        kg, repos_for_agent = _build_kg_and_repos()
+
     state = {"agent": agent}
 
     def _agent():
         if state["agent"] is None:
-            state["agent"] = _build_production_agent()
+            state["agent"] = _build_production_agent(kg, repos_for_agent)
         return state["agent"]
 
     @app.get("/healthz")
@@ -186,6 +206,11 @@ def create_app(agent=None, stream_prefix: str = "", auth=None) -> FastAPI:
                     ROLE_SCOPE.reset(token)
 
         return StreamingResponse(stream(), media_type="text/event-stream")
+
+    if kg is not None:
+        from tpk.graph_api import create_graph_router
+
+        app.include_router(create_graph_router(kg, auth, prefix=stream_prefix))
 
     if WEB_DIST.is_dir():
         app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="ui")
