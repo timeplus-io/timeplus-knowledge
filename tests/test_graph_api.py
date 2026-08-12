@@ -50,15 +50,23 @@ SEED_EDGES = [
 ]
 
 
-def _seed_corpus_entry(client, prefix, name, ref, enabled=True):
+def _seed_corpus_entry(client, prefix, name, ref, enabled=True, path=None):
     from tpk import corpus
     from tpk.config import RepoConfig
 
-    corpus.upsert_entry(
-        client,
-        RepoConfig(name=name, github=f"org/{name}", ref=ref, visibility="internal", enabled=enabled),
-        prefix=prefix,
+    # `path=None` (the default) seeds a github-sourced entry, as before --
+    # its resolved checkout path doesn't exist on disk (fine for the tests
+    # that only care about search/entity/neighbors filtering). Passing
+    # `path` seeds a local-path entry instead, whose `resolved_repo_path`
+    # is exactly that directory -- needed for a `/source` test to be a real
+    # scope check, not just an "unknown repo"/"file not found" 404 either
+    # way.
+    cfg = (
+        RepoConfig(name=name, path=path, ref=ref, visibility="internal", enabled=enabled)
+        if path is not None
+        else RepoConfig(name=name, github=f"org/{name}", ref=ref, visibility="internal", enabled=enabled)
     )
+    corpus.upsert_entry(client, cfg, prefix=prefix)
 
 
 @pytest.fixture()
@@ -66,7 +74,14 @@ def kg_app(tp, tmp_path):
     client, prefix = tp
     upsert_graph(client, prefix, SEED_NODES, SEED_EDGES, datetime.now(timezone.utc))
     _seed_corpus_entry(client, prefix, "alpha", "v1", enabled=True)
-    _seed_corpus_entry(client, prefix, "beta", "v1", enabled=True)
+    beta_checkout = tmp_path / "beta_checkout"
+    beta_checkout.mkdir()
+    (beta_checkout / "b.py").write_text("b1\nb2\nb3\nb4\nb5\n")
+    # beta@v1 is a real, readable local-path entry (unlike alpha@v1's fake
+    # github checkout) so a scoped-non-admin 404 against it is provably
+    # caused by role scoping, not by the file simply not existing -- see
+    # test_admin_source_reads_beta_repo / test_non_admin_source_out_of_scope_404.
+    _seed_corpus_entry(client, prefix, "beta", "v1", enabled=True, path=beta_checkout)
     (tmp_path / "w.py").write_text("line1\nline2\nline3\nline4\nline5\n")
 
     def _node_count():
@@ -94,6 +109,18 @@ def admin_hdr(kg_app):
     auth.upsert_user(client, auth.User("root", auth.hash_password("adminpass1"), auth.ROLE_ADMIN), prefix=prefix)
     _eventually(lambda: c.post("/auth/login", json={"username": "root", "password": "adminpass1"}).status_code == 200)
     token = c.post("/auth/login", json={"username": "root", "password": "adminpass1"}).json()["token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture()
+def scoped_hdr(kg_app):
+    """A non-admin user whose role lists only the alpha@v1 entry -- beta@v1
+    (and anything else) is out of scope for it."""
+    c, client, prefix = kg_app
+    auth.upsert_role(client, auth.Role("alpha-only", ["alpha@v1"]), prefix=prefix)
+    auth.upsert_user(client, auth.User("scoped", auth.hash_password("password-1"), "alpha-only"), prefix=prefix)
+    _eventually(lambda: c.post("/auth/login", json={"username": "scoped", "password": "password-1"}).status_code == 200)
+    token = c.post("/auth/login", json={"username": "scoped", "password": "password-1"}).json()["token"]
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -168,20 +195,50 @@ def test_source_unknown_repo_404(kg_app, admin_hdr):
     assert r.status_code == 404
 
 
-def test_non_admin_scoped_to_role_entries(kg_app):
-    c, client, prefix = kg_app
-    auth.upsert_role(client, auth.Role("alpha-only", ["alpha@v1"]), prefix=prefix)
-    auth.upsert_user(client, auth.User("scoped", auth.hash_password("password-1"), "alpha-only"), prefix=prefix)
-    _eventually(lambda: c.post("/auth/login", json={"username": "scoped", "password": "password-1"}).status_code == 200)
-    token = c.post("/auth/login", json={"username": "scoped", "password": "password-1"}).json()["token"]
-    hdr = {"Authorization": f"Bearer {token}"}
+def test_admin_source_reads_beta_repo(kg_app, admin_hdr):
+    """Sanity check backing test_non_admin_source_out_of_scope_404: beta@v1
+    is a real, readable local-path entry for an unscoped (admin) caller, so
+    that test's 404 for a scoped caller is provably a scope block, not a
+    missing/misconfigured file."""
+    c, _, _ = kg_app
+    r = c.get("/api/graph/source", params={
+        "repo": "beta@v1", "file_path": "b.py", "line_start": 1, "line_end": 2,
+    }, headers=admin_hdr)
+    assert r.status_code == 200
+    assert r.json()["lines"] == "b1\nb2\n"
 
+
+def test_non_admin_scoped_to_role_entries(kg_app, scoped_hdr):
+    c, _, _ = kg_app
     # "Widget" matches both AlphaWidget (alpha@v1) and BetaWidget (beta@v1);
     # the scoped role only lists alpha@v1, so beta must be excluded.
-    r = c.get("/api/graph/search", params={"q": "Widget"}, headers=hdr)
+    r = c.get("/api/graph/search", params={"q": "Widget"}, headers=scoped_hdr)
     assert r.status_code == 200
     repos = {h["repo"] for h in r.json()["results"]}
     assert repos == {"alpha@v1"}
 
-    assert c.get("/api/graph/entity", params={"id": "gbn1"}, headers=hdr).status_code == 404
-    assert c.get("/api/graph/entity", params={"id": "gan1"}, headers=hdr).status_code == 200
+    assert c.get("/api/graph/entity", params={"id": "gbn1"}, headers=scoped_hdr).status_code == 404
+    assert c.get("/api/graph/entity", params={"id": "gan1"}, headers=scoped_hdr).status_code == 200
+
+
+def test_non_admin_neighbors_out_of_scope_404(kg_app, scoped_hdr):
+    """gbn1 (beta@v1) is outside the scoped role's only entry (alpha@v1) --
+    it's filtered out of kg.neighbors()'s returned nodes, so the center
+    lookup must 404 exactly like /entity does for the same id, not leak
+    edges/attributes for a node the caller can't otherwise see."""
+    c, _, _ = kg_app
+    assert c.get("/api/graph/neighbors", params={"id": "gbn1"}, headers=scoped_hdr).status_code == 404
+    # The in-scope center still works for the same scoped caller.
+    r = c.get("/api/graph/neighbors", params={"id": "gan1"}, headers=scoped_hdr)
+    assert r.status_code == 200
+    assert r.json()["center"]["id"] == "gan1"
+
+
+def test_non_admin_source_out_of_scope_404(kg_app, scoped_hdr):
+    """beta@v1 is real and admin-readable (test_admin_source_reads_beta_repo)
+    -- a scoped caller whose role only lists alpha@v1 must still be refused."""
+    c, _, _ = kg_app
+    r = c.get("/api/graph/source", params={
+        "repo": "beta@v1", "file_path": "b.py", "line_start": 1, "line_end": 3,
+    }, headers=scoped_hdr)
+    assert r.status_code == 404
