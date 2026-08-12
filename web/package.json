@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "check:sanitize": "node scripts/sanitize-check.mjs"
+    "check:sanitize": "node scripts/sanitize-check.mjs",
+    "check:citations": "node scripts/check-citations.mjs"
   },
   "dependencies": {
     "react": "^18.3.0",
@@ -20,6 +21,7 @@
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "esbuild": "^0.21.5",
     "typescript": "^5.6.0",
     "vite": "^5.4.0"
   }

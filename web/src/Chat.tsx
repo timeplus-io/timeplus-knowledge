@@ -12,7 +12,10 @@ import { readSource, type SourceResponse } from "./graph";
 // event-handler attributes are removed. We additionally drop img so model
 // output can never load external resources (tracking pixels). Ported
 // unchanged from the old App.tsx chat implementation.
-const sanitizeSchema = {
+// Exported (alongside citationPlugin below) so scripts/check-citations.mjs
+// can render the EXACT rehypePlugins pipeline this component uses, instead
+// of testing a copy that could silently drift from the real code.
+export const sanitizeSchema = {
   ...defaultSchema,
   tagNames: (defaultSchema.tagNames ?? []).filter((t) => t !== "img"),
 };
@@ -126,7 +129,10 @@ function fmtElapsed(ms: number): string {
 // `[n]` match, so it cannot reintroduce anything sanitize would strip. The
 // hast tree's node shape isn't in this project's dependency graph as a
 // typed package, hence the `any`s confined to this one plugin.
-function citationPlugin(sourceCount: number) {
+//
+// Exported for scripts/check-citations.mjs (see sanitizeSchema above for
+// why: the permanent XSS-safety test must exercise this real function).
+export function citationPlugin(sourceCount: number) {
   return function transformer(tree: any) {
     if (sourceCount <= 0) return;
     walk(tree);
