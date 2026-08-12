@@ -6,8 +6,23 @@ import Login from "./Login";
 import Manage from "./Manage";
 import Shell, { type View } from "./Shell";
 import Users from "./Users";
+import { CAP, type Capability, hasCap } from "./capabilities";
 
-type Me = { username: string; role: string };
+type Me = { username: string; role: string; capabilities: string[] };
+
+// Nav order + the capability each view needs, so a caller lands on the first
+// view they're allowed to see (a chat-less role must not open on Chat).
+const VIEW_CAP: Record<View, Capability> = {
+  chat: CAP.chat,
+  explorer: CAP.explore,
+  manage: CAP.corpusView,
+  users: CAP.usersView,
+};
+const NAV_ORDER: View[] = ["chat", "explorer", "manage", "users"];
+
+function landingView(caps: string[]): View {
+  return NAV_ORDER.find((v) => hasCap(caps, VIEW_CAP[v])) ?? "chat";
+}
 
 export default function App() {
   const [view, setView] = useState<View>("chat");
@@ -53,7 +68,8 @@ export default function App() {
           // A must_change_password answer routes straight to Login's change
           // mode (skipping the login form — we already hold a valid token).
           if (body.must_change_password) setPendingChangeUser(body.username);
-          else setMe({ username: body.username, role: body.role });
+          else setMe({ username: body.username, role: body.role,
+                       capabilities: body.capabilities ?? [] });
         }
         // A 401 here already ran onUnauthorized above (token cleared, me null).
       } catch {
@@ -69,6 +85,14 @@ export default function App() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // When identity resolves (login or reload), fall back to the first
+  // permitted view if the current one isn't allowed for this role.
+  useEffect(() => {
+    if (!me) return;
+    if (!hasCap(me.capabilities, VIEW_CAP[view])) setView(landingView(me.capabilities));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me]);
 
   async function logout() {
     try {
@@ -116,9 +140,9 @@ export default function App() {
       {view === "explorer" ? (
         <Explorer onAsk={askAboutEntity} />
       ) : view === "manage" ? (
-        <Manage />
+        <Manage capabilities={me.capabilities} />
       ) : view === "users" ? (
-        <Users />
+        <Users capabilities={me.capabilities} isAdmin={me.role === "admin"} />
       ) : null}
     </Shell>
   );

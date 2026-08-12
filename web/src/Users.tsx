@@ -1,14 +1,26 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "./api";
+import { CAP, CAPABILITY_OPTIONS, type Capability, expandCaps, hasCap } from "./capabilities";
 
 type ApiUser = { username: string; role: string; must_change_password: boolean; disabled: boolean };
-type ApiRole = { name: string; entry_keys: string[]; description: string };
+type ApiRole = { name: string; entry_keys: string[]; description: string; capabilities: string[] };
 type Repo = { entry_key: string };
+type RoleEdit = { entry_keys: string[]; description: string; capabilities: string[] };
 
 // Least-privilege: force an explicit role pick rather than defaulting new
-// users to admin.
+// users to admin. A new role starts chat-only.
 const EMPTY_USER = { username: "", password: "", role: "", must_change_password: true };
-const EMPTY_ROLE = { name: "", entry_keys: [] as string[], description: "" };
+const EMPTY_ROLE = { name: "", entry_keys: [] as string[], description: "",
+                     capabilities: [CAP.chat] as string[] };
+
+// Checking a `:manage` capability implies its `:view` sibling; unchecking is
+// free. Returns the next selected set.
+function toggleCap(list: string[], key: Capability): string[] {
+  const opt = CAPABILITY_OPTIONS.find((o) => o.key === key)!;
+  if (list.includes(key)) return list.filter((k) => k !== key);
+  const next = [...list, key];
+  return opt.implies ? [...new Set([...next, opt.implies])] : next;
+}
 
 async function call(path: string, body?: unknown): Promise<any> {
   const resp = await apiFetch(path, body === undefined ? {} : {
@@ -26,7 +38,11 @@ async function call(path: string, body?: unknown): Promise<any> {
   return data;
 }
 
-export default function Users() {
+export default function Users({ capabilities, isAdmin }:
+    { capabilities: string[]; isAdmin: boolean }) {
+  // Whether this admin/manager may mutate (users:manage). With only
+  // users:view the screen is read-only.
+  const canManage = hasCap(capabilities, CAP.usersManage);
   const [users, setUsers] = useState<ApiUser[]>([]);
   const [roles, setRoles] = useState<ApiRole[]>([]);
   const [entryKeys, setEntryKeys] = useState<string[]>([]);
@@ -38,8 +54,7 @@ export default function Users() {
   const [resettingUser, setResettingUser] = useState<string | null>(null);
   const [resetPassword, setResetPassword] = useState("");
 
-  const [roleEdits, setRoleEdits] =
-    useState<Record<string, { entry_keys: string[]; description: string }>>({});
+  const [roleEdits, setRoleEdits] = useState<Record<string, RoleEdit>>({});
   const [showAddRole, setShowAddRole] = useState(false);
   const [newRole, setNewRole] = useState({ ...EMPTY_ROLE });
   const [confirmingRole, setConfirmingRole] = useState<string | null>(null);
@@ -72,7 +87,8 @@ export default function Users() {
       setRoles(r);
       setEntryKeys([...new Set(repos.map((x) => x.entry_key))].sort());
       setRoleEdits(Object.fromEntries(
-        r.map((role) => [role.name, { entry_keys: role.entry_keys, description: role.description }])
+        r.map((role) => [role.name, { entry_keys: role.entry_keys,
+          description: role.description, capabilities: role.capabilities ?? [] }])
       ));
       setError("");
     } catch (e) {
@@ -88,12 +104,19 @@ export default function Users() {
 
   function toggleEntryKey(name: string, key: string) {
     setRoleEdits((prev) => {
-      const cur = prev[name] ?? { entry_keys: [], description: "" };
+      const cur = prev[name] ?? { entry_keys: [], description: "", capabilities: [] };
       const has = cur.entry_keys.includes(key);
       return {
         ...prev,
         [name]: { ...cur, entry_keys: has ? cur.entry_keys.filter((k) => k !== key) : [...cur.entry_keys, key] },
       };
+    });
+  }
+
+  function toggleRoleCap(name: string, key: Capability) {
+    setRoleEdits((prev) => {
+      const cur = prev[name] ?? { entry_keys: [], description: "", capabilities: [] };
+      return { ...prev, [name]: { ...cur, capabilities: toggleCap(cur.capabilities, key) } };
     });
   }
 
@@ -128,6 +151,42 @@ export default function Users() {
     });
   }
 
+  // The six function capabilities as toggle chips. A capability the current
+  // actor doesn't hold (bounded delegation) or a `:view` implied by a checked
+  // `:manage` renders checked-but-disabled — matching backend enforcement.
+  function capabilityGrid(
+    selected: string[],
+    onToggle: (key: Capability) => void,
+    idPrefix: string,
+  ) {
+    return CAPABILITY_OPTIONS.map((opt) => {
+      const checked = selected.includes(opt.key);
+      const impliedByManage = CAPABILITY_OPTIONS.some(
+        (o) => o.implies === opt.key && selected.includes(o.key));
+      // Admin holds all caps; a non-admin manager can only grant caps they
+      // hold themselves.
+      const grantable = hasCap(capabilities, opt.key);
+      const disabled = !canManage || !grantable || impliedByManage;
+      const shown = checked || impliedByManage;
+      return (
+        <button
+          type="button"
+          key={`${idPrefix}-${opt.key}`}
+          className={disabled ? "tk-corpus-chip tk-corpus-chip-disabled" : "tk-corpus-chip"}
+          aria-pressed={shown}
+          disabled={disabled}
+          title={!grantable ? "You can't grant a capability you don't hold" : undefined}
+          onClick={() => onToggle(opt.key)}
+        >
+          <span className={shown ? "tk-corpus-chip-box checked" : "tk-corpus-chip-box"}>
+            {shown ? "✓" : ""}
+          </span>
+          <span className="tk-corpus-chip-key">{opt.label}</span>
+        </button>
+      );
+    });
+  }
+
   return (
     <div className="tk-users">
       {!showAddUser && !showAddRole && error && (
@@ -142,7 +201,7 @@ export default function Users() {
           </div>
         </div>
         <div className="tk-manage-header-spacer" />
-        {tab === "users" ? (
+        {canManage && (tab === "users" ? (
           <button type="button" className="tk-btn" onClick={openAddUser}>
             Add user
           </button>
@@ -150,7 +209,7 @@ export default function Users() {
           <button type="button" className="tk-btn" onClick={openAddRole}>
             Add role
           </button>
-        )}
+        ))}
       </div>
 
       <div className="tk-tabs" role="tablist">
@@ -198,17 +257,22 @@ export default function Users() {
                 <td>
                   {u.role === "admin" ? (
                     <span className="tk-user-role-admin">admin &middot; unscoped</span>
-                  ) : (
+                  ) : canManage ? (
                     <select className="tk-select tk-user-role-select" value={u.role}
                             onChange={(e) => act(() => call("/api/users/update",
                               { username: u.username, role: e.target.value }))}>
-                      <option value="admin">admin</option>
+                      {isAdmin && <option value="admin">admin</option>}
                       {roles.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
                     </select>
+                  ) : (
+                    <span>{u.role}</span>
                   )}
                 </td>
                 <td>{u.disabled ? "disabled" : "active"}</td>
                 <td>
+                  {!canManage ? (
+                    <span className="tk-user-sub">view only</span>
+                  ) : (
                   <div className="tk-users-actions">
                     {resettingUser === u.username ? (
                       <span className="tk-users-confirm">
@@ -265,6 +329,7 @@ export default function Users() {
                       </>
                     )}
                   </div>
+                  )}
                 </td>
               </tr>
             ))}
@@ -276,7 +341,8 @@ export default function Users() {
       {tab === "roles" && (
       <div className="tk-role-cards">
         {roles.map((r) => {
-          const edit = roleEdits[r.name] ?? { entry_keys: r.entry_keys, description: r.description };
+          const edit = roleEdits[r.name]
+            ?? { entry_keys: r.entry_keys, description: r.description, capabilities: r.capabilities ?? [] };
           const count = memberCount(r.name);
           return (
             <div className="tk-role-card" key={r.name}>
@@ -286,12 +352,13 @@ export default function Users() {
                   {count} member{count === 1 ? "" : "s"} &middot; {r.description || "no description"}
                 </div>
                 <div className="tk-role-card-header-spacer" />
-                <button type="button" className="tk-btn tk-btn-secondary"
+                {canManage && <button type="button" className="tk-btn tk-btn-secondary"
                         onClick={() => act(() => call("/api/roles",
-                          { name: r.name, entry_keys: edit.entry_keys, description: edit.description }))}>
+                          { name: r.name, entry_keys: edit.entry_keys, description: edit.description,
+                            capabilities: expandCaps(edit.capabilities) }))}>
                   Save
-                </button>
-                {confirmingRole === r.name ? (
+                </button>}
+                {canManage && (confirmingRole === r.name ? (
                   <span className="tk-users-confirm">
                     <button type="button" className="tk-btn tk-btn-solid-danger"
                             onClick={() => {
@@ -310,7 +377,12 @@ export default function Users() {
                           onClick={() => setConfirmingRole(r.name)}>
                     Delete
                   </button>
-                )}
+                ))}
+              </div>
+
+              <span className="tk-corpus-access-label">Capabilities</span>
+              <div className="tk-corpus-access-grid">
+                {capabilityGrid(edit.capabilities, (k) => toggleRoleCap(r.name, k), `cap-${r.name}`)}
               </div>
 
               <span className="tk-corpus-access-label">Corpus access</span>
@@ -321,6 +393,7 @@ export default function Users() {
               <div className="tk-form-field">
                 <label htmlFor={`role-desc-${r.name}`}>Description</label>
                 <input id={`role-desc-${r.name}`} className="tk-input" value={edit.description}
+                       disabled={!canManage}
                        onChange={(e) => setRoleEdits((prev) => ({
                          ...prev, [r.name]: { ...edit, description: e.target.value },
                        }))} />
@@ -387,7 +460,7 @@ export default function Users() {
                   <select id="usr-role" className="tk-select" required value={newUser.role}
                           onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}>
                     <option value="" disabled>select role…</option>
-                    <option value="admin">admin</option>
+                    {isAdmin && <option value="admin">admin</option>}
                     {roles.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
                   </select>
                 </div>
@@ -429,7 +502,8 @@ export default function Users() {
               onSubmit={(e) => {
                 e.preventDefault();
                 act(async () => {
-                  await call("/api/roles", { ...newRole });
+                  await call("/api/roles",
+                    { ...newRole, capabilities: expandCaps(newRole.capabilities) });
                   setNewRole({ ...EMPTY_ROLE });
                   setShowAddRole(false);
                 });
@@ -447,6 +521,16 @@ export default function Users() {
                   <label htmlFor="role-desc">Description</label>
                   <input id="role-desc" className="tk-input" placeholder="description" value={newRole.description}
                          onChange={(e) => setNewRole({ ...newRole, description: e.target.value })} />
+                </div>
+                <div className="tk-form-field">
+                  <span className="tk-corpus-access-label">Capabilities</span>
+                  <div className="tk-corpus-access-grid">
+                    {capabilityGrid(
+                      newRole.capabilities,
+                      (k) => setNewRole((prev) => ({ ...prev, capabilities: toggleCap(prev.capabilities, k) })),
+                      "new-role-cap",
+                    )}
+                  </div>
                 </div>
                 <div className="tk-form-field">
                   <span className="tk-corpus-access-label">Corpus access</span>

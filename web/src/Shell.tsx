@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { CAP, type Capability, hasCap } from "./capabilities";
 
 // The app-wide sidebar shell (mockup screens 1a/1d/1e/1f share this exact
 // layout: 220px sidebar with a T-logo, nav items, a flex spacer, and a
@@ -7,13 +8,15 @@ import type { ReactNode } from "react";
 // the old centered `.shell`, never wrapped in Shell).
 export type View = "chat" | "explorer" | "manage" | "users";
 
-type Me = { username: string; role: string };
+type Me = { username: string; role: string; capabilities: string[] };
 
-const NAV_ITEMS: { key: View; label: string; adminOnly?: boolean }[] = [
-  { key: "chat", label: "Chat" },
-  { key: "explorer", label: "Explorer" },
-  { key: "manage", label: "Manage", adminOnly: true },
-  { key: "users", label: "Users", adminOnly: true },
+// Each nav entry is shown only when the caller holds its capability. Manage
+// and Users open on their read view (`:view`, implied by `:manage`).
+const NAV_ITEMS: { key: View; label: string; cap: Capability }[] = [
+  { key: "chat", label: "Chat", cap: CAP.chat },
+  { key: "explorer", label: "Explorer", cap: CAP.explore },
+  { key: "manage", label: "Manage", cap: CAP.corpusView },
+  { key: "users", label: "Users", cap: CAP.usersView },
 ];
 
 export default function Shell({
@@ -39,7 +42,7 @@ export default function Shell({
             <div className="tk-logo-subtitle">Knowledge</div>
           </div>
         </div>
-        {NAV_ITEMS.filter((item) => !item.adminOnly || me.role === "admin").map((item) => (
+        {NAV_ITEMS.filter((item) => hasCap(me.capabilities, item.cap)).map((item) => (
           <button
             key={item.key}
             type="button"

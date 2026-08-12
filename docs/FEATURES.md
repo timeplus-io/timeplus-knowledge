@@ -92,9 +92,10 @@ Login-based access control, with roles that scope what each user can query.
 
 - **Users, roles, sessions** stored in Timeplus streams (`kg_users`, `kg_roles`, `kg_sessions`). Passwords are argon2id-hashed; session tokens are stored only as SHA-256 hashes.
 - **Seeded admin + forced change.** A fresh deployment seeds `admin` / `changeme`; the admin must change the password on first login before anything else.
-- **Two-tier authorization.** A built-in `admin` role gets everything, including user and role management; custom roles are chat-only.
-- **Role-scoped chat.** A role lists the exact `name@ref` corpus entries its members may query; a non-admin's chat answers are transparently restricted to that scope (admin, MCP, and CLI are unrestricted). Isolation is enforced server-side across every graph tool path.
-- **Admin console.** A Users/Roles tab manages accounts, role assignments, password resets, and per-role entry-key access; last-admin lockout is prevented.
+- **Function capabilities per role (issue #23).** A role grants any subset of `chat`, `explore`, `corpus:view`/`corpus:manage`, `users:view`/`users:manage` (`:manage` implies `:view`), enforced identically on the API and the UI — the sidebar and each screen show only what the caller holds. The built-in `admin` role is the reserved super-role with every capability. Existing roles migrate to chat-only on upgrade.
+- **Role-scoped chat.** Orthogonal to capabilities: a role lists the exact `name@ref` corpus entries its members may query, and a non-admin's chat/explore results are transparently restricted to that scope (admin, MCP, and CLI are unrestricted). Isolation is enforced server-side across every graph tool path.
+- **Bounded delegation.** A non-admin with `users:manage` can never mint admins or manage admin users, and can only grant capabilities and corpus entries within its own grant — no self-promotion path.
+- **Admin console.** A Users/Roles console manages accounts, role assignments, password resets, per-role capabilities, and per-role entry-key access; last-admin lockout is prevented.
 - **Hardened DB layer.** The compose stack provisions a dedicated `tpk` timeplusd user and password-locks the previously open `default` user.
 
 ## Deployment surfaces

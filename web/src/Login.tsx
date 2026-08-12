@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { apiFetch, setToken } from "./api";
 
-type Me = { username: string; role: string };
+type Me = { username: string; role: string; capabilities: string[] };
 
 async function fetchMe(): Promise<Me> {
   const resp = await apiFetch("/auth/me");
   if (!resp.ok) throw new Error(`could not load profile (HTTP ${resp.status})`);
   const body = await resp.json();
-  return { username: body.username, role: body.role };
+  return { username: body.username, role: body.role, capabilities: body.capabilities ?? [] };
 }
 
 /**

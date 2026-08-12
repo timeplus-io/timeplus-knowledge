@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "./api";
+import { CAP, hasCap } from "./capabilities";
 
 type Repo = {
   name: string; ref: string; entry_key: string; github: string; path: string;
@@ -46,7 +47,10 @@ function formatRelative(iso: string): string {
   return `${days}d ago`;
 }
 
-export default function Manage() {
+export default function Manage({ capabilities }: { capabilities: string[] }) {
+  // corpus:manage gates every mutation; with only corpus:view the screen is
+  // read-only.
+  const canManage = hasCap(capabilities, CAP.corpusManage);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [form, setForm] = useState({ ...EMPTY_FORM });
@@ -117,9 +121,11 @@ export default function Manage() {
           </div>
         </div>
         <div className="tk-manage-header-spacer" />
-        <button type="button" className="tk-btn" onClick={openAdd}>
-          Add corpus entry
-        </button>
+        {canManage && (
+          <button type="button" className="tk-btn" onClick={openAdd}>
+            Add corpus entry
+          </button>
+        )}
       </div>
 
       <div className="tk-corpus-table-card">
@@ -167,6 +173,7 @@ export default function Manage() {
                       className={r.enabled ? "tk-toggle on" : "tk-toggle"}
                       role="switch"
                       aria-checked={r.enabled}
+                      disabled={!canManage}
                       aria-label={`${r.enabled ? "Disable" : "Enable"} ${r.entry_key}`}
                       onClick={() => {
                         // nudge: one enabled ref per repo (issue #4)
@@ -181,6 +188,9 @@ export default function Manage() {
                     />
                   </td>
                   <td>
+                    {!canManage ? (
+                      <span className="tk-corpus-entry-desc">view only</span>
+                    ) : (
                     <div className="tk-corpus-actions">
                       <button
                         type="button"
@@ -222,6 +232,7 @@ export default function Manage() {
                         </button>
                       )}
                     </div>
+                    )}
                   </td>
                 </tr>
               );

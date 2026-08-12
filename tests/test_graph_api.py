@@ -117,7 +117,8 @@ def scoped_hdr(kg_app):
     """A non-admin user whose role lists only the alpha@v1 entry -- beta@v1
     (and anything else) is out of scope for it."""
     c, client, prefix = kg_app
-    auth.upsert_role(client, auth.Role("alpha-only", ["alpha@v1"]), prefix=prefix)
+    auth.upsert_role(client, auth.Role("alpha-only", ["alpha@v1"],
+                                       capabilities=[auth.CAP_EXPLORE]), prefix=prefix)
     auth.upsert_user(client, auth.User("scoped", auth.hash_password("password-1"), "alpha-only"), prefix=prefix)
     _eventually(lambda: c.post("/auth/login", json={"username": "scoped", "password": "password-1"}).status_code == 200)
     token = c.post("/auth/login", json={"username": "scoped", "password": "password-1"}).json()["token"]
@@ -132,6 +133,26 @@ def test_unauthenticated_401_on_all_routes(kg_app):
     assert c.get("/api/graph/source", params={
         "repo": "r1", "file_path": "w.py", "line_start": 1, "line_end": 2,
     }).status_code == 401
+
+
+def test_explore_capability_required(kg_app):
+    """A non-admin whose role lacks `explore` is refused on every graph route
+    (capability gate fires before scoping)."""
+    c, client, prefix = kg_app
+    auth.upsert_role(client, auth.Role("no-explore", ["alpha@v1"],
+                                       capabilities=[auth.CAP_CHAT]), prefix=prefix)
+    auth.upsert_user(client, auth.User("noexp", auth.hash_password("password-1"),
+                                       "no-explore"), prefix=prefix)
+    _eventually(lambda: c.post("/auth/login",
+                json={"username": "noexp", "password": "password-1"}).status_code == 200)
+    token = c.post("/auth/login", json={"username": "noexp", "password": "password-1"}).json()["token"]
+    hdr = {"Authorization": f"Bearer {token}"}
+    assert c.get("/api/graph/search", params={"q": "Alpha"}, headers=hdr).status_code == 403
+    assert c.get("/api/graph/entity", params={"id": "gan1"}, headers=hdr).status_code == 403
+    assert c.get("/api/graph/neighbors", params={"id": "gan1"}, headers=hdr).status_code == 403
+    assert c.get("/api/graph/source", params={
+        "repo": "alpha@v1", "file_path": "a.py", "line_start": 1, "line_end": 2,
+    }, headers=hdr).status_code == 403
 
 
 def test_admin_search_returns_seeded_entity(kg_app, admin_hdr):

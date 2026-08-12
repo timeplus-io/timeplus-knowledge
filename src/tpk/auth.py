@@ -17,11 +17,54 @@ ROLE_ADMIN = "admin"
 SEED_USERNAME = "admin"
 SEED_PASSWORD = "changeme"
 
+# -- capabilities ----------------------------------------------------------
+# A role grants a set of function capabilities, enforced identically on the
+# API and the UI. `admin` (the reserved super-role) implicitly holds all of
+# them. `:manage` implies `:view` (see expand_capabilities).
+CAP_CHAT = "chat"
+CAP_EXPLORE = "explore"
+CAP_CORPUS_VIEW = "corpus:view"
+CAP_CORPUS_MANAGE = "corpus:manage"
+CAP_USERS_VIEW = "users:view"
+CAP_USERS_MANAGE = "users:manage"
+
+# Order is the canonical UI/display order.
+ALL_CAPABILITIES = [
+    CAP_CHAT, CAP_EXPLORE,
+    CAP_CORPUS_VIEW, CAP_CORPUS_MANAGE,
+    CAP_USERS_VIEW, CAP_USERS_MANAGE,
+]
+_CAP_SET = frozenset(ALL_CAPABILITIES)
+# `:manage` grants its `:view` sibling for free.
+_MANAGE_IMPLIES_VIEW = {
+    CAP_CORPUS_MANAGE: CAP_CORPUS_VIEW,
+    CAP_USERS_MANAGE: CAP_USERS_VIEW,
+}
+
+# Existing roles created before capabilities shipped had no capability set;
+# they migrate to chat-only (a role's stored capabilities column is the
+# empty string for those rows — see Role parsing below).
+DEFAULT_CAPABILITIES = [CAP_CHAT]
+
+
+def expand_capabilities(caps) -> set[str]:
+    """Normalize a capability collection: drop unknowns, add each `:manage`'s
+    implied `:view`."""
+    out: set[str] = set()
+    for c in caps:
+        if c in _CAP_SET:
+            out.add(c)
+            implied = _MANAGE_IMPLIES_VIEW.get(c)
+            if implied:
+                out.add(implied)
+    return out
+
+
 _hasher = PasswordHasher()  # argon2id defaults
 
 _USER_COLUMNS = ["username", "password_hash", "role", "must_change_password",
                  "disabled", "created_at", "updated_at"]
-_ROLE_COLUMNS = ["name", "entry_keys", "description", "updated_at"]
+_ROLE_COLUMNS = ["name", "entry_keys", "capabilities", "description", "updated_at"]
 _SESSION_COLUMNS = ["token_hash", "username", "expires_at", "created_at"]
 
 
@@ -39,6 +82,24 @@ class Role:
     name: str
     entry_keys: list[str] = field(default_factory=list)
     description: str = ""
+    capabilities: list[str] = field(default_factory=lambda: list(DEFAULT_CAPABILITIES))
+
+
+def _parse_capabilities(raw: str) -> list[str]:
+    """Decode a stored kg_roles.capabilities cell.
+
+    An empty cell means the row predates capabilities -> it migrates to the
+    chat-only default (the decision for existing roles on upgrade). A stored
+    `[]` is an explicit empty grant and stays empty. Anything else is the
+    JSON list the admin saved.
+    """
+    if raw is None or raw == "":
+        return list(DEFAULT_CAPABILITIES)
+    try:
+        val = json.loads(raw)
+    except (ValueError, TypeError):
+        return list(DEFAULT_CAPABILITIES)
+    return [c for c in val if isinstance(c, str)] if isinstance(val, list) else []
 
 
 def hash_password(password: str) -> str:
@@ -132,29 +193,31 @@ def seed_admin(client, prefix: str = "") -> bool:
 def upsert_role(client, role: Role, prefix: str = "") -> None:
     client.insert(
         f"{prefix}kg_roles",
-        [[role.name, json.dumps(role.entry_keys), role.description, _now()]],
+        [[role.name, json.dumps(role.entry_keys), json.dumps(role.capabilities),
+          role.description, _now()]],
         column_names=_ROLE_COLUMNS,
     )
 
 
 def get_role(client, name: str, prefix: str = "") -> Role | None:
     rows = client.query(
-        f"SELECT name, entry_keys, description FROM table({prefix}kg_roles)"
+        f"SELECT name, entry_keys, capabilities, description FROM table({prefix}kg_roles)"
         f" WHERE name = %(n)s",
         parameters={"n": name},
     ).result_rows
     if not rows:
         return None
-    n, keys, desc = rows[0]
-    return Role(n, json.loads(keys) if keys else [], desc)
+    n, keys, caps, desc = rows[0]
+    return Role(n, json.loads(keys) if keys else [], desc, _parse_capabilities(caps))
 
 
 def list_roles(client, prefix: str = "") -> list[Role]:
     rows = client.query(
-        f"SELECT name, entry_keys, description FROM table({prefix}kg_roles)"
+        f"SELECT name, entry_keys, capabilities, description FROM table({prefix}kg_roles)"
         f" ORDER BY name"
     ).result_rows
-    return [Role(n, json.loads(k) if k else [], d) for n, k, d in rows]
+    return [Role(n, json.loads(k) if k else [], d, _parse_capabilities(c))
+            for n, k, c, d in rows]
 
 
 def delete_role(client, name: str, prefix: str = "") -> None:
@@ -238,6 +301,17 @@ def _session_ttl() -> int:
     return int(os.environ.get("TPK_SESSION_TTL", "86400"))
 
 
+def effective_capabilities(user: User, role: Role | None) -> set[str]:
+    """The capabilities a user actually holds. `admin` gets all of them; any
+    other user gets the (view-expanded) capabilities of their role, or the
+    empty set if the role is missing/unreadable (fail closed)."""
+    if user.role == ROLE_ADMIN:
+        return set(ALL_CAPABILITIES)
+    if role is None:
+        return set()
+    return expand_capabilities(role.capabilities)
+
+
 # Precomputed at import time so an unknown-username login still pays the
 # same argon2 cost as a known-user/wrong-password login -- otherwise the
 # `user is None` short-circuit is a timing oracle for username enumeration
@@ -291,6 +365,28 @@ class AuthLayer:
             raise HTTPException(403, "admin required")
         return user
 
+    def effective_caps(self, user: User) -> set[str]:
+        """Resolve a user's effective capabilities, reading their role from
+        the store for non-admins. Fails closed (empty set) if the role is
+        unreadable."""
+        if user.role == ROLE_ADMIN:
+            return set(ALL_CAPABILITIES)
+        try:
+            role = get_role(self._client(), user.role, prefix=self.prefix)
+        except Exception:
+            role = None
+        return effective_capabilities(user, role)
+
+    def require_cap(self, capability: str):
+        """Build a FastAPI dependency that admits a user only if they hold
+        `capability`. Usage: `Depends(auth.require_cap(auth.CAP_CHAT))`."""
+        def dependency(authorization: str | None = Header(None)) -> User:
+            user = self.require_user(authorization)
+            if capability not in self.effective_caps(user):
+                raise HTTPException(403, f"missing capability: {capability}")
+            return user
+        return dependency
+
 
 class LoginRequest(BaseModel):
     username: str
@@ -324,7 +420,8 @@ def create_auth_router(auth_layer: AuthLayer) -> APIRouter:
         except Exception:
             raise HTTPException(503, "auth store unavailable")
         return {"token": token, "role": user.role,
-                "must_change_password": user.must_change_password}
+                "must_change_password": user.must_change_password,
+                "capabilities": sorted(auth_layer.effective_caps(user))}
 
     @router.post("/logout", status_code=204)
     def logout(authorization: str | None = Header(None),
@@ -340,7 +437,8 @@ def create_auth_router(auth_layer: AuthLayer) -> APIRouter:
     @router.get("/me")
     def me(user: User = Depends(auth_layer.require_user_any)):
         return {"username": user.username, "role": user.role,
-                "must_change_password": user.must_change_password}
+                "must_change_password": user.must_change_password,
+                "capabilities": sorted(auth_layer.effective_caps(user))}
 
     @router.post("/change-password")
     def change_password(body: ChangePasswordRequest,
