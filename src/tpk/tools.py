@@ -188,7 +188,14 @@ class KnowledgeGraph:
             filters.append("kind IN %(kinds)s")
             params["kinds"] = kinds
         if repos:
-            filters.append("repo IN %(repos)s")
+            # Accept either the full entry key (name@ref) or the bare repo
+            # name: the chat agent and Explorer UI often pass just
+            # "proton-enterprise" while nodes are keyed "proton-enterprise@ref".
+            # Match the full `repo` OR its name part (before the first '@'), so
+            # an agent that drops the ref still filters to the right corpus.
+            filters.append(
+                "(repo IN %(repos)s OR splitByChar('@', repo)[1] IN %(repos)s)"
+            )
             params["repos"] = repos
         active, _ = self._scoped_corpus_state()
         if active is not None:
@@ -326,6 +333,24 @@ class KnowledgeGraph:
         )
         return [dict(zip(["repo", "community", "node_count"], r)) for r in rows]
 
+    @staticmethod
+    def _resolve_repo_root(repo, corpus_paths, static_paths):
+        """Resolve a repo argument to a checkout root, accepting either the
+        full entry key (name@ref) or the bare repo name. Exact key wins
+        (corpus entries take precedence over static repo_paths); a bare name
+        resolves only when it matches exactly one entry key by its name part,
+        so ambiguous refs (helm-charts@v13 vs @v12) return None and the caller
+        raises, prompting the agent to retry with an explicit key."""
+        if repo in corpus_paths:
+            return corpus_paths[repo]
+        if repo in static_paths:
+            return static_paths[repo]
+        merged = {**static_paths, **corpus_paths}
+        matches = {k: v for k, v in merged.items() if k.split("@", 1)[0] == repo}
+        if len(matches) == 1:
+            return next(iter(matches.values()))
+        return None  # unknown, or ambiguous across multiple refs
+
     def read_source(self, repo, file_path, line_start, line_end):
         """Read lines [line_start, line_end] (1-indexed, inclusive) from a repo
         checkout. The returned window is capped at MAX_SOURCE_LINES lines: a
@@ -342,7 +367,7 @@ class KnowledgeGraph:
             self.repo_paths if scope is None
             else {k: p for k, p in self.repo_paths.items() if k in scope}
         )
-        root = corpus_paths.get(repo) or static_paths.get(repo)
+        root = self._resolve_repo_root(repo, corpus_paths, static_paths)
         if root is None:
             # Include the live corpus entry keys (name@ref), not just the
             # static `repo_paths` bare names, so the LLM sees the actual
