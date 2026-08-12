@@ -62,7 +62,9 @@ services:
     # healthcheck just gates `depends_on` so the agent doesn't start into a
     # refused connection on `up`. `/ping` is not implemented by timeplusd.
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8123/ || exit 1"]
+      # wget-or-curl fallback so a base-image change dropping either tool
+      # can't silently wedge the agent (both ship in the base image today).
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8123/ || curl -sf http://localhost:8123/ -o /dev/null || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 30
