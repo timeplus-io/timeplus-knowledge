@@ -28,9 +28,8 @@
 #   TPK_AGENT_PROVIDER  chat agent LLM backend (anthropic/openai); may differ
 #                       from the extraction backend above
 #   TPK_AGENT_MODEL     chat agent model override
-#   TPK_ADMIN_TOKEN     when set, gates the /api management endpoints (add,
-#                       toggle, delete, reindex repos) behind an X-Admin-Token
-#                       header; unset means those endpoints are open
+#   TIMEPLUS_PASSWORD   required; provisions the `tpk` DB user and locks the
+#                       `default` user with the same password
 
 services:
   tpk:
@@ -46,6 +45,8 @@ services:
       - tpk-data:/var/lib/timeplusd
       - tpk-checkouts:/opt/tpk/.checkouts
     environment:
+      TIMEPLUS_PASSWORD: ${TIMEPLUS_PASSWORD:?TIMEPLUS_PASSWORD must be set in .env}
+      TIMEPLUS_USER: tpk
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -70,6 +71,8 @@ services:
       - tpk-checkouts:/opt/tpk/.checkouts
     environment:
       TIMEPLUS_HOST: tpk
+      TIMEPLUS_PASSWORD: ${TIMEPLUS_PASSWORD:?TIMEPLUS_PASSWORD must be set in .env}
+      TIMEPLUS_USER: tpk
       TPK_AGENT_PROVIDER: ${TPK_AGENT_PROVIDER:-}
       TPK_AGENT_MODEL: ${TPK_AGENT_MODEL:-}
       TPK_AGENT_REASONING_EFFORT: ${TPK_AGENT_REASONING_EFFORT:-}
@@ -80,7 +83,6 @@ services:
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-      TPK_ADMIN_TOKEN: ${TPK_ADMIN_TOKEN:-}
     restart: unless-stopped
 
 volumes:
