@@ -618,7 +618,7 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 .tk-btn-solid-danger { background: var(--red-500); color: var(--white); }
 .tk-btn-solid-danger:hover:not(:disabled) { filter: brightness(0.88); }
 
-/* Lower two-column region: Ingest jobs (left) + Add corpus entry (right) */
+/* Lower region: the Ingest jobs panel (Add corpus entry is now a modal). */
 .tk-manage-lower { display: flex; gap: 24px; align-items: flex-start; }
 
 .tk-jobs-panel {

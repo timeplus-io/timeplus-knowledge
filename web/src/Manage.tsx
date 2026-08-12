@@ -105,7 +105,9 @@ export default function Manage() {
 
   return (
     <div className="tk-manage">
-      {error && <div className="tk-manage-error">{error}</div>}
+      {/* Add-flow errors render inside the modal; keep this page-level banner
+          for the table's toggle/reindex/delete errors only. */}
+      {!addOpen && error && <div className="tk-manage-error">{error}</div>}
 
       <div className="tk-manage-header">
         <div>
