@@ -16,6 +16,17 @@ class _StubAuth(AuthLayer):
     def _resolve(self, authorization):
         return self.user
 
+    def _client(self):
+        # Every other test in this file is deliberately infra-free
+        # (_resolve never touches a store); the /chat handler's own
+        # role-scope lookup calls `auth._client()` directly for non-admin
+        # users, so this must fail immediately too -- a real
+        # `db.get_client()` call here would reach out over the network
+        # (and, against an unreachable-but-not-refusing host, block for a
+        # full TCP connect timeout) on every non-admin /chat request in
+        # this file's tests.
+        raise RuntimeError("no store in unit tests")
+
 
 class FakeAgent:
     """Yields the astream_events shapes the server consumes."""
@@ -115,21 +126,17 @@ def test_chat_401_without_auth():
 
 
 def test_chat_sets_and_resets_role_scope():
-    """Non-admin user, role "viewer" -- no reachable kg_roles row for it (a
-    fresh, unseeded prefix), so the scope must fail closed to frozenset()
-    rather than falling through to unrestricted (None) access. FakeAgent
-    doesn't call any tools, so this only exercises the set/reset bracket
-    around stream(): after the response completes, ROLE_SCOPE must be back
-    to its default (None) in this thread."""
+    """Non-admin user, role "viewer" -- _StubAuth._client() raises
+    immediately (no real store reachable), so the scope must fail closed to
+    frozenset() rather than falling through to unrestricted (None) access,
+    with zero network I/O. FakeAgent doesn't call any tools, so this only
+    exercises the set/reset bracket around stream(): after the response
+    completes, ROLE_SCOPE must be back to its default (None) in this
+    thread."""
     from tpk.tools import ROLE_SCOPE
 
     stub = _StubAuth(user=User("viewer1", "", "viewer"))
-    app = create_app(
-        agent=FakeAgent([_tok("hi")]),
-        auth=stub,
-        stream_prefix=f"nonexistent_{__name__}_",
-    )
-    client = TestClient(app)
+    client = TestClient(create_app(agent=FakeAgent([_tok("hi")]), auth=stub))
     resp = client.post("/chat", json={"message": "hi"})
     assert resp.status_code == 200
     assert ROLE_SCOPE.get() is None
