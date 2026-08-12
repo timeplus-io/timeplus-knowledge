@@ -582,6 +582,18 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 .tk-manage-header-spacer { flex: 1; }
 .tk-manage-error { color: var(--red-500); font-size: 12px; }
 
+/* Users/Roles tab bar */
+.tk-tabs { display: flex; gap: 20px; border-bottom: 1px solid var(--gray-700); margin: 4px 0 4px; }
+.tk-tab {
+  background: none; border: 0; border-bottom: 2px solid transparent;
+  padding: 8px 2px; margin-bottom: -1px; cursor: pointer;
+  font-size: 14px; font-weight: 600; color: var(--gray-500);
+}
+.tk-tab:hover:not(:disabled) { background: none; color: var(--gray-300); }
+.tk-tab-active { color: var(--gray-200); border-bottom-color: var(--pink-500); }
+.tk-tab-active:hover:not(:disabled) { color: var(--gray-200); }
+.tk-tab-count { font-weight: 400; font-size: 12px; color: var(--gray-500); margin-left: 4px; }
+
 /* Corpus table */
 .tk-corpus-table-card { background: var(--white); border: 1px solid var(--gray-700); border-radius: var(--radius); overflow: hidden; }
 .tk-corpus-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13px; }
@@ -653,13 +665,7 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 .tk-job-result-failed { color: var(--red-500); }
 .tk-job-time { color: var(--gray-500); font-size: 12px; flex: none; }
 
-/* Add corpus entry form */
-.tk-add-form-card {
-  width: 420px; flex: none; background: var(--white); border: 1px solid var(--gray-700); border-radius: var(--radius);
-  padding: 24px; display: flex; flex-direction: column; gap: 16px;
-}
-.tk-add-form-title { font-size: 14px; font-weight: 600; color: var(--gray-200); }
-.tk-add-form-fields { display: flex; flex-direction: column; gap: 16px; }
+/* Form fields (shared by modals) */
 .tk-form-field { display: flex; flex-direction: column; gap: 4px; }
 .tk-form-field label { font-size: 12px; color: var(--gray-300); }
 .tk-form-required { color: var(--red-500); }
@@ -667,7 +673,6 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 .tk-form-row .tk-form-field { flex: 1; min-width: 0; }
 .tk-form-field-narrow { width: 130px; flex: none; }
 .tk-form-hint { font-size: 12px; color: var(--gray-500); }
-.tk-form-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 
 /* Add-corpus-entry modal (mockup screen 2a). A modal is a deliberate
    elevation exception to the flat/no-shadow rule: it floats over a dimmed

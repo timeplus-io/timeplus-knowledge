@@ -44,6 +44,23 @@ export default function Users() {
   const [newRole, setNewRole] = useState({ ...EMPTY_ROLE });
   const [confirmingRole, setConfirmingRole] = useState<string | null>(null);
 
+  const [tab, setTab] = useState<"users" | "roles">("users");
+
+  function openAddUser() { setNewUser({ ...EMPTY_USER }); setError(""); setShowAddUser(true); }
+  function closeAddUser() { setShowAddUser(false); setNewUser({ ...EMPTY_USER }); setError(""); }
+  function openAddRole() { setNewRole({ ...EMPTY_ROLE }); setError(""); setShowAddRole(true); }
+  function closeAddRole() { setShowAddRole(false); setNewRole({ ...EMPTY_ROLE }); setError(""); }
+
+  useEffect(() => {
+    if (!showAddUser && !showAddRole) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { closeAddUser(); closeAddRole(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showAddUser, showAddRole]);
+
   async function refresh() {
     try {
       const [u, r, repos]: [ApiUser[], ApiRole[], Repo[]] = await Promise.all([
@@ -113,7 +130,9 @@ export default function Users() {
 
   return (
     <div className="tk-users">
-      {error && <div className="tk-manage-error">{error}</div>}
+      {!showAddUser && !showAddRole && error && (
+        <div className="tk-manage-error">{error}</div>
+      )}
 
       <div className="tk-manage-header">
         <div>
@@ -123,77 +142,39 @@ export default function Users() {
           </div>
         </div>
         <div className="tk-manage-header-spacer" />
+        {tab === "users" ? (
+          <button type="button" className="tk-btn" onClick={openAddUser}>
+            Add user
+          </button>
+        ) : (
+          <button type="button" className="tk-btn" onClick={openAddRole}>
+            Add role
+          </button>
+        )}
+      </div>
+
+      <div className="tk-tabs" role="tablist">
         <button
           type="button"
-          className="tk-btn tk-btn-secondary"
-          onClick={() => setShowAddRole((v) => !v)}
+          role="tab"
+          aria-selected={tab === "users"}
+          className={tab === "users" ? "tk-tab tk-tab-active" : "tk-tab"}
+          onClick={() => setTab("users")}
         >
-          Add role
+          Users <span className="tk-tab-count">{users.length}</span>
         </button>
         <button
           type="button"
-          className="tk-btn"
-          onClick={() => setShowAddUser((v) => !v)}
+          role="tab"
+          aria-selected={tab === "roles"}
+          className={tab === "roles" ? "tk-tab tk-tab-active" : "tk-tab"}
+          onClick={() => setTab("roles")}
         >
-          Add user
+          Roles <span className="tk-tab-count">{roles.length}</span>
         </button>
       </div>
 
-      {showAddUser && (
-        <div className="tk-add-form-card">
-          <div className="tk-add-form-title">Add user</div>
-          <form
-            className="tk-add-form-fields"
-            onSubmit={(e) => {
-              e.preventDefault();
-              act(async () => {
-                await call("/api/users", { ...newUser });
-                setNewUser({ ...EMPTY_USER });
-                setShowAddUser(false);
-              });
-            }}
-          >
-            <div className="tk-form-row">
-              <div className="tk-form-field">
-                <label htmlFor="usr-username">Username <span className="tk-form-required">*</span></label>
-                <input id="usr-username" className="tk-input" placeholder="username" required
-                       value={newUser.username}
-                       onChange={(e) => setNewUser({ ...newUser, username: e.target.value })} />
-              </div>
-              <div className="tk-form-field">
-                <label htmlFor="usr-password">Initial password <span className="tk-form-required">*</span></label>
-                <input id="usr-password" className="tk-input" type="password" placeholder="initial password"
-                       required value={newUser.password}
-                       onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} />
-              </div>
-            </div>
-            <div className="tk-form-field">
-              <label htmlFor="usr-role">Role <span className="tk-form-required">*</span></label>
-              <select id="usr-role" className="tk-select" required value={newUser.role}
-                      onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}>
-                <option value="" disabled>select role…</option>
-                <option value="admin">admin</option>
-                {roles.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
-              </select>
-            </div>
-            <div className="tk-form-field">
-              <label htmlFor="usr-must-change" className="checkbox-field">
-                <input id="usr-must-change" type="checkbox" checked={newUser.must_change_password}
-                       onChange={(e) => setNewUser({ ...newUser, must_change_password: e.target.checked })} />
-                must change password
-              </label>
-            </div>
-            <div className="tk-form-actions">
-              <button type="button" className="tk-btn tk-btn-secondary"
-                      onClick={() => { setNewUser({ ...EMPTY_USER }); setShowAddUser(false); }}>
-                Cancel
-              </button>
-              <button type="submit" className="tk-btn" disabled={!newUser.role}>Add user</button>
-            </div>
-          </form>
-        </div>
-      )}
-
+      {tab === "users" && (
       <div className="tk-users-table-card">
         <table className="tk-users-table">
           <colgroup>
@@ -290,57 +271,9 @@ export default function Users() {
           </tbody>
         </table>
       </div>
-
-      {showAddRole && (
-        <div className="tk-add-form-card">
-          <div className="tk-add-form-title">Add role</div>
-          <form
-            className="tk-add-form-fields"
-            onSubmit={(e) => {
-              e.preventDefault();
-              act(async () => {
-                await call("/api/roles", { ...newRole });
-                setNewRole({ ...EMPTY_ROLE });
-                setShowAddRole(false);
-              });
-            }}
-          >
-            <div className="tk-form-field">
-              <label htmlFor="role-name">Name <span className="tk-form-required">*</span></label>
-              <input id="role-name" className="tk-input" placeholder="name" required value={newRole.name}
-                     onChange={(e) => setNewRole({ ...newRole, name: e.target.value })} />
-            </div>
-            <div className="tk-form-field">
-              <span className="tk-corpus-access-label">Corpus access</span>
-              <div className="tk-corpus-access-grid">
-                {corpusAccessGrid(
-                  newRole.entry_keys,
-                  (k) => setNewRole((prev) => ({
-                    ...prev,
-                    entry_keys: prev.entry_keys.includes(k)
-                      ? prev.entry_keys.filter((x) => x !== k)
-                      : [...prev.entry_keys, k],
-                  })),
-                  "new-role",
-                )}
-              </div>
-            </div>
-            <div className="tk-form-field">
-              <label htmlFor="role-desc">Description</label>
-              <input id="role-desc" className="tk-input" placeholder="description" value={newRole.description}
-                     onChange={(e) => setNewRole({ ...newRole, description: e.target.value })} />
-            </div>
-            <div className="tk-form-actions">
-              <button type="button" className="tk-btn tk-btn-secondary"
-                      onClick={() => { setNewRole({ ...EMPTY_ROLE }); setShowAddRole(false); }}>
-                Cancel
-              </button>
-              <button type="submit" className="tk-btn">Add role</button>
-            </div>
-          </form>
-        </div>
       )}
 
+      {tab === "roles" && (
       <div className="tk-role-cards">
         {roles.map((r) => {
           const edit = roleEdits[r.name] ?? { entry_keys: r.entry_keys, description: r.description };
@@ -396,6 +329,150 @@ export default function Users() {
           );
         })}
       </div>
+      )}
+
+      {showAddUser && (
+        <div className="tk-modal-overlay" onClick={closeAddUser}>
+          <div
+            className="tk-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-user-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="tk-modal-header">
+              <div id="add-user-title" className="tk-modal-title">Add user</div>
+              <button
+                type="button"
+                className="tk-modal-close"
+                aria-label="Close"
+                onClick={closeAddUser}
+              >
+                &times;
+              </button>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                act(async () => {
+                  await call("/api/users", { ...newUser });
+                  setNewUser({ ...EMPTY_USER });
+                  setShowAddUser(false);
+                });
+              }}
+            >
+              <div className="tk-modal-body">
+                <div className="tk-form-field">
+                  <label htmlFor="usr-username">
+                    Username <span className="tk-form-required">*</span>
+                  </label>
+                  <input id="usr-username" className="tk-input" placeholder="username" required
+                         value={newUser.username}
+                         onChange={(e) => setNewUser({ ...newUser, username: e.target.value })} />
+                </div>
+                <div className="tk-form-field">
+                  <label htmlFor="usr-password">
+                    Temporary password <span className="tk-form-required">*</span>
+                  </label>
+                  <input id="usr-password" className="tk-input" type="password"
+                         placeholder="temporary password" required value={newUser.password}
+                         onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} />
+                  <div className="tk-form-hint">User must change it on first sign-in.</div>
+                </div>
+                <div className="tk-form-field">
+                  <label htmlFor="usr-role">
+                    Role <span className="tk-form-required">*</span>
+                  </label>
+                  <select id="usr-role" className="tk-select" required value={newUser.role}
+                          onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}>
+                    <option value="" disabled>select role…</option>
+                    <option value="admin">admin</option>
+                    {roles.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
+                  </select>
+                </div>
+                {error && <div className="tk-manage-error">{error}</div>}
+              </div>
+              <div className="tk-modal-footer">
+                <button type="button" className="tk-btn tk-btn-secondary" onClick={closeAddUser}>
+                  Cancel
+                </button>
+                <button type="submit" className="tk-btn" disabled={!newUser.role}>Add user</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showAddRole && (
+        <div className="tk-modal-overlay" onClick={closeAddRole}>
+          <div
+            className="tk-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-role-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="tk-modal-header">
+              <div id="add-role-title" className="tk-modal-title">Add role</div>
+              <button
+                type="button"
+                className="tk-modal-close"
+                aria-label="Close"
+                onClick={closeAddRole}
+              >
+                &times;
+              </button>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                act(async () => {
+                  await call("/api/roles", { ...newRole });
+                  setNewRole({ ...EMPTY_ROLE });
+                  setShowAddRole(false);
+                });
+              }}
+            >
+              <div className="tk-modal-body">
+                <div className="tk-form-field">
+                  <label htmlFor="role-name">
+                    Role name <span className="tk-form-required">*</span>
+                  </label>
+                  <input id="role-name" className="tk-input" placeholder="name" required value={newRole.name}
+                         onChange={(e) => setNewRole({ ...newRole, name: e.target.value })} />
+                </div>
+                <div className="tk-form-field">
+                  <label htmlFor="role-desc">Description</label>
+                  <input id="role-desc" className="tk-input" placeholder="description" value={newRole.description}
+                         onChange={(e) => setNewRole({ ...newRole, description: e.target.value })} />
+                </div>
+                <div className="tk-form-field">
+                  <span className="tk-corpus-access-label">Corpus access</span>
+                  <div className="tk-corpus-access-grid">
+                    {corpusAccessGrid(
+                      newRole.entry_keys,
+                      (k) => setNewRole((prev) => ({
+                        ...prev,
+                        entry_keys: prev.entry_keys.includes(k)
+                          ? prev.entry_keys.filter((x) => x !== k)
+                          : [...prev.entry_keys, k],
+                      })),
+                      "new-role",
+                    )}
+                  </div>
+                </div>
+                {error && <div className="tk-manage-error">{error}</div>}
+              </div>
+              <div className="tk-modal-footer">
+                <button type="button" className="tk-btn tk-btn-secondary" onClick={closeAddRole}>
+                  Cancel
+                </button>
+                <button type="submit" className="tk-btn">Add role</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
