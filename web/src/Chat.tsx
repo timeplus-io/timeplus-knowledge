@@ -434,15 +434,6 @@ export default function Chat({
               </div>
             </>
           )}
-          <button
-            type="button"
-            className="tk-btn tk-btn-secondary"
-            onClick={newConversation}
-            disabled={busy}
-            title="Clear this conversation and start a new one"
-          >
-            New chat
-          </button>
         </div>
       )}
 
@@ -541,6 +532,17 @@ export default function Chat({
           <button type="button" onClick={() => send()} disabled={busy || !input.trim()}>
             {busy ? "Thinking…" : "Send"}
           </button>
+          {hasTurns && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={newConversation}
+              disabled={busy}
+              title="Clear this conversation and start a new one"
+            >
+              New chat
+            </button>
+          )}
         </div>
       </div>
     </div>
