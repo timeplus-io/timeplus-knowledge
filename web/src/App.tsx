@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
-import { apiFetch, getToken, onUnauthorized, setToken } from "./api";
+import { apiFetch, getToken, onPasswordChangeRequired, onUnauthorized, setToken } from "./api";
 import Login from "./Login";
 import Manage from "./Manage";
 import Users from "./Users";
@@ -54,6 +54,13 @@ export default function App() {
 
   useEffect(() => {
     onUnauthorized(() => { setMe(null); setPendingChangeUser(null); });
+    // Centralized in api.ts: fires on a 403 password_change_required from
+    // ANY apiFetch call (chat, Manage, Users) — not just chat's send().
+    // Uses the setMe functional-updater form to read the current identity
+    // without a stale closure over `me`.
+    onPasswordChangeRequired(() => {
+      setMe((prev) => { setPendingChangeUser(prev?.username ?? null); return null; });
+    });
   }, []);
 
   useEffect(() => {
@@ -94,19 +101,14 @@ export default function App() {
       setTurns((ts) => [...ts.slice(0, -1), fn(ts[ts.length - 1])]);
 
     try {
+      // A 403 password_change_required here is handled centrally by
+      // api.ts's onPasswordChangeRequired hook (registered above), which
+      // routes to the change screen before this call sees the response.
       const resp = await apiFetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message, history }),
       });
-      if (resp.status === 403) {
-        const body = await resp.json().catch(() => ({}));
-        if (body?.detail?.code === "password_change_required") {
-          setPendingChangeUser(me?.username ?? null);
-          setMe(null);
-          return;
-        }
-      }
       if (!resp.ok || !resp.body) {
         update((t) => ({ ...t, content: t.content + `\n\n[error] HTTP ${resp.status}` }));
         return;

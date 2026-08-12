@@ -76,11 +76,14 @@ export default function Login({
     }
     setBusy(true);
     try {
+      // skip401Handling: a wrong old_password is a business-logic 401 on a
+      // still-valid session, not session expiry — must not clear the token
+      // (that would strand the user with no Authorization header to retry).
       const resp = await apiFetch("/auth/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
-      });
+      }, { skip401Handling: true });
       const body = await resp.json().catch(() => ({}));
       if (!resp.ok) {
         setError(typeof body.detail === "string" ? body.detail : `HTTP ${resp.status}`);
