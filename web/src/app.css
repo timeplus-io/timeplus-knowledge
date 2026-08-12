@@ -542,3 +542,113 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 .tk-subgraph-node-more-text { fill: var(--gray-500); font: 11px/1 ui-monospace, Menlo, monospace; text-anchor: middle; }
 .tk-subgraph-node-clickable { cursor: pointer; }
 .tk-subgraph-node-clickable:focus-visible .tk-subgraph-node-rect { stroke: var(--pink-500); stroke-width: 2; }
+
+/* ---------------------------------------------------------------------
+   Manage (mockup screen 1e). A corpus table with per-row toggle switches
+   (`.tk-toggle`, defined in the shared component section above) and
+   destructive actions, an Ingest jobs panel, and an Add corpus entry
+   form. `.tk-manage` sits inside `.tk-content`'s slot (24px padding)
+   like `.tk-explorer-detail`, not full-bleed.
+
+   Data-fidelity note: /api/jobs (src/tpk/api.py JobManager) has no
+   progress percentage or file-count field — only id/entry_key/status/
+   nodes/edges/error/submitted_at/finished_at. The mockup's "62%" bar and
+   "pass 2 of 3 · 217 of ~350 files" line are illustrative only; a
+   running job here gets an indeterminate animated bar (`.tk-job-bar-
+   fill`'s sweep animation) and a real "started HH:MM" timestamp instead
+   of a fabricated percentage.
+   --------------------------------------------------------------------- */
+.tk-manage { display: flex; flex-direction: column; gap: 24px; }
+
+.tk-manage-header { display: flex; align-items: center; gap: 12px; }
+.tk-manage-title { font-size: 18px; font-weight: 600; line-height: 1.4; color: var(--gray-200); }
+.tk-manage-subtitle { font-size: 12px; color: var(--gray-500); }
+.tk-manage-header-spacer { flex: 1; }
+.tk-manage-error { color: var(--red-500); font-size: 12px; }
+
+/* Corpus table */
+.tk-corpus-table-card { background: var(--white); border: 1px solid var(--gray-700); border-radius: var(--radius); overflow: hidden; }
+.tk-corpus-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13px; }
+.tk-corpus-table col:nth-child(1) { width: 24%; }
+.tk-corpus-table col:nth-child(2) { width: 20%; }
+.tk-corpus-table col:nth-child(3) { width: 10%; }
+.tk-corpus-table col:nth-child(4) { width: 8%; }
+.tk-corpus-table col:nth-child(5) { width: 14%; }
+.tk-corpus-table col:nth-child(6) { width: 8%; }
+.tk-corpus-table col:nth-child(7) { width: 16%; }
+.tk-corpus-table th,
+.tk-corpus-table td { padding: 10px 16px; text-align: left; vertical-align: middle; border-top: 1px solid var(--gray-700); }
+.tk-corpus-table thead th {
+  padding: 8px 16px; background: var(--gray-900); font-size: 12px; font-weight: 600;
+  color: var(--gray-200); border-top: 0; border-bottom: 1px solid var(--gray-700);
+}
+.tk-corpus-table tbody tr:hover { background: var(--gray-900); }
+.tk-corpus-row-disabled td { color: var(--gray-500); }
+.tk-corpus-entry-name { font-weight: 600; color: var(--gray-100); }
+.tk-corpus-row-disabled .tk-corpus-entry-name { color: var(--gray-500); }
+.tk-corpus-entry-desc { font-size: 12px; color: var(--gray-500); }
+.tk-corpus-source { font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--gray-100); word-break: break-all; }
+.tk-corpus-row-disabled .tk-corpus-source { color: var(--gray-500); }
+.tk-corpus-mode-sub { font-size: 12px; color: var(--gray-500); }
+.tk-corpus-ingest-sub { font: 11px/1.4 ui-monospace, Menlo, monospace; color: var(--gray-500); }
+.tk-corpus-status-ok { color: var(--gray-100); }
+.tk-corpus-status-running { color: var(--pink-400); font-weight: 600; }
+.tk-corpus-status-failed { color: var(--red-500); font-weight: 600; }
+.tk-corpus-status-never { color: var(--gray-500); }
+.tk-corpus-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.tk-corpus-confirm { display: inline-flex; gap: 8px; align-items: center; font-size: 12px; flex-wrap: wrap; }
+.tk-corpus-confirm label { display: inline-flex; align-items: center; gap: 4px; color: var(--gray-100); }
+
+.tk-btn-solid-danger { background: var(--red-500); color: var(--white); }
+.tk-btn-solid-danger:hover:not(:disabled) { filter: brightness(0.88); }
+
+/* Lower two-column region: Ingest jobs (left) + Add corpus entry (right) */
+.tk-manage-lower { display: flex; gap: 24px; align-items: flex-start; }
+
+.tk-jobs-panel {
+  flex: 1; min-width: 0; background: var(--white); border: 1px solid var(--gray-700); border-radius: var(--radius);
+  padding: 24px; display: flex; flex-direction: column; gap: 14px;
+}
+.tk-jobs-panel-header { display: flex; align-items: baseline; gap: 8px; }
+.tk-jobs-panel-title { font-size: 14px; font-weight: 600; color: var(--gray-200); }
+.tk-jobs-panel-meta { font-size: 12px; color: var(--gray-500); }
+.tk-jobs-empty { font-size: 13px; color: var(--gray-500); }
+
+.tk-jobs-active { display: flex; flex-direction: column; gap: 10px; }
+.tk-job-active { display: flex; flex-direction: column; gap: 6px; }
+.tk-job-active + .tk-job-active { border-top: 1px solid var(--gray-700); padding-top: 10px; }
+.tk-job-active-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.tk-job-name {
+  font: 12px/1.5 ui-monospace, Menlo, monospace; width: 180px; flex: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tk-job-bar-track { flex: 1; height: 6px; background: var(--gray-700); border-radius: 9999px; overflow: hidden; }
+.tk-job-bar-fill { display: block; width: 40%; height: 100%; background: var(--pink-500); animation: tk-job-bar-sweep 1.4s ease-in-out infinite; }
+@keyframes tk-job-bar-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+.tk-job-status-running { color: var(--pink-400); font-weight: 600; font-size: 12px; width: 90px; flex: none; text-align: right; }
+.tk-job-detail { font-size: 12px; color: var(--gray-500); padding-left: 190px; }
+
+.tk-jobs-history { border-top: 1px solid var(--gray-700); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto; }
+.tk-job-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.tk-job-result { flex: 1; min-width: 0; color: var(--gray-100); }
+.tk-job-result-failed { color: var(--red-500); }
+.tk-job-time { color: var(--gray-500); font-size: 12px; flex: none; }
+
+/* Add corpus entry form */
+.tk-add-form-card {
+  width: 420px; flex: none; background: var(--white); border: 1px solid var(--gray-700); border-radius: var(--radius);
+  padding: 24px; display: flex; flex-direction: column; gap: 16px;
+}
+.tk-add-form-title { font-size: 14px; font-weight: 600; color: var(--gray-200); }
+.tk-add-form-fields { display: flex; flex-direction: column; gap: 16px; }
+.tk-form-field { display: flex; flex-direction: column; gap: 4px; }
+.tk-form-field label { font-size: 12px; color: var(--gray-300); }
+.tk-form-required { color: var(--red-500); }
+.tk-form-row { display: flex; gap: 16px; }
+.tk-form-row .tk-form-field { flex: 1; min-width: 0; }
+.tk-form-field-narrow { width: 130px; flex: none; }
+.tk-form-hint { font-size: 12px; color: var(--gray-500); }
+.tk-form-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
