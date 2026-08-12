@@ -80,21 +80,21 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 .checkbox-field input { width: auto; height: auto; }
 .entry-keys { display: flex; flex-wrap: wrap; gap: 4px 14px; max-width: 320px; }
 
+/* Login (mockup 1g): sign-in card + forced password-change card. Reuses
+   .tk-card / .tk-btn / .tk-input / .tk-logo-mark; the classes below cover
+   only what those shared components don't already provide. */
 .login-shell { flex: 1; display: flex; align-items: center; justify-content: center; }
-.login-card {
-  width: 320px; background: var(--white); border: 1px solid var(--gray-700);
-  border-radius: var(--radius); padding: 24px;
-}
-.login-card h1 { font-size: 18px; font-weight: 600; color: var(--gray-200); margin-bottom: 16px; }
+.login-card { width: 320px; display: flex; flex-direction: column; gap: 16px; }
+.login-header { display: flex; align-items: center; gap: 10px; }
+.login-title { font-size: 18px; font-weight: 600; color: var(--gray-200); }
+.login-subtext { font-size: 12px; color: var(--gray-500); }
 .login-form { display: flex; flex-direction: column; gap: 12px; }
-.login-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--gray-300); }
-.login-form input {
-  height: 40px; background: var(--white); color: var(--gray-100);
-  border: 1px solid var(--gray-600); border-radius: var(--radius);
-  padding: 0 12px; font: 400 14px/1.4 Inter, sans-serif;
-}
-.login-form input:focus { outline: 2px solid var(--pink-500); outline-offset: 1px; }
-.login-form button { margin-top: 4px; }
+.login-field { display: flex; flex-direction: column; gap: 4px; }
+.login-label { font-size: 12px; color: var(--gray-300); }
+.login-field-error .login-label { color: var(--red-500); }
+.login-field-error .tk-input { border-color: var(--red-500); }
+.login-field-error .tk-input:focus { outline-color: var(--red-500); }
+.login-submit { width: 100%; margin-top: 4px; }
 
 /* ---------------------------------------------------------------------
    Sidebar app shell (Timeplus Console) — see docs/design/timeplus-

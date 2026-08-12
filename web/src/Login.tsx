@@ -38,6 +38,13 @@ export default function Login({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // Presentation-only: mirrors the changePassword handler's mismatch check
+  // so the Confirm field gets the mockup's red error state as soon as the
+  // user has typed a differing confirmation, without touching when/how the
+  // actual submit-time validation (and its error copy) runs.
+  const confirmMismatch =
+    confirmPassword.length > 0 && newPassword !== confirmPassword;
+
   async function login(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -99,43 +106,50 @@ export default function Login({
 
   return (
     <div className="login-shell">
-      <div className="login-card">
-        <h1>Timeplus Knowledge</h1>
+      <div className="tk-card login-card">
+        <div className="login-header">
+          <div className="tk-logo-mark">T</div>
+          <div className="login-title">Timeplus Knowledge</div>
+        </div>
         {mode === "login" ? (
           <form className="login-form" onSubmit={login}>
-            <label>
-              Username
-              <input value={username} autoFocus required
+            <label className="login-field">
+              <span className="login-label">Username</span>
+              <input className="tk-input" value={username} autoFocus required
                      onChange={(e) => setUsername(e.target.value)} />
             </label>
-            <label>
-              Password
-              <input type="password" value={password} required
+            <label className="login-field">
+              <span className="login-label">Password</span>
+              <input className="tk-input" type="password" value={password} required
                      onChange={(e) => setPassword(e.target.value)} />
             </label>
             {error && <div className="error">{error}</div>}
-            <button type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+            <button type="submit" className="tk-btn login-submit" disabled={busy}>
+              {busy ? "Signing in…" : "Sign in"}
+            </button>
           </form>
         ) : (
           <form className="login-form" onSubmit={changePassword}>
-            <p className="muted">You must change your password before continuing.</p>
-            <label>
-              Current password
-              <input type="password" value={oldPassword} required autoFocus
+            <p className="login-subtext">You must change your password before continuing.</p>
+            <label className="login-field">
+              <span className="login-label">Current password</span>
+              <input className="tk-input" type="password" value={oldPassword} required autoFocus
                      onChange={(e) => setOldPassword(e.target.value)} />
             </label>
-            <label>
-              New password
-              <input type="password" value={newPassword} required
+            <label className="login-field">
+              <span className="login-label">New password</span>
+              <input className="tk-input" type="password" value={newPassword} required
                      onChange={(e) => setNewPassword(e.target.value)} />
             </label>
-            <label>
-              Confirm new password
-              <input type="password" value={confirmPassword} required
+            <label className={`login-field${confirmMismatch ? " login-field-error" : ""}`}>
+              <span className="login-label">Confirm new password</span>
+              <input className="tk-input" type="password" value={confirmPassword} required
                      onChange={(e) => setConfirmPassword(e.target.value)} />
             </label>
             {error && <div className="error">{error}</div>}
-            <button type="submit" disabled={busy}>{busy ? "Saving…" : "Change password"}</button>
+            <button type="submit" className="tk-btn login-submit" disabled={busy}>
+              {busy ? "Saving…" : "Change password"}
+            </button>
           </form>
         )}
       </div>
