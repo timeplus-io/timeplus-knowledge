@@ -32,14 +32,14 @@ def create_graph_router(kg, auth, prefix: str = "") -> APIRouter:
 
     @router.get("/search")
     async def search(q: str = Query(""), kind: str = Query(""), repo: str = Query(""),
-                     limit: int = Query(20, ge=1, le=200), user=Depends(auth.require_user)):
+                     limit: int = Query(20, ge=1, le=200), user=Depends(auth.require_cap(auth_mod.CAP_EXPLORE))):
         kinds = [kind] if kind and kind != "any" else None
         repos = [repo] if repo and repo != "any" else None
         rows = await _scoped(user, lambda: kg.search_entities(q, kinds=kinds, repos=repos, limit=limit))
         return {"results": rows}
 
     @router.get("/entity")
-    async def entity(id: str, user=Depends(auth.require_user)):
+    async def entity(id: str, user=Depends(auth.require_cap(auth_mod.CAP_EXPLORE))):
         row = await _scoped(user, lambda: kg.get_entity(id))
         if not row:
             raise HTTPException(404, "no such entity")
@@ -47,7 +47,7 @@ def create_graph_router(kg, auth, prefix: str = "") -> APIRouter:
 
     @router.get("/neighbors")
     async def neighbors(id: str, direction: str = "both", depth: int = 1,
-                        limit: int = Query(50, ge=1, le=200), user=Depends(auth.require_user)):
+                        limit: int = Query(50, ge=1, le=200), user=Depends(auth.require_cap(auth_mod.CAP_EXPLORE))):
         result = await _scoped(user, lambda: kg.neighbors(id, direction=direction, depth=depth))
         nodes_by_id = {n["id"]: n for n in result["nodes"]}
         center = nodes_by_id.get(id)
@@ -85,7 +85,7 @@ def create_graph_router(kg, auth, prefix: str = "") -> APIRouter:
     @router.get("/source")
     async def source(repo: str, file_path: str,
                      line_start: int = Query(..., ge=1), line_end: int = Query(..., ge=1),
-                     user=Depends(auth.require_user)):
+                     user=Depends(auth.require_cap(auth_mod.CAP_EXPLORE))):
         try:
             lines = await _scoped(user, lambda: kg.read_source(repo, file_path, line_start, line_end))
         except ValueError as exc:

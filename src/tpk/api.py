@@ -81,6 +81,9 @@ class UpsertRole(BaseModel):
     name: str
     entry_keys: list[str]
     description: str = ""
+    # Omitted -> the chat-only default (friendly for API-only callers); an
+    # explicit [] is honored as a zero-capability role.
+    capabilities: list[str] | None = None
 
 
 class DeleteRole(BaseModel):
@@ -212,8 +215,50 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
         if (demoted or disabled) and auth_mod.admin_count(client, prefix=prefix) <= 1:
             raise HTTPException(400, "cannot demote/disable/delete the last admin")
 
+    # -- bounded delegation ------------------------------------------------
+    # A non-admin actor with users:manage can delegate only within their own
+    # grant: never the reserved admin role/users, and never a capability or
+    # corpus entry their own role lacks. Admins are unbounded.
+
+    def _actor_grant(client, actor):
+        """(capabilities, entry_keys) the actor may hand out. Admin -> (None,
+        None) meaning unbounded."""
+        if actor.role == auth_mod.ROLE_ADMIN:
+            return None, None
+        role = auth_mod.get_role(client, actor.role, prefix=prefix)
+        caps = auth_mod.effective_capabilities(actor, role)
+        keys = set(role.entry_keys) if role else set()
+        return caps, keys
+
+    def _guard_admin_target(actor, target: "auth_mod.User"):
+        if actor.role != auth_mod.ROLE_ADMIN and target.role == auth_mod.ROLE_ADMIN:
+            raise HTTPException(403, "cannot manage admin users")
+
+    def _guard_grant(client, actor, caps, entry_keys):
+        """Reject a grant (role capabilities/entry_keys) exceeding the actor's
+        own. No-op for admins."""
+        own_caps, own_keys = _actor_grant(client, actor)
+        if own_caps is None:
+            return
+        if not auth_mod.expand_capabilities(caps) <= own_caps:
+            raise HTTPException(403, "cannot grant capabilities beyond your own")
+        if not set(entry_keys) <= own_keys:
+            raise HTTPException(403, "cannot grant corpus access beyond your own")
+
+    def _guard_role_assignment(client, actor, role_name: str):
+        """Guard assigning `role_name` to a user: non-admins may not assign
+        admin, nor a role whose grant exceeds their own."""
+        if actor.role == auth_mod.ROLE_ADMIN:
+            return
+        if role_name == auth_mod.ROLE_ADMIN:
+            raise HTTPException(403, "cannot assign the admin role")
+        role = auth_mod.get_role(client, role_name, prefix=prefix)
+        if role is None:
+            return  # _check_role_exists reports non-existence
+        _guard_grant(client, actor, role.capabilities, role.entry_keys)
+
     @router.get("/repos")
-    def list_repos(admin: User = Depends(auth.require_admin)):
+    def list_repos(actor: User = Depends(auth.require_cap(auth_mod.CAP_CORPUS_VIEW))):
         client = _client()
         entries = corpus.list_entries(client, prefix=prefix)
         counts = dict(
@@ -243,49 +288,49 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
         return out
 
     @router.post("/repos")
-    def add_repo(body: AddRepo, admin: User = Depends(auth.require_admin)):
+    def add_repo(body: AddRepo, actor: User = Depends(auth.require_cap(auth_mod.CAP_CORPUS_MANAGE))):
         cfg = _validate(body)
         corpus.upsert_entry(_client(), cfg, prefix=prefix)
         job_id = jobs.submit(cfg) if body.ingest else None
         return {"entry_key": entry_key(cfg), "job_id": job_id}
 
     @router.post("/repos/toggle")
-    def toggle_repo(body: ToggleRepo, admin: User = Depends(auth.require_admin)):
+    def toggle_repo(body: ToggleRepo, actor: User = Depends(auth.require_cap(auth_mod.CAP_CORPUS_MANAGE))):
         if not corpus.set_enabled(_client(), body.name, body.ref, body.enabled, prefix=prefix):
             raise HTTPException(404, "no such corpus entry")
         return {"ok": True}
 
     @router.post("/repos/delete")
-    def delete_repo(body: DeleteRepo, admin: User = Depends(auth.require_admin)):
+    def delete_repo(body: DeleteRepo, actor: User = Depends(auth.require_cap(auth_mod.CAP_CORPUS_MANAGE))):
         if not corpus.delete_entry(_client(), body.name, body.ref, prefix=prefix,
                                    purge=body.purge):
             raise HTTPException(404, "no such corpus entry")
         return {"ok": True}
 
     @router.post("/repos/reindex")
-    def reindex_repo(body: EntryRef, admin: User = Depends(auth.require_admin)):
+    def reindex_repo(body: EntryRef, actor: User = Depends(auth.require_cap(auth_mod.CAP_CORPUS_MANAGE))):
         cfg = corpus.find_entry(_client(), body.name, body.ref, prefix=prefix)
         if cfg is None:
             raise HTTPException(404, "no such corpus entry")
         return {"job_id": jobs.submit(cfg)}
 
     @router.get("/jobs")
-    def list_jobs(admin: User = Depends(auth.require_admin)):
+    def list_jobs(actor: User = Depends(auth.require_cap(auth_mod.CAP_CORPUS_VIEW))):
         return sorted(jobs.snapshot(), key=lambda j: j["submitted_at"], reverse=True)[:50]
 
     @router.get("/jobs/{job_id}")
-    def get_job(job_id: str, admin: User = Depends(auth.require_admin)):
+    def get_job(job_id: str, actor: User = Depends(auth.require_cap(auth_mod.CAP_CORPUS_VIEW))):
         rec = jobs.get(job_id)
         if rec is None:
             raise HTTPException(404, "no such job")
         return rec
 
     @router.get("/users")
-    def api_list_users(admin: User = Depends(auth.require_admin)):
+    def api_list_users(actor: User = Depends(auth.require_cap(auth_mod.CAP_USERS_VIEW))):
         return [_user_json(u) for u in auth_mod.list_users(_client(), prefix=prefix)]
 
     @router.post("/users")
-    def api_add_user(body: AddUser, admin: User = Depends(auth.require_admin)):
+    def api_add_user(body: AddUser, actor: User = Depends(auth.require_cap(auth_mod.CAP_USERS_MANAGE))):
         if not _USERNAME_RE.match(body.username) or body.username in (".", ".."):
             raise HTTPException(400, "username must match ^[A-Za-z0-9._-]+$")
         err = auth_mod.validate_new_password(body.password)
@@ -295,21 +340,24 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
         if auth_mod.get_user(client, body.username, prefix=prefix) is not None:
             raise HTTPException(409, "user already exists")
         _check_role_exists(client, body.role)
+        _guard_role_assignment(client, actor, body.role)
         auth_mod.upsert_user(client, auth_mod.User(
             body.username, auth_mod.hash_password(body.password), body.role,
             must_change_password=body.must_change_password), prefix=prefix)
         return {"ok": True}
 
     @router.post("/users/update")
-    def api_update_user(body: UpdateUser, admin: User = Depends(auth.require_admin)):
+    def api_update_user(body: UpdateUser, actor: User = Depends(auth.require_cap(auth_mod.CAP_USERS_MANAGE))):
         client = _client()
         u = auth_mod.get_user(client, body.username, prefix=prefix)
         if u is None:
             raise HTTPException(404, "no such user")
+        _guard_admin_target(actor, u)
         _guard_last_admin(client, body.username, body.role, body.disabled)
         role = body.role if body.role is not None else u.role
         if body.role is not None:
             _check_role_exists(client, role)
+            _guard_role_assignment(client, actor, role)
         disabled = body.disabled if body.disabled is not None else u.disabled
         password_hash, must_change = u.password_hash, u.must_change_password
         if body.password is not None:
@@ -324,11 +372,12 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
         return {"ok": True}
 
     @router.post("/users/delete")
-    def api_delete_user(body: DeleteUser, admin: User = Depends(auth.require_admin)):
+    def api_delete_user(body: DeleteUser, actor: User = Depends(auth.require_cap(auth_mod.CAP_USERS_MANAGE))):
         client = _client()
         u = auth_mod.get_user(client, body.username, prefix=prefix)
         if u is None:
             raise HTTPException(404, "no such user")
+        _guard_admin_target(actor, u)
         if u.role == auth_mod.ROLE_ADMIN and not u.disabled \
                 and auth_mod.admin_count(client, prefix=prefix) <= 1:
             raise HTTPException(400, "cannot demote/disable/delete the last admin")
@@ -337,27 +386,39 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
         return {"ok": True}
 
     @router.get("/roles")
-    def api_list_roles(admin: User = Depends(auth.require_admin)):
-        return [{"name": r.name, "entry_keys": r.entry_keys, "description": r.description}
+    def api_list_roles(actor: User = Depends(auth.require_cap(auth_mod.CAP_USERS_VIEW))):
+        return [{"name": r.name, "entry_keys": r.entry_keys,
+                 "capabilities": r.capabilities, "description": r.description}
                 for r in auth_mod.list_roles(_client(), prefix=prefix)]
 
     @router.post("/roles")
-    def api_upsert_role(body: UpsertRole, admin: User = Depends(auth.require_admin)):
+    def api_upsert_role(body: UpsertRole, actor: User = Depends(auth.require_cap(auth_mod.CAP_USERS_MANAGE))):
         if body.name == auth_mod.ROLE_ADMIN:
             raise HTTPException(400, "'admin' is a reserved role name")
         if not _USERNAME_RE.match(body.name):
             raise HTTPException(400, "role name must match ^[A-Za-z0-9._-]+$")
         if any(not isinstance(k, str) or not k for k in body.entry_keys):
             raise HTTPException(400, "entry_keys must be non-empty strings")
-        auth_mod.upsert_role(_client(), auth_mod.Role(
-            body.name, body.entry_keys, body.description), prefix=prefix)
+        caps = body.capabilities if body.capabilities is not None \
+            else list(auth_mod.DEFAULT_CAPABILITIES)
+        unknown = [c for c in caps if c not in auth_mod.ALL_CAPABILITIES]
+        if unknown:
+            raise HTTPException(400, f"unknown capabilities: {', '.join(unknown)}")
+        client = _client()
+        _guard_grant(client, actor, caps, body.entry_keys)
+        auth_mod.upsert_role(client, auth_mod.Role(
+            body.name, body.entry_keys, body.description, caps), prefix=prefix)
         return {"ok": True}
 
     @router.post("/roles/delete")
-    def api_delete_role(body: DeleteRole, admin: User = Depends(auth.require_admin)):
+    def api_delete_role(body: DeleteRole, actor: User = Depends(auth.require_cap(auth_mod.CAP_USERS_MANAGE))):
         client = _client()
-        if auth_mod.get_role(client, body.name, prefix=prefix) is None:
+        role = auth_mod.get_role(client, body.name, prefix=prefix)
+        if role is None:
             raise HTTPException(404, "no such role")
+        # A non-admin manager may not delete a role more privileged than their
+        # own grant.
+        _guard_grant(client, actor, role.capabilities, role.entry_keys)
         if auth_mod.usernames_with_role(client, body.name, prefix=prefix):
             raise HTTPException(409, "role is assigned to users")
         auth_mod.delete_role(client, body.name, prefix=prefix)

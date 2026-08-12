@@ -9,12 +9,22 @@ from tpk.server import create_app
 class _StubAuth(AuthLayer):
     """Grants a fixed user without touching any store."""
 
-    def __init__(self, user: User | None = None):
+    def __init__(self, user: User | None = None, caps=None):
         super().__init__()
         self.user = user or User("tester", "", "admin")
+        self._caps = caps
 
     def _resolve(self, authorization):
         return self.user
+
+    def effective_caps(self, user):
+        # Capabilities without a store: default admin -> all; a non-admin
+        # stub declares its caps explicitly so require_cap gates resolve
+        # without the (deliberately raising) _client().
+        if self._caps is not None:
+            return set(self._caps)
+        from tpk.auth import ALL_CAPABILITIES
+        return set(ALL_CAPABILITIES)
 
     def _client(self):
         # Every other test in this file is deliberately infra-free
@@ -228,7 +238,8 @@ def test_chat_sets_and_resets_role_scope():
     thread."""
     from tpk.tools import ROLE_SCOPE
 
-    stub = _StubAuth(user=User("viewer1", "", "viewer"))
+    from tpk.auth import CAP_CHAT
+    stub = _StubAuth(user=User("viewer1", "", "viewer"), caps={CAP_CHAT})
     client = TestClient(create_app(agent=FakeAgent([_tok("hi")]), auth=stub))
     resp = client.post("/chat", json={"message": "hi"})
     assert resp.status_code == 200

@@ -128,7 +128,7 @@ def create_app(agent=None, stream_prefix: str = "", auth=None, kg=None) -> FastA
         return {"status": "ok"}
 
     @app.post("/chat")
-    async def chat(req: ChatRequest, user: User = Depends(auth.require_user)):
+    async def chat(req: ChatRequest, user: User = Depends(auth.require_cap(auth_mod.CAP_CHAT))):
         messages = [(t.role, t.content) for t in req.history] + [("user", req.message)]
 
         scope = None

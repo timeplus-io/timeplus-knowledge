@@ -47,6 +47,22 @@ def connect_with_retry(settings: Settings, timeout_s: float = 60.0,
             time.sleep(interval_s)
 
 
+def _add_column_if_missing(client, stream: str, column: str, col_type: str) -> None:
+    """Idempotently add a column to an existing mutable stream. Safe to call
+    on every startup: if the column is already present the ALTER is a no-op
+    (IF NOT EXISTS), and any residual engine error is swallowed so schema
+    setup never fails on an already-migrated stream."""
+    try:
+        client.command(
+            f"ALTER STREAM {stream} ADD COLUMN IF NOT EXISTS {column} {col_type}"
+        )
+    except Exception:
+        # Column already exists (older engines without IF NOT EXISTS support)
+        # or a benign race with another starting process — either way the
+        # column is present, which is all we need.
+        pass
+
+
 def ensure_schema(client, prefix: str = "") -> None:
     client.command(f"""
         CREATE MUTABLE STREAM IF NOT EXISTS {prefix}kg_nodes (
@@ -112,10 +128,16 @@ def ensure_schema(client, prefix: str = "") -> None:
         CREATE MUTABLE STREAM IF NOT EXISTS {prefix}kg_roles (
           name string,
           entry_keys string,
+          capabilities string,
           description string,
           updated_at datetime64(3, 'UTC')
         ) PRIMARY KEY (name)
     """)
+    # Backfill for deployments whose kg_roles predates the capabilities
+    # column (CREATE ... IF NOT EXISTS won't add it to an existing stream).
+    # Existing role rows keep an empty cell, which auth._parse_capabilities
+    # reads as the chat-only migration default.
+    _add_column_if_missing(client, f"{prefix}kg_roles", "capabilities", "string")
     client.command(f"""
         CREATE MUTABLE STREAM IF NOT EXISTS {prefix}kg_sessions (
           token_hash string,
