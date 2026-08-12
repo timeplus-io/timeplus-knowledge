@@ -112,3 +112,24 @@ def test_done_fallback_when_model_emits_no_text():
 def test_chat_401_without_auth():
     client = TestClient(create_app(agent=FakeAgent([])))
     assert client.post("/chat", json={"message": "hi"}).status_code == 401
+
+
+def test_chat_sets_and_resets_role_scope():
+    """Non-admin user, role "viewer" -- no reachable kg_roles row for it (a
+    fresh, unseeded prefix), so the scope must fail closed to frozenset()
+    rather than falling through to unrestricted (None) access. FakeAgent
+    doesn't call any tools, so this only exercises the set/reset bracket
+    around stream(): after the response completes, ROLE_SCOPE must be back
+    to its default (None) in this thread."""
+    from tpk.tools import ROLE_SCOPE
+
+    stub = _StubAuth(user=User("viewer1", "", "viewer"))
+    app = create_app(
+        agent=FakeAgent([_tok("hi")]),
+        auth=stub,
+        stream_prefix=f"nonexistent_{__name__}_",
+    )
+    client = TestClient(app)
+    resp = client.post("/chat", json={"message": "hi"})
+    assert resp.status_code == 200
+    assert ROLE_SCOPE.get() is None

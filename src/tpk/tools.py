@@ -5,7 +5,14 @@ Consumed by the MCP server (this plan) and the LangGraph agent (follow-up plan).
 
 import threading
 import time
+from contextvars import ContextVar
 from pathlib import Path
+
+# Per-request cap on which corpus entry keys are queryable. `None` means
+# unrestricted (admin chat, MCP server, CLI). Set/reset by the /chat
+# handler for non-admin users; langchain-core's executor copies the
+# contextvars context into tool threads, so tool calls observe it.
+ROLE_SCOPE: ContextVar[frozenset[str] | None] = ContextVar("ROLE_SCOPE", default=None)
 
 NODE_FIELDS = [
     "id", "repo", "kind", "name", "qualified_name", "file_path",
@@ -109,11 +116,25 @@ class KnowledgeGraph:
         self._corpus_cached_at = now
         return keys, paths
 
+    def _scoped_corpus_state(self) -> tuple[list[str] | None, dict[str, Path]]:
+        """`_corpus_state()` with the per-request role scope applied.
+        Semantics: corpus None + scope None -> no filter; corpus None +
+        scope set -> filter to scope; corpus list + scope None -> corpus
+        list; both set -> intersection (possibly empty)."""
+        keys, paths = self._corpus_state()
+        scope = ROLE_SCOPE.get()
+        if scope is None:
+            return keys, paths
+        if keys is None:
+            return sorted(scope), {k: p for k, p in paths.items() if k in scope}
+        return ([k for k in keys if k in scope],
+                {k: p for k, p in paths.items() if k in scope})
+
     def _nodes_by_ids(self, ids: list[str]) -> list[dict]:
         if not ids:
             return []
         clauses, params = ["id IN %(ids)s"], {"ids": ids}
-        active, _ = self._corpus_state()
+        active, _ = self._scoped_corpus_state()
         if active is not None:
             clauses.append("repo IN %(active_repos)s")
             params["active_repos"] = active or ["__none__"]
@@ -138,7 +159,7 @@ class KnowledgeGraph:
         if confidence:
             clauses.append("confidence = %(conf)s")
             params["conf"] = confidence
-        active, _ = self._corpus_state()
+        active, _ = self._scoped_corpus_state()
         if active is not None:
             clauses.append("repo IN %(active_repos)s")
             params["active_repos"] = active or ["__none__"]
@@ -169,7 +190,7 @@ class KnowledgeGraph:
         if repos:
             filters.append("repo IN %(repos)s")
             params["repos"] = repos
-        active, _ = self._corpus_state()
+        active, _ = self._scoped_corpus_state()
         if active is not None:
             filters.append("repo IN %(active_repos)s")
             params["active_repos"] = active or ["__none__"]
@@ -292,7 +313,7 @@ class KnowledgeGraph:
         if repo:
             clauses.append("repo = %(repo)s")
             params["repo"] = repo
-        active, _ = self._corpus_state()
+        active, _ = self._scoped_corpus_state()
         if active is not None:
             clauses.append("repo IN %(active_repos)s")
             params["active_repos"] = active or ["__none__"]
@@ -311,13 +332,22 @@ class KnowledgeGraph:
         wider request is silently truncated to line_start + MAX_SOURCE_LINES - 1,
         it does not raise.
         """
-        _, corpus_paths = self._corpus_state()
-        root = corpus_paths.get(repo) or self.repo_paths.get(repo)
+        _, corpus_paths = self._scoped_corpus_state()
+        scope = ROLE_SCOPE.get()
+        # `corpus_paths` is already scope-filtered by `_scoped_corpus_state`,
+        # but static `repo_paths` (from repos.toml, not the corpus store)
+        # bypasses that filter entirely -- restrict it here too so a scoped
+        # user can't read a repo outside their role via its bare name.
+        static_paths = (
+            self.repo_paths if scope is None
+            else {k: p for k, p in self.repo_paths.items() if k in scope}
+        )
+        root = corpus_paths.get(repo) or static_paths.get(repo)
         if root is None:
             # Include the live corpus entry keys (name@ref), not just the
             # static `repo_paths` bare names, so the LLM sees the actual
             # valid keys to retry with.
-            known = sorted(set(self.repo_paths) | set(corpus_paths))
+            known = sorted(set(static_paths) | set(corpus_paths))
             raise ValueError(f"unknown repo {repo!r}; known: {known}")
         target = (Path(root) / file_path).resolve()
         if not target.is_relative_to(Path(root).resolve()):
