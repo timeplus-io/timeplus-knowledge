@@ -156,6 +156,19 @@ def test_chat_streams_openai_reasoning_as_thinking():
     assert events[-1] == {"type": "done", "text": "91 is not prime.", "sources": []}
 
 
+def test_chat_emits_search_entities_match_count():
+    """search_entities' on_tool_end emits a tool_result with the match count."""
+    agent = FakeAgent([
+        _tool("search_entities", {"query": "checkpoint"}),
+        _tool_end("search_entities", {"query": "checkpoint"}, output=[{"id": "a"}, {"id": "b"}]),
+        _tok("done"),
+    ])
+    client = TestClient(create_app(agent=agent, auth=_StubAuth()))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+    assert {"type": "tool_result", "name": "search_entities",
+            "input": {"query": "checkpoint"}, "count": 2, "unit": "matches"} in events
+
+
 def test_chat_no_thinking_emits_no_thinking_events():
     """Models that don't expose thinking (str content) produce no thinking
     events — the stream is exactly as before."""
