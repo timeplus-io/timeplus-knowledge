@@ -384,11 +384,15 @@ environment-specific and secret-bearing; seed the admin normally on the new
 deployment.
 
 `import` runs `ensure_schema` first, so a fresh environment gets the streams
-(with the current columns) before loading. The graph streams are mutable and
-primary-keyed, so a plain `import` is an idempotent **upsert** — re-running it
-converges rather than duplicating. Use `--replace` when the target has stale
-rows not in the bundle (e.g. repos you've since dropped); it drops and
-recreates each bundled stream before loading. A bundle whose columns don't
+(with the current columns) before loading. `kg_nodes`/`kg_edges`/`kg_repos`
+are mutable and primary-keyed, so a plain `import` is an idempotent **upsert**
+— re-running it converges rather than duplicating. `kg_ingest_log` is
+append-only (no key), so a repeated plain `import` **appends** its provenance
+rows (harmless for `tpk status`, which takes the latest run per repo, but not
+deduped). Use `--replace` when the target has stale rows not in the bundle
+(e.g. repos you've since dropped) or to reset the ingest log; it drops and
+recreates each bundled stream — one at a time, immediately before reloading
+it — before loading. A bundle whose columns don't
 all exist in the target deployment is rejected up front (schema drift between
 versions), before anything is written. Bundle files stream to/from disk, so a
 300k-node graph never lands wholly in memory.

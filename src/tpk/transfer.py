@@ -83,12 +83,17 @@ def load_manifest(in_dir) -> dict:
 
 def import_bundle(client, in_dir, prefix: str = "", replace: bool = False) -> dict:
     """Load a bundle into the current environment. Runs `ensure_schema` first
-    (so a fresh env gets the streams). With `replace`, each target stream is
-    truncated before loading; otherwise the mutable streams' primary keys make
-    the load an idempotent upsert. Returns the manifest.
+    (so a fresh env gets the streams). Returns the manifest.
+
+    Idempotency: `kg_nodes`/`kg_edges`/`kg_repos` are mutable, primary-keyed
+    streams, so a plain load is an idempotent upsert. `kg_ingest_log` is
+    append-only (no key), so a plain re-import APPENDS its provenance rows —
+    harmless for `tpk status` (which takes arg_max per repo) but not deduped.
+    Use `replace` to reset every target stream to exactly the bundle's rows.
 
     Rejects a bundle whose columns aren't all present in the target stream
-    (schema drift between the exporting and importing versions)."""
+    (schema drift between the exporting and importing versions) before writing
+    anything."""
     src = Path(in_dir)
     manifest = load_manifest(src)
     fmt = manifest.get("format", "Parquet")
@@ -107,15 +112,16 @@ def import_bundle(client, in_dir, prefix: str = "", replace: bool = False) -> di
                 f"{stream}: target stream is missing column(s) {missing} — "
                 f"schema mismatch between the bundle and this deployment")
 
-    # `replace` clears stale rows not present in the bundle. Drop + recreate
-    # (synchronous DDL) rather than TRUNCATE, whose async apply on a mutable
-    # stream can race — and wipe — the load that follows.
-    if replace:
-        for stream in manifest["streams"]:
-            client.command(f"DROP STREAM IF EXISTS {prefix}{stream}")
-        db.ensure_schema(client, prefix)
-
     for stream, info in manifest["streams"].items():
+        if replace:
+            # `replace` clears stale rows not present in the bundle. Drop +
+            # recreate (synchronous DDL) rather than TRUNCATE, whose async
+            # apply on a mutable stream can race — and wipe — the load that
+            # follows. Done per stream, immediately before its load, so a
+            # mid-run failure only affects the stream in flight rather than
+            # leaving every earlier-dropped stream empty.
+            client.command(f"DROP STREAM IF EXISTS {prefix}{stream}")
+            db.ensure_schema(client, prefix)
         with open(src / info["file"], "rb") as fh:
             client.raw_insert(table=f"{prefix}{stream}",
                               column_names=info["columns"],

@@ -29,10 +29,24 @@ def _seed(client, prefix):
     client.insert(f"{prefix}kg_ingest_log",
                   [["demo@v1", "run-1", 3, 2, "abc (v1)", "ok"]],
                   column_names=["repo", "run_id", "nodes", "edges", "git_sha", "status"])
+    # kg_ingest_log is append-only and takes ~2s to become visible via table();
+    # wait so an immediately-following export actually captures the row (a real
+    # export runs long after ingest, so this lag is a test artifact only).
+    _wait_count(client, prefix, "kg_ingest_log", 1)
 
 
 def _count(client, prefix, stream):
     return int(client.query(f"SELECT count() FROM table({prefix}{stream})").result_rows[0][0])
+
+
+def _wait_count(client, prefix, stream, want, timeout=10.0):
+    """Poll a count to `want`. Append-only streams (kg_ingest_log) have a
+    short propagation lag before inserted rows are visible via table()."""
+    import time
+    deadline = time.monotonic() + timeout
+    while _count(client, prefix, stream) != want and time.monotonic() < deadline:
+        time.sleep(0.1)
+    return _count(client, prefix, stream)
 
 
 def test_export_import_roundtrip(tp, tmp_path):
@@ -53,7 +67,8 @@ def test_export_import_roundtrip(tp, tmp_path):
     try:
         transfer.import_bundle(client, bundle, prefix=dst)
         for stream in transfer.GRAPH_STREAMS:
-            assert _count(client, dst, stream) == _count(client, prefix, stream), stream
+            want = _count(client, prefix, stream)
+            assert _wait_count(client, dst, stream, want) == want, stream
         # spot-check a node round-tripped faithfully
         row = client.query(
             f"SELECT name, qualified_name, line_start FROM table({dst}kg_nodes)"
@@ -79,6 +94,36 @@ def test_import_is_idempotent_upsert(tp, tmp_path):
         assert _count(client, dst, "kg_nodes") == 3
         assert _count(client, dst, "kg_edges") == 2
         assert _count(client, dst, "kg_repos") == 1
+        # kg_ingest_log is append-only (no primary key): a plain re-import
+        # APPENDS its rows rather than upserting. Documented behavior — pinned
+        # here so it's visible, not hidden.
+        assert _wait_count(client, dst, "kg_ingest_log", 2) == 2  # 1 bundle row x 2 imports
+        # --replace resets every stream to exactly the bundle's rows.
+        transfer.import_bundle(client, bundle, prefix=dst, replace=True)
+        assert _wait_count(client, dst, "kg_ingest_log", 1) == 1
+    finally:
+        db.drop_schema(client, dst)
+
+
+def test_native_format_roundtrip(tp, tmp_path):
+    """The --format Native path round-trips too (different wire encoding)."""
+    client, prefix = tp
+    _seed(client, prefix)
+    bundle = tmp_path / "native"
+    manifest = transfer.export_bundle(client, bundle, prefix=prefix, fmt="Native")
+    assert manifest["format"] == "Native"
+    assert (bundle / "kg_nodes.native").exists()
+
+    dst = f"test_imp_{uuid.uuid4().hex[:6]}_"
+    db.ensure_schema(client, dst)
+    try:
+        transfer.import_bundle(client, bundle, prefix=dst)
+        for stream in transfer.GRAPH_STREAMS:
+            want = _count(client, prefix, stream)
+            assert _wait_count(client, dst, stream, want) == want, stream
+        row = client.query(
+            f"SELECT name FROM table({dst}kg_nodes) WHERE id = 'n1'").result_rows
+        assert row == [("fn1",)]
     finally:
         db.drop_schema(client, dst)
 
