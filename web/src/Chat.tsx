@@ -292,13 +292,24 @@ export default function Chat({
           });
         } else if (ev.type === "tool") {
           update((t) => {
+            // Text streamed before a tool call is the model's between-step
+            // narration (the turn continued into a tool call), not the
+            // answer. Move it into the trace as a reasoning step and clear
+            // `content`, so it survives the `done` handler replacing
+            // `content` with the final turn's answer — otherwise this
+            // narration is shown mid-stream and then vanishes. On endpoints
+            // that redact extended thinking, this narration is the only
+            // visible reasoning.
+            const trace: TraceItem[] = t.content.trim()
+              ? [...t.trace, { kind: "thinking", text: t.content }]
+              : [...t.trace];
             // A new tool call implies any still-running tool finished (the
             // backend emits an explicit end only for read_source, via the
             // "source" event below); agent tools run sequentially.
-            const trace = t.trace.map((it) =>
+            const withDone = trace.map((it) =>
               it.kind === "tool" && !it.done ? { ...it, done: true } : it);
-            trace.push({ kind: "tool", name: ev.name, input: ev.input ?? {}, done: false });
-            return { ...t, trace };
+            withDone.push({ kind: "tool", name: ev.name, input: ev.input ?? {}, done: false });
+            return { ...t, trace: withDone, content: "" };
           });
         } else if (ev.type === "source") {
           update((t) => {
