@@ -232,13 +232,37 @@ def create_app(agent=None, stream_prefix: str = "", auth=None, kg=None) -> FastA
                                 }
                             )
                         elif kind == "on_tool_end":
-                            # Surface cited sources for the Sources panel (Task
-                            # 4). Guarded end-to-end: a malformed event (missing
-                            # args, unexpected shape) must never break the token
-                            # stream, so any failure here is logged and skipped.
+                            name = event.get("name", "")
+                            args = event.get("data", {}).get("input") or {}
+                            # Result count for the tool row (mockup t7):
+                            # search_entities -> number of matches. read_source's
+                            # "N lines" is derived on the client from the source
+                            # event's line range below.
+                            if name == "search_entities":
+                                try:
+                                    # LangGraph's ToolNode wraps the tool's list
+                                    # return in a ToolMessage whose .content is a
+                                    # JSON string (json.dumps), so decode that —
+                                    # not a raw list — to count matches.
+                                    out = event.get("data", {}).get("output")
+                                    items = out if isinstance(out, list) else getattr(out, "content", out)
+                                    if isinstance(items, str):
+                                        try:
+                                            items = json.loads(items)
+                                        except ValueError:
+                                            items = None
+                                    if isinstance(items, list):
+                                        yield _sse({"type": "tool_result", "name": name,
+                                                    "input": args, "count": len(items),
+                                                    "unit": "matches"})
+                                except Exception:
+                                    logger.exception("failed to emit search tool_result; skipping")
+                            # Surface cited sources for the read_source rows.
+                            # Guarded end-to-end: a malformed event (missing args,
+                            # unexpected shape) must never break the token stream,
+                            # so any failure here is logged and skipped.
                             try:
-                                if event.get("name") == "read_source":
-                                    args = event.get("data", {}).get("input") or {}
+                                if name == "read_source":
                                     repo = args["repo"]
                                     file_path = args["file_path"]
                                     line_start = args["line_start"]

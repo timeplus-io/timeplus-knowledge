@@ -156,6 +156,30 @@ def test_chat_streams_openai_reasoning_as_thinking():
     assert events[-1] == {"type": "done", "text": "91 is not prime.", "sources": []}
 
 
+def test_chat_emits_search_entities_match_count():
+    """search_entities' on_tool_end emits a tool_result with the match count.
+
+    In a real LangGraph run the tool's list return is wrapped by ToolNode in a
+    ToolMessage whose `.content` is a JSON *string* (json.dumps), not a list —
+    so the count must be decoded from that string, and the test uses that shape
+    (a raw list would let a broken decode pass silently)."""
+    from langchain_core.messages import ToolMessage
+
+    wrapped = ToolMessage(
+        content=json.dumps([{"id": "a"}, {"id": "b"}]),
+        tool_call_id="call_1",
+    )
+    agent = FakeAgent([
+        _tool("search_entities", {"query": "checkpoint"}),
+        _tool_end("search_entities", {"query": "checkpoint"}, output=wrapped),
+        _tok("done"),
+    ])
+    client = TestClient(create_app(agent=agent, auth=_StubAuth()))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+    assert {"type": "tool_result", "name": "search_entities",
+            "input": {"query": "checkpoint"}, "count": 2, "unit": "matches"} in events
+
+
 def test_chat_no_thinking_emits_no_thinking_events():
     """Models that don't expose thinking (str content) produce no thinking
     events — the stream is exactly as before."""
