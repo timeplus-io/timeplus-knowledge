@@ -485,23 +485,25 @@ export default function Chat({
                 ) : (
                   <div className="tk-msg tk-msg-assistant" key={i}>
                     {renderTrace(turn, i)}
-                    <div className="tk-bubble-assistant">
-                      {turn.content ? (
-                        <>
-                          {/* Raw HTML from the model is sanitized to a safe
-                              subset (see sanitizeSchema) before rendering. */}
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
-                          >
-                            {turn.content}
-                          </ReactMarkdown>
-                          {turn.status === "streaming" && <span className="tk-caret" />}
-                        </>
-                      ) : turn.status === "streaming" ? (
-                        <span className="tk-caret" />
-                      ) : null}
-                    </div>
+                    {/* While streaming, the answer text is buffered in
+                        `content` but not shown here — reasoning shows in the
+                        trace and the answer appears complete once the turn is
+                        done. A lone caret marks activity only before the trace
+                        has anything to show (e.g. a direct, tool-less answer). */}
+                    {turn.status !== "streaming" && turn.content ? (
+                      <div className="tk-bubble-assistant">
+                        {/* Raw HTML from the model is sanitized to a safe
+                            subset (see sanitizeSchema) before rendering. */}
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
+                        >
+                          {turn.content}
+                        </ReactMarkdown>
+                      </div>
+                    ) : turn.status === "streaming" && turn.trace.length === 0 ? (
+                      <div className="tk-bubble-assistant"><span className="tk-caret" /></div>
+                    ) : null}
                     {turn.status === "done" && turn.sources.length > 0 && (
                       <button
                         type="button"
