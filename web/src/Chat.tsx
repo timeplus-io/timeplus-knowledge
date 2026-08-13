@@ -31,6 +31,7 @@ type SourceEventPayload = {
 
 type ChatEvent =
   | { type: "token"; text: string }
+  | { type: "thinking"; text: string }
   | { type: "tool"; name: string; input: Record<string, unknown> }
   | ({ type: "source" } & SourceEventPayload)
   | { type: "done"; text: string; sources: SourceEventPayload[] }
@@ -57,12 +58,18 @@ async function* sseEvents(resp: Response): AsyncGenerator<ChatEvent> {
 // Turn state
 // --------------------------------------------------------------------
 
-type ToolCall = { name: string; input: Record<string, unknown>; done: boolean };
+// A turn's reasoning trace is an ordered timeline of thinking steps and tool
+// calls (interleaved as the agent produces them). Thinking is present only
+// when the model exposes readable reasoning; otherwise the trace holds tool
+// calls alone and renders exactly as the pre-thinking tool trace did.
+type ToolCall = { kind: "tool"; name: string; input: Record<string, unknown>; done: boolean };
+type ThinkingStep = { kind: "thinking"; text: string };
+type TraceItem = ToolCall | ThinkingStep;
 
 type Turn = {
   role: "user" | "assistant";
   content: string;
-  tools: ToolCall[];
+  trace: TraceItem[];
   sources: SourceEventPayload[];
   status: "streaming" | "done" | "error";
   startedAt: number;
@@ -72,13 +79,13 @@ type Turn = {
 
 function newUserTurn(content: string): Turn {
   return {
-    role: "user", content, tools: [], sources: [], status: "done",
+    role: "user", content, trace: [], sources: [], status: "done",
     startedAt: Date.now(), elapsedMs: null, traceExpanded: false,
   };
 }
 function newAssistantTurn(): Turn {
   return {
-    role: "assistant", content: "", tools: [], sources: [], status: "streaming",
+    role: "assistant", content: "", trace: [], sources: [], status: "streaming",
     startedAt: Date.now(), elapsedMs: null, traceExpanded: true,
   };
 }
@@ -113,6 +120,16 @@ function summarizeToolInput(name: string, input: Record<string, unknown>): strin
 
 function fmtElapsed(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function LightbulbIcon() {
+  return (
+    <svg className="tk-think-bulb" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 3a5.5 5.5 0 0 1 5.5 5.5c0 1.6-.7 2.9-1.6 4-.7.9-1.1 1.7-1.1 2.7v.8h-5.6v-.8c0-1-.4-1.8-1.1-2.7-.9-1.1-1.6-2.4-1.6-4A5.5 5.5 0 0 1 12 3z" />
+      <path d="M9.8 19.5h4.4M10.6 21.5h2.8" />
+    </svg>
+  );
 }
 
 // --------------------------------------------------------------------
@@ -239,8 +256,11 @@ export default function Chat({
         ...t,
         status,
         elapsedMs: Date.now() - t.startedAt,
-        traceExpanded: false,
-        tools: t.tools.map((tc) => ({ ...tc, done: true })),
+        // Leave the trace in whatever expand state it's in (expanded by
+        // default) rather than auto-collapsing on done — collapsing a tall
+        // panel to one line the instant the answer appears makes the UI jump.
+        // The user collapses it manually via the header toggle.
+        trace: t.trace.map((it) => (it.kind === "tool" ? { ...it, done: true } : it)),
       }));
 
     try {
@@ -259,26 +279,50 @@ export default function Chat({
       for await (const ev of sseEvents(resp)) {
         if (ev.type === "token") {
           update((t) => ({ ...t, content: t.content + ev.text }));
+        } else if (ev.type === "thinking") {
+          update((t) => {
+            // Consecutive thinking deltas coalesce into the current step; a
+            // tool call between them closes it, so the next delta starts a
+            // fresh step (interleaved thinking, per the mockup).
+            const trace = [...t.trace];
+            const last = trace[trace.length - 1];
+            if (last && last.kind === "thinking") {
+              trace[trace.length - 1] = { ...last, text: last.text + ev.text };
+            } else {
+              trace.push({ kind: "thinking", text: ev.text });
+            }
+            return { ...t, trace };
+          });
         } else if (ev.type === "tool") {
           update((t) => {
-            // The previously-last tool call is implicitly done once a new
-            // one starts (the backend doesn't emit an explicit tool-end
-            // event for every tool -- only read_source's is surfaced, via
-            // the "source" event handled below).
-            const tools = t.tools.map((tc, i) =>
-              i === t.tools.length - 1 ? { ...tc, done: true } : tc);
-            tools.push({ name: ev.name, input: ev.input ?? {}, done: false });
-            return { ...t, tools };
+            // Text streamed before a tool call is the model's between-step
+            // narration (the turn continued into a tool call), not the
+            // answer. Move it into the trace as a reasoning step and clear
+            // `content`, so it survives the `done` handler replacing
+            // `content` with the final turn's answer — otherwise this
+            // narration is shown mid-stream and then vanishes. On endpoints
+            // that redact extended thinking, this narration is the only
+            // visible reasoning.
+            const trace: TraceItem[] = t.content.trim()
+              ? [...t.trace, { kind: "thinking", text: t.content }]
+              : [...t.trace];
+            // A new tool call implies any still-running tool finished (the
+            // backend emits an explicit end only for read_source, via the
+            // "source" event below); agent tools run sequentially.
+            const withDone = trace.map((it) =>
+              it.kind === "tool" && !it.done ? { ...it, done: true } : it);
+            withDone.push({ kind: "tool", name: ev.name, input: ev.input ?? {}, done: false });
+            return { ...t, trace: withDone, content: "" };
           });
         } else if (ev.type === "source") {
           update((t) => {
-            const tools = t.tools.map((tc) =>
-              tc.name === "read_source" && !tc.done &&
-              tc.input.repo === ev.repo && tc.input.file_path === ev.file_path &&
-              Number(tc.input.line_start) === ev.line_start
-                ? { ...tc, done: true }
-                : tc);
-            return { ...t, tools, sources: [...t.sources, ev] };
+            const trace = t.trace.map((it) =>
+              it.kind === "tool" && it.name === "read_source" && !it.done &&
+              it.input.repo === ev.repo && it.input.file_path === ev.file_path &&
+              Number(it.input.line_start) === ev.line_start
+                ? { ...it, done: true }
+                : it);
+            return { ...t, trace, sources: [...t.sources, ev] };
           });
         } else if (ev.type === "done") {
           update((t) => ({ ...t, content: ev.text, sources: ev.sources ?? t.sources }));
@@ -312,38 +356,72 @@ export default function Chat({
   }
 
   function renderTrace(turn: Turn, idx: number) {
-    if (turn.tools.length === 0) return null;
+    if (turn.trace.length === 0) return null;
     const streaming = turn.status === "streaming";
     const elapsedMs = turn.elapsedMs ?? Date.now() - turn.startedAt;
+    const thinkingCount = turn.trace.filter((it) => it.kind === "thinking").length;
+    const toolCount = turn.trace.filter((it) => it.kind === "tool").length;
+    const hasThinking = thinkingCount > 0;
+    // With thinking the trace is collapsible even mid-stream (so `expanded`
+    // follows traceExpanded alone); the tool-only trace stays locked open
+    // while streaming, exactly as before.
+    const expanded = hasThinking ? turn.traceExpanded : streaming || turn.traceExpanded;
+    const toolLabel = `${toolCount} tool call${toolCount === 1 ? "" : "s"}`;
     return (
-      <div className="tk-trace">
+      <div className={hasThinking && !expanded ? "tk-trace tk-trace-collapsed" : "tk-trace"}>
         <button
           type="button"
           className="tk-trace-header"
-          disabled={streaming}
+          // With thinking, the header is always togglable (hide/show, even
+          // mid-stream); the tool-only trace stays locked open while working.
+          disabled={streaming && !hasThinking}
           onClick={() => toggleTrace(idx)}
         >
-          <span className="tk-trace-count">
-            {streaming ? "Working" : `${turn.tools.length} tool call${turn.tools.length === 1 ? "" : "s"}`}
+          {hasThinking && (streaming
+            ? <span className="tk-think-spinner" aria-hidden="true" />
+            : <LightbulbIcon />)}
+          <span className={hasThinking && streaming ? "tk-trace-count tk-think-label" : "tk-trace-count"}>
+            {hasThinking
+              ? (streaming ? "Thinking" : `Thought for ${Math.round(elapsedMs / 1000)}s`)
+              : (streaming ? "Working" : toolLabel)}
           </span>
-          <span className="tk-trace-elapsed">{fmtElapsed(elapsedMs)}</span>
-          <span className="tk-trace-spacer" />
-          {!streaming && (
-            <span className="tk-trace-toggle">{turn.traceExpanded ? "collapse ▾" : "expand ▸"}</span>
+          {hasThinking && !streaming && (
+            <span className="tk-trace-summary">
+              {thinkingCount} thinking step{thinkingCount === 1 ? "" : "s"} · {toolLabel}
+            </span>
+          )}
+          {(!hasThinking || streaming) && (
+            <span className="tk-trace-elapsed">{fmtElapsed(elapsedMs)}</span>
+          )}
+          {/* The summary already fills the row in thinking-done; otherwise a
+              spacer pushes the toggle to the right edge. */}
+          {!(hasThinking && !streaming) && <span className="tk-trace-spacer" />}
+          {(hasThinking || !streaming) && (
+            <span className="tk-trace-toggle">
+              {hasThinking
+                ? (expanded ? "hide ▾" : "show ▸")
+                : (expanded ? "collapse ▾" : "expand ▸")}
+            </span>
           )}
         </button>
-        {(streaming || turn.traceExpanded) && (
+        {expanded && (
           <div className="tk-trace-rows">
-            {turn.tools.map((tc, i) => (
-              <div className="tk-trace-row" key={i}>
-                <span className={tc.done ? "tk-trace-dot" : "tk-trace-dot pending"} />
-                <span className="tk-trace-name">{tc.name}</span>
-                <span className="tk-trace-detail">{summarizeToolInput(tc.name, tc.input)}</span>
-                <span className={tc.done ? "tk-trace-status" : "tk-trace-status running"}>
-                  {tc.done ? "" : "running…"}
-                </span>
-              </div>
-            ))}
+            {turn.trace.map((it, i) =>
+              it.kind === "thinking" ? (
+                <div className="tk-think-block" key={i}>
+                  {it.text}
+                  {streaming && i === turn.trace.length - 1 && <span className="tk-caret" />}
+                </div>
+              ) : (
+                <div className="tk-trace-row" key={i}>
+                  <span className={it.done ? "tk-trace-dot" : "tk-trace-dot pending"} />
+                  <span className="tk-trace-name">{it.name}</span>
+                  <span className="tk-trace-detail">{summarizeToolInput(it.name, it.input)}</span>
+                  <span className={it.done ? "tk-trace-status" : "tk-trace-status running"}>
+                    {it.done ? "" : "running…"}
+                  </span>
+                </div>
+              ))}
           </div>
         )}
       </div>
@@ -410,23 +488,25 @@ export default function Chat({
                 ) : (
                   <div className="tk-msg tk-msg-assistant" key={i}>
                     {renderTrace(turn, i)}
-                    <div className="tk-bubble-assistant">
-                      {turn.content ? (
-                        <>
-                          {/* Raw HTML from the model is sanitized to a safe
-                              subset (see sanitizeSchema) before rendering. */}
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
-                          >
-                            {turn.content}
-                          </ReactMarkdown>
-                          {turn.status === "streaming" && <span className="tk-caret" />}
-                        </>
-                      ) : turn.status === "streaming" ? (
-                        <span className="tk-caret" />
-                      ) : null}
-                    </div>
+                    {/* While streaming, the answer text is buffered in
+                        `content` but not shown here — reasoning shows in the
+                        trace and the answer appears complete once the turn is
+                        done. A lone caret marks activity only before the trace
+                        has anything to show (e.g. a direct, tool-less answer). */}
+                    {turn.status !== "streaming" && turn.content ? (
+                      <div className="tk-bubble-assistant">
+                        {/* Raw HTML from the model is sanitized to a safe
+                            subset (see sanitizeSchema) before rendering. */}
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
+                        >
+                          {turn.content}
+                        </ReactMarkdown>
+                      </div>
+                    ) : turn.status === "streaming" && turn.trace.length === 0 ? (
+                      <div className="tk-bubble-assistant"><span className="tk-caret" /></div>
+                    ) : null}
                     {turn.status === "done" && turn.sources.length > 0 && (
                       <button
                         type="button"

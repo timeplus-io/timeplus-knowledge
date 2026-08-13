@@ -27,6 +27,95 @@ a{color:#B83280;text-decoration:none}a:hover{text-decoration:underline}
 .dv-next{margin:22px 0 0;font:12px/1.5 Inter,sans-serif;color:rgba(0,0,0,.5)}
 </style>
 </helmet>
+<section class="dv-turn" id="t7">
+<div class="dv-thd"><a class="dv-tid" href="#t7">7</a><span class="dv-tname">Agent thinking content in chat — interleaved with tool calls, collapsible</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="7a">
+<div class="dv-olabel"><a class="dv-oid" href="#7a">7a</a>Live — thinking streams open, interleaved with tool calls</div>
+<div class="dv-card" style="width:760px">
+<div data-screen-label="Thinking — streaming" style="background:#F7F6F6;height:600px;display:flex;flex-direction:column;color:#120F1A;font-size:14px;line-height:1.5">
+<div style="flex:1;overflow:hidden;padding:20px 28px;display:flex;flex-direction:column;gap:16px">
+<div style="align-self:flex-end;max-width:80%"><div style="background:#ECECED;border:1px solid #DAD9DB;border-radius:4px;padding:8px 12px">Why would a materialized view fall behind after a node restart?</div></div>
+<div style="align-self:stretch;display:flex;flex-direction:column;gap:8px">
+<div style="background:#fff;border:1px solid #DAD9DB;border-radius:4px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #DAD9DB">
+<div style="width:14px;height:14px;flex:none;border-radius:9999px;border:2px solid #DAD9DB;border-top-color:#D53F8C;box-sizing:border-box"></div>
+<div style="font-size:12px;font-weight:600;color:#B83280">Thinking</div>
+<div style="font-size:12px;color:#7D7B82">4.2s</div>
+<div style="flex:1"></div>
+<div style="font-size:12px;color:#7D7B82;cursor:pointer">hide ▾</div>
+</div>
+<div style="padding:10px 12px;border-left:3px solid #DAD9DB;margin:8px 12px;background:#F7F6F6;border-radius:0 4px 4px 0;font-size:13px;line-height:1.6;color:#7D7B82;font-style:italic">
+The user is asking about recovery lag, not correctness. Two candidate causes: checkpoint restore replays from the last epoch — if the interval is long, the replay window is large; or the source stream compacted past the recorded sequence. I should check how the coordinator picks the resume point.
+</div>
+<div style="display:flex;align-items:center;gap:10px;padding:6px 12px;font:12px/1.6 ui-monospace,'SF Mono',Menlo,monospace">
+<div style="width:6px;height:6px;flex:none;border-radius:9999px;background:#D53F8C"></div>
+<div style="color:#120F1A">search_entities</div>
+<div style="flex:1;color:#7D7B82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">query="checkpoint restore resume sequence"</div>
+<div style="flex:none;white-space:nowrap;color:#7D7B82">9 matches</div>
+</div>
+<div style="display:flex;align-items:center;gap:10px;padding:6px 12px;font:12px/1.6 ui-monospace,'SF Mono',Menlo,monospace">
+<div style="width:6px;height:6px;flex:none;border-radius:9999px;background:#D53F8C"></div>
+<div style="color:#120F1A">read_source</div>
+<div style="flex:1;color:#7D7B82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">path=src/Checkpoint/CheckpointCoordinator.cpp lines=180-224</div>
+<div style="flex:none;white-space:nowrap;color:#7D7B82">44 lines</div>
+</div>
+<div style="padding:10px 12px;border-left:3px solid #DAD9DB;margin:8px 12px;background:#F7F6F6;border-radius:0 4px 4px 0;font-size:13px;line-height:1.6;color:#7D7B82;font-style:italic">
+Confirmed: restore resumes from the epoch's recorded sequence number, so everything after it is reprocessed. Now checking whether replay is throttled<span style="display:inline-block;width:7px;height:13px;background:#D53F8C;vertical-align:text-bottom;margin-left:2px"></span>
+</div>
+<div style="display:flex;align-items:center;gap:10px;padding:6px 12px;font:12px/1.6 ui-monospace,'SF Mono',Menlo,monospace">
+<div style="width:6px;height:6px;flex:none;border-radius:9999px;border:1px solid #D53F8C;background:#fff;box-sizing:border-box"></div>
+<div style="color:#120F1A">read_source</div>
+<div style="flex:1;color:#7D7B82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">path=src/Storages/MaterializedView/…</div>
+<div style="flex:none;white-space:nowrap;color:#B83280;font-weight:600">running…</div>
+</div>
+</div>
+</div>
+</div>
+<div style="padding:16px 28px 24px;border-top:1px solid #DAD9DB;display:flex;gap:8px;align-items:flex-end">
+<div style="flex:1;height:40px;background:#ECECED;border:1px solid #DAD9DB;border-radius:4px;padding:10px 12px;color:#7D7B82;box-sizing:border-box"></div>
+<div style="height:32px;padding:0 16px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#DAD9DB;color:#7D7B82;border-radius:4px;font-weight:600">Thinking…</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="7b">
+<div class="dv-olabel"><a class="dv-oid" href="#7b">7b</a>Done — thinking collapses to a summary line above the answer</div>
+<div class="dv-card" style="width:760px">
+<div data-screen-label="Thinking — collapsed" style="background:#F7F6F6;height:600px;display:flex;flex-direction:column;color:#120F1A;font-size:14px;line-height:1.5">
+<div style="flex:1;overflow:hidden;padding:20px 28px;display:flex;flex-direction:column;gap:16px">
+<div style="align-self:flex-end;max-width:80%"><div style="background:#ECECED;border:1px solid #DAD9DB;border-radius:4px;padding:8px 12px">Why would a materialized view fall behind after a node restart?</div></div>
+<div style="align-self:stretch;display:flex;flex-direction:column;gap:8px">
+<div style="background:#fff;border:1px solid #DAD9DB;border-radius:4px">
+<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer" style-hover="background:#ECECED">
+<svg style="width:14px;height:14px;flex:none;color:#7D7B82" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a5.5 5.5 0 0 1 5.5 5.5c0 1.6-.7 2.9-1.6 4-.7.9-1.1 1.7-1.1 2.7v.8h-5.6v-.8c0-1-.4-1.8-1.1-2.7-.9-1.1-1.6-2.4-1.6-4A5.5 5.5 0 0 1 12 3z"></path><path d="M9.8 19.5h4.4M10.6 21.5h2.8"></path></svg>
+<div style="flex:none;white-space:nowrap;font-size:12px;font-weight:600;color:#3A3741">Thought for 11s</div>
+<div style="font-size:12px;color:#7D7B82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1">weighed checkpoint replay window vs. stream compaction · 2 thinking steps · 3 tool calls</div>
+<div style="font-size:12px;color:#7D7B82">show ▸</div>
+</div>
+</div>
+<div style="background:#fff;border:1px solid #DAD9DB;border-radius:4px;padding:12px 16px;display:flex;flex-direction:column;gap:8px">
+<div>After a restart the view resumes from its last <code style="font:12.5px/1.5 ui-monospace,'SF Mono',Menlo,monospace;background:#ECECED;border-radius:4px;padding:1px 5px">checkpoint</code> epoch, so it reprocesses everything recorded after that sequence number — with a long checkpoint interval this replay window is the usual cause of lag.<sup><a href="#7b" style="color:#B83280;font-weight:600">[1]</a></sup></div>
+<ul style="margin:0;padding-left:22px;display:flex;flex-direction:column;gap:2px">
+<li>Replay is unthrottled but competes with live ingest for the same pipeline slots.<sup><a href="#7b" style="color:#B83280;font-weight:600">[1]</a></sup></li>
+<li>If the source stream's retention compacted past the recorded sequence, the view logs a gap warning and resumes from the earliest available offset.<sup><a href="#7b" style="color:#B83280;font-weight:600">[2]</a></sup></li>
+<li>Mitigation: lower <code style="font:12.5px/1.5 ui-monospace,'SF Mono',Menlo,monospace;background:#ECECED;border-radius:4px;padding:1px 5px">checkpoint_interval</code> on hot views.<sup><a href="#7b" style="color:#B83280;font-weight:600">[2]</a></sup></li>
+</ul>
+</div>
+</div>
+</div>
+<div style="padding:16px 28px 24px;border-top:1px solid #DAD9DB;display:flex;gap:8px;align-items:flex-end">
+<div style="flex:1;height:40px;background:#fff;border:1px solid #B5B4B8;border-radius:4px;padding:10px 12px;color:#B5B4B8;box-sizing:border-box">Ask a follow-up…</div>
+<div style="height:32px;padding:0 16px;display:flex;white-space:nowrap;flex:none;align-items:center;background:#D53F8C;color:#fff;border-radius:4px;font-weight:600;cursor:pointer">Send</div>
+</div>
+</div>
+</div>
+</div>
+
+</div>
+</section>
 <section class="dv-turn" id="t6">
 <div class="dv-thd"><a class="dv-tid" href="#t6">6</a><span class="dv-tname">Nav icons + collapsible sidebar (updates all screens' sidebar)</span></div>
 <div class="dv-opts">
@@ -596,7 +685,7 @@ AS SELECT window_start, count() FROM tumble(orders, 5s) GROUP BY window_start;</
 <div style="width:6px;height:6px;flex:none;border-radius:9999px;border:1px solid #D53F8C;background:#fff;box-sizing:border-box"></div>
 <div style="color:#120F1A">read_source</div>
 <div style="flex:1;color:#7D7B82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">path=src/Storages/MaterializedView/…</div>
-<div style="color:#B83280;font-weight:600">running…</div>
+<div style="flex:none;white-space:nowrap;color:#B83280;font-weight:600">running…</div>
 </div>
 </div>
 <div style="background:#fff;border:1px solid #DAD9DB;border-radius:4px;padding:12px 16px">The interval is validated when the view is created — settings parsing rejects non-positive values before the pipeline is<span style="display:inline-block;width:8px;height:15px;background:#D53F8C;vertical-align:text-bottom;margin-left:2px"></span></div>
