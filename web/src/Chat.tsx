@@ -348,10 +348,13 @@ export default function Chat({
     const thinkingCount = turn.trace.filter((it) => it.kind === "thinking").length;
     const toolCount = turn.trace.filter((it) => it.kind === "tool").length;
     const hasThinking = thinkingCount > 0;
-    const expanded = streaming || turn.traceExpanded;
+    // With thinking the trace is collapsible even mid-stream (so `expanded`
+    // follows traceExpanded alone); the tool-only trace stays locked open
+    // while streaming, exactly as before.
+    const expanded = hasThinking ? turn.traceExpanded : streaming || turn.traceExpanded;
     const toolLabel = `${toolCount} tool call${toolCount === 1 ? "" : "s"}`;
     return (
-      <div className={expanded ? "tk-trace" : "tk-trace tk-trace-collapsed"}>
+      <div className={hasThinking && !expanded ? "tk-trace tk-trace-collapsed" : "tk-trace"}>
         <button
           type="button"
           className="tk-trace-header"
@@ -380,7 +383,11 @@ export default function Chat({
               spacer pushes the toggle to the right edge. */}
           {!(hasThinking && !streaming) && <span className="tk-trace-spacer" />}
           {(hasThinking || !streaming) && (
-            <span className="tk-trace-toggle">{expanded ? "hide ▾" : "show ▸"}</span>
+            <span className="tk-trace-toggle">
+              {hasThinking
+                ? (expanded ? "hide ▾" : "show ▸")
+                : (expanded ? "collapse ▾" : "expand ▸")}
+            </span>
           )}
         </button>
         {expanded && (
