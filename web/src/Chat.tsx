@@ -256,7 +256,10 @@ export default function Chat({
         ...t,
         status,
         elapsedMs: Date.now() - t.startedAt,
-        traceExpanded: false,
+        // Leave the trace in whatever expand state it's in (expanded by
+        // default) rather than auto-collapsing on done — collapsing a tall
+        // panel to one line the instant the answer appears makes the UI jump.
+        // The user collapses it manually via the header toggle.
         trace: t.trace.map((it) => (it.kind === "tool" ? { ...it, done: true } : it)),
       }));
 
