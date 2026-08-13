@@ -16,8 +16,13 @@
 
 [llm]
 # Backend for semantic extraction: "claude" | "openai" | "auto".
-# "auto" lets graphify pick from whichever API key is exported.
-backend = "auto"
+# Pinned to "openai" (gpt-oss via the Bedrock gateway) — cheap/fast for bulk
+# doc extraction. NOTE: leave this explicit, not "auto": both ANTHROPIC_API_KEY
+# and OPENAI_API_KEY are exported (the chat agent runs Claude Opus through the
+# gateway's /anthropic surface), so "auto" would be ambiguous. Switch to
+# backend = "claude", model = "anthropic.claude-opus-4-8" to extract with Opus.
+backend = "openai"
+model = "openai.gpt-oss-120b"
 # Per-chunk token budget for semantic extraction. Gateways (AWS Bedrock)
 # reject oversized request bodies; 16000 stays under the limit.
 token_budget = 16000

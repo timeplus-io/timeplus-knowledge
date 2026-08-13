@@ -223,11 +223,52 @@ rather than OpenAI directly: both `openai.gpt-oss-120b` and
 `qwen.qwen3-coder-next` are verified working via the Bedrock OpenAI-compatible
 gateway (the earlier gpt-oss-120b hangs were root-caused to tpk's shared-client
 concurrency bug and to tool exceptions aborting the stream — both now fixed in
-commits e4f093e and faec3a3). Anthropic models are not served by that
-endpoint's `/v1/chat/completions` surface; use `TPK_AGENT_PROVIDER=anthropic`
-with a direct key or Anthropic-compatible gateway instead. Note: the Bedrock
-gateway occasionally returns transient 500s mid-conversation — retry. See
-`docs/eval/m4-smoke.md` for the full compatibility record.
+commits e4f093e and faec3a3). Note: the Bedrock gateway occasionally returns
+transient 500s mid-conversation — retry. See `docs/eval/m4-smoke.md` for the
+full compatibility record.
+
+### Anthropic (Claude) via a Bedrock gateway
+
+Anthropic models are **not** served by the gateway's OpenAI-compatible
+`/v1/chat/completions` surface. To run Claude, point `TPK_AGENT_PROVIDER=anthropic`
+at the gateway's **Anthropic-protocol surface** (for the `bedrock-mantle` gateway
+that path is `/anthropic`, which the client hits as `…/anthropic/v1/messages`):
+
+    # .env — chat agent on Claude Opus through the Bedrock gateway
+    ANTHROPIC_BASE_URL=https://bedrock-mantle.us-east-1.api.aws/anthropic
+    ANTHROPIC_API_KEY=<gateway key>          # same credential the gateway expects
+    TPK_AGENT_PROVIDER=anthropic
+    TPK_AGENT_MODEL=anthropic.claude-opus-4-8
+
+The gateway authenticates the Anthropic surface with the standard `x-api-key`
+header (what `ChatAnthropic` sends), typically the same credential as the
+OpenAI surface.
+
+### Split: Claude for chat, gpt-oss for ingest
+
+The chat agent and [ingest](#ingest) are configured independently, so a common
+setup is a strong model for chat and a cheap/fast one for bulk extraction:
+
+| Path       | Config source              | Backend / surface                    | Model                        |
+|------------|----------------------------|--------------------------------------|------------------------------|
+| Chat agent | `.env` `TPK_AGENT_*`       | Anthropic — `ANTHROPIC_BASE_URL` (`…/anthropic`) | `anthropic.claude-opus-4-8`  |
+| Ingest     | `repos.toml` `[llm]`       | OpenAI — `OPENAI_BASE_URL` (`…/v1`)  | `openai.gpt-oss-120b`        |
+
+> **Gotcha — pin `[llm].backend`, don't rely on `auto`.** With this split
+> **both** `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are exported, so
+> `[llm].backend = "auto"` becomes ambiguous (graphify would pick a backend on
+> its own). Set the ingest backend explicitly in `repos.toml`:
+>
+>     [llm]
+>     backend = "openai"                 # or "claude" to extract with Opus too
+>     model   = "openai.gpt-oss-120b"    # anthropic.claude-opus-4-8 for claude
+>     token_budget = 16000
+>
+> To move ingest onto Claude as well, flip these to `backend = "claude"` /
+> `model = "anthropic.claude-opus-4-8"` — no `.env` change needed, since the
+> `ANTHROPIC_*` vars are already set. Semantic extraction only sends doc/config
+> files to the LLM (code is AST-parsed locally), but it is still many chunks, so
+> gpt-oss is the economical choice for full-corpus ingest.
 
 Local dev:
 
