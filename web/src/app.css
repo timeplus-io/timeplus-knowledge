@@ -151,9 +151,17 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 .tk-nav-spacer { flex: 1; }
 
 .tk-account {
-  display: flex; align-items: center; gap: 8px; padding: 10px;
+  display: flex; flex-direction: column; gap: 8px; padding: 10px;
   border-top: 1px solid var(--gray-700);
 }
+.tk-account-row { display: flex; align-items: center; gap: 8px; }
+.tk-account-actions { display: flex; gap: 12px; padding-left: 32px; }
+.tk-account-link {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  font: 400 12px/1 Inter, sans-serif; color: var(--gray-500);
+}
+.tk-account-link:hover { text-decoration: underline; }
+.tk-account-link:focus-visible { outline: 2px solid var(--pink-500); outline-offset: 2px; }
 .tk-avatar {
   width: 24px; height: 24px; flex: none;
   background: var(--gray-800); border-radius: 9999px;

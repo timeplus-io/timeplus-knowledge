@@ -6,6 +6,7 @@ import Login from "./Login";
 import Manage from "./Manage";
 import Shell, { type View } from "./Shell";
 import Users from "./Users";
+import ChangePassword from "./ChangePassword";
 import { CAP, type Capability, hasCap } from "./capabilities";
 
 type Me = { username: string; role: string; capabilities: string[] };
@@ -39,6 +40,10 @@ export default function App() {
   // input box (via initialInput/onConsumeInitial) and clears it so it
   // doesn't reappear on a later visit to Chat.
   const [chatPrefill, setChatPrefill] = useState<string | undefined>(undefined);
+
+  // Self-service password change (issue #27), opened from the sidebar account
+  // row; independent of the forced-change flow above.
+  const [changePwOpen, setChangePwOpen] = useState(false);
 
   function askAboutEntity(text: string) {
     setChatPrefill(text);
@@ -127,7 +132,8 @@ export default function App() {
   }
 
   return (
-    <Shell me={me} view={view} onNavigate={setView} onLogout={logout}>
+    <Shell me={me} view={view} onNavigate={setView} onLogout={logout}
+           onChangePassword={() => setChangePwOpen(true)}>
       {/* Chat stays mounted across nav (unlike Explorer/Manage/Users, which
           are cheap to remount) so its turns state and any in-flight SSE
           stream survive a Chat -> Explorer -> Chat round trip; it's just
@@ -144,6 +150,7 @@ export default function App() {
       ) : view === "users" ? (
         <Users capabilities={me.capabilities} isAdmin={me.role === "admin"} />
       ) : null}
+      {changePwOpen && <ChangePassword onClose={() => setChangePwOpen(false)} />}
     </Shell>
   );
 }

@@ -24,12 +24,14 @@ export default function Shell({
   view,
   onNavigate,
   onLogout,
+  onChangePassword,
   children,
 }: {
   me: Me;
   view: View;
   onNavigate: (view: View) => void;
   onLogout: () => void;
+  onChangePassword: () => void;
   children: ReactNode;
 }) {
   return (
@@ -54,9 +56,16 @@ export default function Shell({
         ))}
         <div className="tk-nav-spacer" />
         <div className="tk-account">
-          <div className="tk-avatar">{me.username.slice(0, 1).toUpperCase()}</div>
-          <div className="tk-account-name">{me.username}</div>
-          <button type="button" className="tk-logout" onClick={onLogout}>Logout</button>
+          <div className="tk-account-row">
+            <div className="tk-avatar">{me.username.slice(0, 1).toUpperCase()}</div>
+            <div className="tk-account-name">{me.username}</div>
+          </div>
+          <div className="tk-account-actions">
+            <button type="button" className="tk-account-link" onClick={onChangePassword}>
+              Change password
+            </button>
+            <button type="button" className="tk-logout" onClick={onLogout}>Logout</button>
+          </div>
         </div>
       </div>
       <div className="tk-content">{children}</div>
