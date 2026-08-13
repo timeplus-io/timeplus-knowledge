@@ -205,20 +205,17 @@ export default function Chat({
   const [corpusTags, setCorpusTags] = useState<string[]>([]);
   const [agentModel, setAgentModel] = useState<string | null>(null);
   // Citations live on the read_source trace rows (issue #40): clicking a row
-  // toggles an inline code preview. `openSources` holds the keys (turnIdx:rowIdx)
-  // of currently-expanded previews.
-  const [openSources, setOpenSources] = useState<Set<string>>(new Set());
+  // opens that source fragment in the side panel (like the previous Sources
+  // panel), rather than inline. `activeSource` is the one being shown, or null.
+  const [activeSource, setActiveSource] = useState<SourceEventPayload | null>(null);
   // Turn index whose answer was just copied (issue #42), for the "Copied"
   // affirmation.
   const [copiedTurn, setCopiedTurn] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  function toggleSource(key: string) {
-    setOpenSources((prev) => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
+  // Toggle the side panel: click the active source's row again to close it.
+  function openSource(source: SourceEventPayload) {
+    setActiveSource((cur) => (cur === source ? null : source));
   }
 
   async function copyAnswer(idx: number, text: string) {
@@ -410,7 +407,7 @@ export default function Chat({
   function newConversation() {
     setTurns([]);
     setInput("");
-    setOpenSources(new Set());
+    setActiveSource(null);
     setCopiedTurn(null);
   }
 
@@ -437,15 +434,19 @@ export default function Chat({
     return (
       <div className={expanded ? "tk-trace" : "tk-trace tk-trace-collapsed"}>
         <button type="button" className="tk-trace-header" onClick={() => toggleTrace(idx)}>
-          {streaming
+          {/* Icon only when there's reasoning — a lightbulb/spinner on a
+              pure tool-call trace would imply thinking that didn't happen. */}
+          {hasThinking && (streaming
             ? <span className="tk-think-spinner" aria-hidden="true" />
-            : <LightbulbIcon />}
+            : <LightbulbIcon />)}
           <span className={streaming && hasThinking ? "tk-trace-count tk-think-label" : "tk-trace-count"}>
             {primary}
           </span>
           {showSummary && <span className="tk-trace-summary">{summary}</span>}
           <span className="tk-trace-spacer" />
-          {streaming && <span className="tk-trace-elapsed">{fmtElapsed(elapsedMs)}</span>}
+          {/* Elapsed shows while streaming, and on done tool-only turns whose
+              primary label is the tool count (not "Thought for Ns"). */}
+          {(streaming || !hasThinking) && <span className="tk-trace-elapsed">{fmtElapsed(elapsedMs)}</span>}
           <span className="tk-trace-toggle">{expanded ? "hide ▾" : "show ▸"}</span>
         </button>
         {expanded && (
@@ -459,9 +460,8 @@ export default function Chat({
                   </div>
                 );
               }
-              const rowKey = `${idx}:${i}`;
               const clickable = !!it.source;
-              const open = clickable && openSources.has(rowKey);
+              const open = clickable && it.source === activeSource;
               const status = it.count != null
                 ? `${it.count} ${it.unit}`
                 : (it.done ? "" : "running…");
@@ -476,26 +476,18 @@ export default function Chat({
                   </span>
                 </>
               );
-              return (
-                <div key={i}>
-                  {clickable ? (
-                    <button
-                      type="button"
-                      className={open ? "tk-trace-row tk-trace-row-link open" : "tk-trace-row tk-trace-row-link"}
-                      aria-expanded={open}
-                      onClick={() => toggleSource(rowKey)}
-                    >
-                      {inner}
-                    </button>
-                  ) : (
-                    <div className="tk-trace-row">{inner}</div>
-                  )}
-                  {open && it.source && (
-                    <div className="tk-trace-source">
-                      <SourceCard source={it.source} />
-                    </div>
-                  )}
-                </div>
+              return clickable && it.source ? (
+                <button
+                  key={i}
+                  type="button"
+                  className={open ? "tk-trace-row tk-trace-row-link open" : "tk-trace-row tk-trace-row-link"}
+                  aria-pressed={open}
+                  onClick={() => openSource(it.source!)}
+                >
+                  {inner}
+                </button>
+              ) : (
+                <div className="tk-trace-row" key={i}>{inner}</div>
               );
             })}
           </div>
@@ -630,6 +622,24 @@ export default function Chat({
               <div ref={bottomRef} />
             </div>
           </div>
+          {activeSource && (
+            <aside className="tk-sources">
+              <div className="tk-sources-header">
+                <span className="tk-sources-title">Source</span>
+                <button
+                  type="button"
+                  className="tk-sources-close"
+                  onClick={() => setActiveSource(null)}
+                  aria-label="Close source panel"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="tk-sources-body">
+                <SourceCard n={activeSource.n} source={activeSource} />
+              </div>
+            </aside>
+          )}
         </div>
       )}
 

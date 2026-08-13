@@ -240,8 +240,17 @@ def create_app(agent=None, stream_prefix: str = "", auth=None, kg=None) -> FastA
                             # event's line range below.
                             if name == "search_entities":
                                 try:
+                                    # LangGraph's ToolNode wraps the tool's list
+                                    # return in a ToolMessage whose .content is a
+                                    # JSON string (json.dumps), so decode that —
+                                    # not a raw list — to count matches.
                                     out = event.get("data", {}).get("output")
-                                    items = out if isinstance(out, list) else getattr(out, "content", None)
+                                    items = out if isinstance(out, list) else getattr(out, "content", out)
+                                    if isinstance(items, str):
+                                        try:
+                                            items = json.loads(items)
+                                        except ValueError:
+                                            items = None
                                     if isinstance(items, list):
                                         yield _sse({"type": "tool_result", "name": name,
                                                     "input": args, "count": len(items),
