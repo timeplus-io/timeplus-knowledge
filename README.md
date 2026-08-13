@@ -362,6 +362,40 @@ briefly show both a bare-name entry and a `name@ref` entry in
 is needed; re-ingesting each repo once (`tpk ingest`, or Reindex from the
 Manage tab) completes the migration.
 
+### Export / import the corpus (skip re-ingest)
+
+Ingest is expensive — AST parsing plus (for `semantic` repos) LLM extraction
+through the gateway. To stand up a **new environment** without paying that
+cost again, dump the already-ingested graph from one deployment and load it
+into another. Export/import leverages proton's own `FORMAT Parquet`
+serialization (the engine encodes/decodes; no extra dependency):
+
+    tpk export --out corpus-dump/        # writes one <stream>.parquet per stream + manifest.json
+    tpk export --out dump/ --format Native   # ClickHouse Native instead of Parquet
+
+    tpk import corpus-dump/               # load into this environment (upsert)
+    tpk import corpus-dump/ --replace     # reset the target streams first (drop stale rows)
+
+The bundle covers the expensive/portable streams — `kg_nodes`, `kg_edges`,
+`kg_repos`, `kg_ingest_log` — plus a `manifest.json` (format, per-stream
+columns + row counts, `created_at`). **Auth streams
+(`kg_users`/`kg_roles`/`kg_sessions`) are deliberately excluded** — they are
+environment-specific and secret-bearing; seed the admin normally on the new
+deployment.
+
+`import` runs `ensure_schema` first, so a fresh environment gets the streams
+(with the current columns) before loading. The graph streams are mutable and
+primary-keyed, so a plain `import` is an idempotent **upsert** — re-running it
+converges rather than duplicating. Use `--replace` when the target has stale
+rows not in the bundle (e.g. repos you've since dropped); it drops and
+recreates each bundled stream before loading. A bundle whose columns don't
+all exist in the target deployment is rejected up front (schema drift between
+versions), before anything is written. Bundle files stream to/from disk, so a
+300k-node graph never lands wholly in memory.
+
+Streams under `TPK_STREAM_PREFIX` are exported/imported when that env var is
+set, matching the rest of the CLI.
+
 ### Users & roles
 
 `tpk serve` requires a login: `GET /healthz` is the only unauthenticated

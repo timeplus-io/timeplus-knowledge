@@ -85,6 +85,7 @@ Manage what the graph indexes at runtime, without editing files or restarting.
 - **Background jobs.** Add / reindex operations run on a background worker; job status is pollable.
 - **Manage tab** in the web UI drives all of it (add, toggle, reindex, delete).
 - **Release-upgrade workflow:** add the new ref → ingest → verify → flip enabled; a legacy migration re-keys old bare-name rows on first ingest.
+- **Export / import (issue #29).** `tpk export` dumps the ingested graph + corpus registry to a portable bundle (proton `FORMAT Parquet`, one file per stream + manifest); `tpk import` loads it into a new environment — no re-ingest, no LLM calls. Idempotent upsert by default (`--replace` to reset); auth streams excluded.
 
 ## 7. Authentication & role-based access (issue #8)
 

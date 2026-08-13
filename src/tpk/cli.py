@@ -67,6 +67,40 @@ def status():
 
 
 @app.command()
+def export(
+    out: Path = typer.Option(..., "--out", "-o", help="Output bundle directory"),
+    fmt: str = typer.Option("Parquet", "--format", help="Bundle format: Parquet or Native"),
+):
+    """Export the ingested graph + corpus registry to a portable bundle."""
+    from tpk import transfer
+
+    client = db.get_client(Settings.from_env())
+    prefix = os.environ.get("TPK_STREAM_PREFIX", "")
+    manifest = transfer.export_bundle(client, out, prefix=prefix, fmt=fmt)
+    for stream, info in manifest["streams"].items():
+        typer.echo(f"{stream:16s} {info['rows']:>9} rows -> {info['file']}")
+    typer.echo(f"bundle written to {out}")
+
+
+@app.command(name="import")
+def import_bundle(
+    src: Path = typer.Argument(..., help="Bundle directory to load"),
+    replace: bool = typer.Option(
+        False, "--replace", help="Reset target streams before loading (else upsert)"
+    ),
+):
+    """Load a corpus bundle into this environment — no re-ingest."""
+    from tpk import transfer
+
+    client = db.get_client(Settings.from_env())
+    prefix = os.environ.get("TPK_STREAM_PREFIX", "")
+    manifest = transfer.import_bundle(client, src, prefix=prefix, replace=replace)
+    for stream, info in manifest["streams"].items():
+        typer.echo(f"{stream:16s} loaded {info['rows']:>9} rows")
+    typer.echo("import complete")
+
+
+@app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", help="Bind address"),
     port: int = typer.Option(8000, help="Port"),
