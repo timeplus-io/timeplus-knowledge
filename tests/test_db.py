@@ -15,7 +15,7 @@ def test_schema_created_and_idempotent(tp):
     assert {
         f"{prefix}kg_nodes", f"{prefix}kg_edges", f"{prefix}kg_ingest_log",
         f"{prefix}kg_repos", f"{prefix}kg_users", f"{prefix}kg_roles",
-        f"{prefix}kg_sessions",
+        f"{prefix}kg_sessions", f"{prefix}chat_audit_log",
     } <= names
 
 

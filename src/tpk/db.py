@@ -146,6 +146,30 @@ def ensure_schema(client, prefix: str = "") -> None:
           created_at datetime64(3, 'UTC')
         ) PRIMARY KEY (token_hash)
     """)
+    # Append-only support-history audit log: one row per chat turn (question,
+    # answer, and the tool calls made). Not MUTABLE -- like kg_ingest_log, we
+    # want the full event history, not a keyed latest-state view.
+    client.command(f"""
+        CREATE STREAM IF NOT EXISTS {prefix}chat_audit_log (
+          ts datetime64(3, 'UTC'),
+          turn_id string,
+          conversation_id string,
+          username string,
+          role string,
+          provider string,
+          model string,
+          question string,
+          answer string,
+          history_len uint32,
+          tool_calls string,
+          sources string,
+          tool_count uint32,
+          source_count uint32,
+          latency_ms uint32,
+          status string,
+          error string
+        )
+    """)
 
 
 def drop_schema(client, prefix: str) -> None:

@@ -2,7 +2,11 @@
 
 import json
 import logging
+import os
 import threading
+import time
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -122,7 +126,9 @@ def _build_production_agent(kg, repos):
     )
 
 
-def create_app(agent=None, stream_prefix: str = "", auth=None, kg=None) -> FastAPI:
+def create_app(
+    agent=None, stream_prefix: str = "", auth=None, kg=None, audit_sink=None
+) -> FastAPI:
     import tpk.auth as auth_mod
     from tpk.agent import RECURSION_LIMIT
     from tpk.api import create_api_router
@@ -133,6 +139,17 @@ def create_app(agent=None, stream_prefix: str = "", auth=None, kg=None) -> FastA
     app = FastAPI(title="timeplus-knowledge")
     app.include_router(create_auth_router(auth))
     app.include_router(create_api_router(prefix=stream_prefix, auth=auth))
+
+    # Support-history audit sink: one row per chat turn. Tests inject their
+    # own `audit_sink`; production builds a best-effort Timeplus writer unless
+    # TPK_CHAT_AUDIT=0 disables it. A None sink means "don't audit".
+    if audit_sink is None and os.environ.get("TPK_CHAT_AUDIT", "1") != "0":
+        from tpk import audit, db
+        from tpk.config import Settings
+
+        audit_sink = audit.make_db_sink(
+            stream_prefix, lambda: db.get_client(Settings.from_env())
+        )
 
     repos_for_agent = None
     if agent is None and kg is None:
@@ -169,6 +186,16 @@ def create_app(agent=None, stream_prefix: str = "", auth=None, kg=None) -> FastA
     async def chat(req: ChatRequest, user: User = Depends(auth.require_cap(auth_mod.CAP_CHAT))):
         messages = [(t.role, t.content) for t in req.history] + [("user", req.message)]
 
+        # Provider/model stamped on the audit row. Best-effort: an
+        # unconfigured LLM must not stop the chat request.
+        try:
+            from tpk.config import AgentConfig
+
+            _cfg = AgentConfig.from_env()
+            audit_provider, audit_model = _cfg.provider, _cfg.model
+        except Exception:
+            audit_provider, audit_model = "", ""
+
         scope = None
         if user.role != auth_mod.ROLE_ADMIN:
             try:
@@ -191,10 +218,16 @@ def create_app(agent=None, stream_prefix: str = "", auth=None, kg=None) -> FastA
             # the ContextVar must wrap the agent run here to cover every
             # tool call langchain-core dispatches during it.
             token = ROLE_SCOPE.set(scope) if scope is not None else None
+            # Audit accumulators (read in the finally block below).
+            started = time.monotonic()
+            tool_calls: list[dict] = []
+            sources: list[dict] = []
+            answer_text = ""
+            audit_status = "ok"
+            audit_error = ""
             try:
                 full: list[str] = []
                 final_text = ""
-                sources: list[dict] = []
                 source_index: dict[tuple, int] = {}
                 try:
                     async for event in _agent().astream_events(
@@ -234,6 +267,10 @@ def create_app(agent=None, stream_prefix: str = "", auth=None, kg=None) -> FastA
                         elif kind == "on_tool_end":
                             name = event.get("name", "")
                             args = event.get("data", {}).get("input") or {}
+                            # One audit entry per tool call; count/unit filled in
+                            # below when the tool exposes a result count.
+                            audit_entry = {"name": name, "input": args}
+                            tool_calls.append(audit_entry)
                             # Result count for the tool row (mockup t7):
                             # search_entities -> number of matches. read_source's
                             # "N lines" is derived on the client from the source
@@ -252,6 +289,8 @@ def create_app(agent=None, stream_prefix: str = "", auth=None, kg=None) -> FastA
                                         except ValueError:
                                             items = None
                                     if isinstance(items, list):
+                                        audit_entry["count"] = len(items)
+                                        audit_entry["unit"] = "matches"
                                         yield _sse({"type": "tool_result", "name": name,
                                                     "input": args, "count": len(items),
                                                     "unit": "matches"})
@@ -290,12 +329,15 @@ def create_app(agent=None, stream_prefix: str = "", auth=None, kg=None) -> FastA
                         "(it may have spent its turns on tool calls). Please retry "
                         "or rephrase."
                     )
+                    answer_text = done_text
                     yield _sse({"type": "done", "text": done_text, "sources": sources})
                 except Exception as exc:  # stream errors must reach the client
                     # Log the full exception server-side; the client only gets
                     # the exception's class name, never the raw message, which
                     # can leak internal details (stack context, credentials in
                     # a driver error, etc.) into the browser.
+                    audit_status = "error"
+                    audit_error = type(exc).__name__
                     logger.exception("chat stream failed")
                     yield _sse(
                         {
@@ -306,6 +348,32 @@ def create_app(agent=None, stream_prefix: str = "", auth=None, kg=None) -> FastA
             finally:
                 if token is not None:
                     ROLE_SCOPE.reset(token)
+                # Support-history audit: one row per turn, written after the
+                # answer has streamed so it adds no user-visible latency, and
+                # best-effort so a sink failure never surfaces to the client.
+                if audit_sink is not None:
+                    try:
+                        from tpk.audit import AuditRecord
+
+                        record = AuditRecord(
+                            ts=datetime.now(timezone.utc),
+                            turn_id=uuid.uuid4().hex,
+                            username=user.username,
+                            role=user.role,
+                            provider=audit_provider,
+                            model=audit_model,
+                            question=req.message,
+                            answer=answer_text,
+                            history_len=len(req.history),
+                            latency_ms=int((time.monotonic() - started) * 1000),
+                            status=audit_status,
+                            error=audit_error,
+                            tool_calls=tool_calls,
+                            sources=sources,
+                        )
+                        await run_in_threadpool(audit_sink, record)
+                    except Exception:
+                        logger.exception("chat audit failed; skipping")
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 
