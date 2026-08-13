@@ -150,7 +150,9 @@ export default function App() {
       ) : view === "users" ? (
         <Users capabilities={me.capabilities} isAdmin={me.role === "admin"} />
       ) : null}
-      {changePwOpen && <ChangePassword onClose={() => setChangePwOpen(false)} />}
+      {changePwOpen && (
+        <ChangePassword username={me.username} onClose={() => setChangePwOpen(false)} />
+      )}
     </Shell>
   );
 }
