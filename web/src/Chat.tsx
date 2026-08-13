@@ -195,6 +195,7 @@ export default function Chat({
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [corpusTags, setCorpusTags] = useState<string[]>([]);
+  const [agentModel, setAgentModel] = useState<string | null>(null);
   // The Sources panel is opened explicitly via each answer's "Sources (N)"
   // button (not automatically, and not tied to any inline citation number —
   // the model's citation text is unreliable). `activeSourcesTurn` is the turn
@@ -234,6 +235,22 @@ export default function Chat({
         );
       } catch {
         // Network failure -- omit the tags row rather than erroring.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // The model the chat agent runs on, shown in the header / empty state.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await apiFetch("/chat/model");
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (!cancelled && data && typeof data.model === "string") setAgentModel(data.model);
+      } catch {
+        // Omit the model chip on failure rather than erroring.
       }
     })();
     return () => { cancelled = true; };
@@ -446,6 +463,12 @@ export default function Chat({
               </div>
             </>
           )}
+          {agentModel && (
+            <>
+              <div className="tk-chat-topbar-label">model</div>
+              <span className="tk-model-tag">{agentModel}</span>
+            </>
+          )}
         </div>
       )}
 
@@ -460,6 +483,11 @@ export default function Chat({
           {corpusTags.length > 0 && (
             <div className="tk-corpus-tags">
               {corpusTags.map((tag) => <span className="tk-corpus-tag" key={tag}>{tag}</span>)}
+            </div>
+          )}
+          {agentModel && (
+            <div className="tk-chat-empty-model">
+              model <span className="tk-model-tag">{agentModel}</span>
             </div>
           )}
           <div className="tk-suggested-grid">

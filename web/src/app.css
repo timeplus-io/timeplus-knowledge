@@ -318,6 +318,14 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
   font: 11px/1 ui-monospace, Menlo, monospace; padding: 5px 8px;
   background: var(--gray-800); border-radius: var(--radius); color: var(--gray-300);
 }
+/* Agent model chip — pink value distinguishes it from the corpus tags. */
+.tk-model-tag {
+  font: 11px/1 ui-monospace, Menlo, monospace; padding: 5px 8px; white-space: nowrap;
+  background: var(--gray-800); border-radius: var(--radius); color: var(--pink-400);
+}
+.tk-chat-empty-model {
+  display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--gray-500);
+}
 
 /* Empty state (1b) */
 .tk-chat-empty {

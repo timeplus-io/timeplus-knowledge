@@ -81,6 +81,23 @@ def test_healthz():
     assert client.get("/healthz").json() == {"status": "ok"}
 
 
+def test_chat_model_endpoint(monkeypatch):
+    monkeypatch.setenv("TPK_AGENT_PROVIDER", "anthropic")
+    monkeypatch.setenv("TPK_AGENT_MODEL", "anthropic.claude-opus-4-8")
+    client = TestClient(create_app(agent=FakeAgent([]), auth=_StubAuth()))
+    body = client.get("/chat/model").json()
+    assert body == {"provider": "anthropic", "model": "anthropic.claude-opus-4-8"}
+
+
+def test_chat_model_endpoint_unconfigured(monkeypatch):
+    monkeypatch.delenv("TPK_AGENT_PROVIDER", raising=False)
+    monkeypatch.delenv("TPK_AGENT_MODEL", raising=False)
+    for v in ("ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "OPENAI_API_KEY", "OPENAI_BASE_URL"):
+        monkeypatch.delenv(v, raising=False)
+    client = TestClient(create_app(agent=FakeAgent([]), auth=_StubAuth()))
+    assert client.get("/chat/model").json() == {"provider": None, "model": None}
+
+
 def test_chat_streams_tokens_tools_and_done():
     agent = FakeAgent([_tool("search_entities", {"query": "q"}), _tok("Hello "), _tok("world")])
     client = TestClient(create_app(agent=agent, auth=_StubAuth()))
