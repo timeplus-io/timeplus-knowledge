@@ -142,6 +142,18 @@ def create_app(agent=None, stream_prefix: str = "", auth=None, kg=None) -> FastA
     def healthz():
         return {"status": "ok"}
 
+    @app.get("/chat/model")
+    def chat_model(user: User = Depends(auth.require_cap(auth_mod.CAP_CHAT))):
+        """The provider/model the chat agent runs on, for display in the UI.
+        Not sensitive; returns nulls if the agent LLM isn't configured."""
+        from tpk.config import AgentConfig
+
+        try:
+            cfg = AgentConfig.from_env()
+            return {"provider": cfg.provider, "model": cfg.model}
+        except Exception:
+            return {"provider": None, "model": None}
+
     @app.post("/chat")
     async def chat(req: ChatRequest, user: User = Depends(auth.require_cap(auth_mod.CAP_CHAT))):
         messages = [(t.role, t.content) for t in req.history] + [("user", req.message)]
