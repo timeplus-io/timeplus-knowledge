@@ -51,12 +51,13 @@ export default function App() {
   }
 
   useEffect(() => {
-    onUnauthorized(() => { setMe(null); setPendingChangeUser(null); });
+    onUnauthorized(() => { setMe(null); setPendingChangeUser(null); setChangePwOpen(false); });
     // Centralized in api.ts: fires on a 403 password_change_required from
     // ANY apiFetch call (chat, Manage, Users) — not just chat's send().
     // Uses the setMe functional-updater form to read the current identity
     // without a stale closure over `me`.
     onPasswordChangeRequired(() => {
+      setChangePwOpen(false);
       setMe((prev) => { setPendingChangeUser(prev?.username ?? null); return null; });
     });
   }, []);
@@ -109,6 +110,7 @@ export default function App() {
       setToken(null);
       setMe(null);
       setView("chat");
+      setChangePwOpen(false);
     }
   }
 

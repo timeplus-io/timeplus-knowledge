@@ -77,6 +77,19 @@ export default function Shell({
         ))}
         <div className="tk-nav-spacer" />
         <div className="tk-account" ref={accountRef}>
+          {/* Trigger before the menu in DOM so keyboard Tab reaches the menu
+              items after opening; CSS bottom:100% still floats the menu above. */}
+          <button
+            type="button"
+            className={menuOpen ? "tk-account-trigger open" : "tk-account-trigger"}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((v) => !v)}
+          >
+            <div className="tk-avatar">{me.username.slice(0, 1).toUpperCase()}</div>
+            <div className="tk-account-name">{me.username}</div>
+            <div className="tk-account-caret" aria-hidden="true">{menuOpen ? "▾" : "▴"}</div>
+          </button>
           {menuOpen && (
             <div className="tk-account-menu" role="menu">
               <div className="tk-account-menu-header">
@@ -101,17 +114,6 @@ export default function Shell({
               </button>
             </div>
           )}
-          <button
-            type="button"
-            className={menuOpen ? "tk-account-trigger open" : "tk-account-trigger"}
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((v) => !v)}
-          >
-            <div className="tk-avatar">{me.username.slice(0, 1).toUpperCase()}</div>
-            <div className="tk-account-name">{me.username}</div>
-            <div className="tk-account-caret" aria-hidden="true">{menuOpen ? "▾" : "▴"}</div>
-          </button>
         </div>
       </div>
       <div className="tk-content">{children}</div>
