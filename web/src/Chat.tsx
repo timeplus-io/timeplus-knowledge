@@ -33,6 +33,7 @@ type ChatEvent =
   | { type: "token"; text: string }
   | { type: "thinking"; text: string }
   | { type: "tool"; name: string; input: Record<string, unknown> }
+  | { type: "tool_result"; name: string; input: Record<string, unknown>; count: number; unit: string }
   | ({ type: "source" } & SourceEventPayload)
   | { type: "done"; text: string; sources: SourceEventPayload[] }
   | { type: "error"; message: string };
@@ -62,7 +63,13 @@ async function* sseEvents(resp: Response): AsyncGenerator<ChatEvent> {
 // calls (interleaved as the agent produces them). Thinking is present only
 // when the model exposes readable reasoning; otherwise the trace holds tool
 // calls alone and renders exactly as the pre-thinking tool trace did.
-type ToolCall = { kind: "tool"; name: string; input: Record<string, unknown>; done: boolean };
+// A tool call carries its result once the backend reports it: a `count`/`unit`
+// (search_entities → matches, read_source → lines) shown on the row, and, for
+// read_source, the `source` ref that makes the row a clickable citation.
+type ToolCall = {
+  kind: "tool"; name: string; input: Record<string, unknown>; done: boolean;
+  count?: number; unit?: string; source?: SourceEventPayload;
+};
 type ThinkingStep = { kind: "thinking"; text: string };
 type TraceItem = ToolCall | ThinkingStep;
 
@@ -70,7 +77,6 @@ type Turn = {
   role: "user" | "assistant";
   content: string;
   trace: TraceItem[];
-  sources: SourceEventPayload[];
   status: "streaming" | "done" | "error";
   startedAt: number;
   elapsedMs: number | null;
@@ -79,14 +85,16 @@ type Turn = {
 
 function newUserTurn(content: string): Turn {
   return {
-    role: "user", content, trace: [], sources: [], status: "done",
+    role: "user", content, trace: [], status: "done",
     startedAt: Date.now(), elapsedMs: null, traceExpanded: false,
   };
 }
 function newAssistantTurn(): Turn {
   return {
-    role: "assistant", content: "", trace: [], sources: [], status: "streaming",
-    startedAt: Date.now(), elapsedMs: null, traceExpanded: true,
+    // Trace starts collapsed — the summary line shows progress; the user
+    // expands it on demand (issue #39).
+    role: "assistant", content: "", trace: [], status: "streaming",
+    startedAt: Date.now(), elapsedMs: null, traceExpanded: false,
   };
 }
 
@@ -139,7 +147,7 @@ function LightbulbIcon() {
 // citation while the answer is still streaming.
 // --------------------------------------------------------------------
 
-function SourceCard({ n, source }: { n: number; source: SourceEventPayload }) {
+function SourceCard({ n, source }: { n?: number; source: SourceEventPayload }) {
   const [preview, setPreview] = useState<SourceResponse | "loading" | "error">("loading");
 
   useEffect(() => {
@@ -154,7 +162,7 @@ function SourceCard({ n, source }: { n: number; source: SourceEventPayload }) {
   return (
     <div className="tk-source-card">
       <div className="tk-source-card-header">
-        <div className="tk-source-index">{n}.</div>
+        {n != null && <div className="tk-source-index">{n}.</div>}
         <div className="tk-source-path">{source.file_path}</div>
       </div>
       {preview === "loading" ? (
@@ -196,13 +204,32 @@ export default function Chat({
   const [busy, setBusy] = useState(false);
   const [corpusTags, setCorpusTags] = useState<string[]>([]);
   const [agentModel, setAgentModel] = useState<string | null>(null);
-  // The Sources panel is opened explicitly via each answer's "Sources (N)"
-  // button (not automatically, and not tied to any inline citation number —
-  // the model's citation text is unreliable). `activeSourcesTurn` is the turn
-  // index whose read sources the panel shows.
-  const [panelOpen, setPanelOpen] = useState(false);
-  const [activeSourcesTurn, setActiveSourcesTurn] = useState<number | null>(null);
+  // Citations live on the read_source trace rows (issue #40): clicking a row
+  // toggles an inline code preview. `openSources` holds the keys (turnIdx:rowIdx)
+  // of currently-expanded previews.
+  const [openSources, setOpenSources] = useState<Set<string>>(new Set());
+  // Turn index whose answer was just copied (issue #42), for the "Copied"
+  // affirmation.
+  const [copiedTurn, setCopiedTurn] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  function toggleSource(key: string) {
+    setOpenSources((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }
+
+  async function copyAnswer(idx: number, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedTurn(idx);
+      setTimeout(() => setCopiedTurn((c) => (c === idx ? null : c)), 1500);
+    } catch {
+      // Clipboard unavailable (insecure context / denied) — no-op.
+    }
+  }
 
   useEffect(() => {
     if (initialInput) {
@@ -261,8 +288,6 @@ export default function Chat({
     if (!message || busy) return;
     setInput("");
     setBusy(true);
-    setPanelOpen(false);
-    setActiveSourcesTurn(null);
     const history = turns.map((t) => ({ role: t.role, content: t.content }));
     setTurns((ts) => [...ts, newUserTurn(message), newAssistantTurn()]);
 
@@ -331,18 +356,35 @@ export default function Chat({
             withDone.push({ kind: "tool", name: ev.name, input: ev.input ?? {}, done: false });
             return { ...t, trace: withDone, content: "" };
           });
+        } else if (ev.type === "tool_result") {
+          update((t) => {
+            // Attach the result count to the matching (last running) tool row.
+            const trace = [...t.trace];
+            for (let i = trace.length - 1; i >= 0; i--) {
+              const it = trace[i];
+              if (it.kind === "tool" && !it.done && it.name === ev.name &&
+                  summarizeToolInput(it.name, it.input) === summarizeToolInput(ev.name, ev.input ?? {})) {
+                trace[i] = { ...it, done: true, count: ev.count, unit: ev.unit };
+                break;
+              }
+            }
+            return { ...t, trace };
+          });
         } else if (ev.type === "source") {
           update((t) => {
+            // Attach the source ref (for the clickable citation) and the line
+            // count to the matching read_source row.
             const trace = t.trace.map((it) =>
-              it.kind === "tool" && it.name === "read_source" && !it.done &&
+              it.kind === "tool" && it.name === "read_source" &&
               it.input.repo === ev.repo && it.input.file_path === ev.file_path &&
-              Number(it.input.line_start) === ev.line_start
-                ? { ...it, done: true }
+              Number(it.input.line_start) === ev.line_start && !it.source
+                ? { ...it, done: true, source: ev,
+                    count: ev.line_end - ev.line_start + 1, unit: "lines" }
                 : it);
-            return { ...t, trace, sources: [...t.sources, ev] };
+            return { ...t, trace };
           });
         } else if (ev.type === "done") {
-          update((t) => ({ ...t, content: ev.text, sources: ev.sources ?? t.sources }));
+          update((t) => ({ ...t, content: ev.text }));
           finish("done");
         } else if (ev.type === "error") {
           update((t) => ({ ...t, content: t.content + `\n\n[error] ${ev.message}` }));
@@ -368,8 +410,8 @@ export default function Chat({
   function newConversation() {
     setTurns([]);
     setInput("");
-    setPanelOpen(false);
-    setActiveSourcesTurn(null);
+    setOpenSources(new Set());
+    setCopiedTurn(null);
   }
 
   function renderTrace(turn: Turn, idx: number) {
@@ -379,66 +421,83 @@ export default function Chat({
     const thinkingCount = turn.trace.filter((it) => it.kind === "thinking").length;
     const toolCount = turn.trace.filter((it) => it.kind === "tool").length;
     const hasThinking = thinkingCount > 0;
-    // With thinking the trace is collapsible even mid-stream (so `expanded`
-    // follows traceExpanded alone); the tool-only trace stays locked open
-    // while streaming, exactly as before.
-    const expanded = hasThinking ? turn.traceExpanded : streaming || turn.traceExpanded;
+    // Collapsed by default (issue #39); the header always toggles.
+    const expanded = turn.traceExpanded;
     const toolLabel = `${toolCount} tool call${toolCount === 1 ? "" : "s"}`;
+    const primary = streaming
+      ? (hasThinking ? "Thinking" : "Working")
+      : (hasThinking ? `Thought for ${Math.round(elapsedMs / 1000)}s` : toolLabel);
+    const summaryParts: string[] = [];
+    if (thinkingCount > 0) summaryParts.push(`${thinkingCount} thinking step${thinkingCount === 1 ? "" : "s"}`);
+    if (toolCount > 0) summaryParts.push(toolLabel);
+    const summary = summaryParts.join(" · ");
+    // Show the counts as a secondary summary except when the primary label is
+    // already the tool count (done, no thinking).
+    const showSummary = summary !== "" && (streaming || hasThinking);
     return (
-      <div className={hasThinking && !expanded ? "tk-trace tk-trace-collapsed" : "tk-trace"}>
-        <button
-          type="button"
-          className="tk-trace-header"
-          // With thinking, the header is always togglable (hide/show, even
-          // mid-stream); the tool-only trace stays locked open while working.
-          disabled={streaming && !hasThinking}
-          onClick={() => toggleTrace(idx)}
-        >
-          {hasThinking && (streaming
+      <div className={expanded ? "tk-trace" : "tk-trace tk-trace-collapsed"}>
+        <button type="button" className="tk-trace-header" onClick={() => toggleTrace(idx)}>
+          {streaming
             ? <span className="tk-think-spinner" aria-hidden="true" />
-            : <LightbulbIcon />)}
-          <span className={hasThinking && streaming ? "tk-trace-count tk-think-label" : "tk-trace-count"}>
-            {hasThinking
-              ? (streaming ? "Thinking" : `Thought for ${Math.round(elapsedMs / 1000)}s`)
-              : (streaming ? "Working" : toolLabel)}
+            : <LightbulbIcon />}
+          <span className={streaming && hasThinking ? "tk-trace-count tk-think-label" : "tk-trace-count"}>
+            {primary}
           </span>
-          {hasThinking && !streaming && (
-            <span className="tk-trace-summary">
-              {thinkingCount} thinking step{thinkingCount === 1 ? "" : "s"} · {toolLabel}
-            </span>
-          )}
-          {(!hasThinking || streaming) && (
-            <span className="tk-trace-elapsed">{fmtElapsed(elapsedMs)}</span>
-          )}
-          {/* The summary already fills the row in thinking-done; otherwise a
-              spacer pushes the toggle to the right edge. */}
-          {!(hasThinking && !streaming) && <span className="tk-trace-spacer" />}
-          {(hasThinking || !streaming) && (
-            <span className="tk-trace-toggle">
-              {hasThinking
-                ? (expanded ? "hide ▾" : "show ▸")
-                : (expanded ? "collapse ▾" : "expand ▸")}
-            </span>
-          )}
+          {showSummary && <span className="tk-trace-summary">{summary}</span>}
+          <span className="tk-trace-spacer" />
+          {streaming && <span className="tk-trace-elapsed">{fmtElapsed(elapsedMs)}</span>}
+          <span className="tk-trace-toggle">{expanded ? "hide ▾" : "show ▸"}</span>
         </button>
         {expanded && (
           <div className="tk-trace-rows">
-            {turn.trace.map((it, i) =>
-              it.kind === "thinking" ? (
-                <div className="tk-think-block" key={i}>
-                  {it.text}
-                  {streaming && i === turn.trace.length - 1 && <span className="tk-caret" />}
-                </div>
-              ) : (
-                <div className="tk-trace-row" key={i}>
+            {turn.trace.map((it, i) => {
+              if (it.kind === "thinking") {
+                return (
+                  <div className="tk-think-block" key={i}>
+                    {it.text}
+                    {streaming && i === turn.trace.length - 1 && <span className="tk-caret" />}
+                  </div>
+                );
+              }
+              const rowKey = `${idx}:${i}`;
+              const clickable = !!it.source;
+              const open = clickable && openSources.has(rowKey);
+              const status = it.count != null
+                ? `${it.count} ${it.unit}`
+                : (it.done ? "" : "running…");
+              const inner = (
+                <>
                   <span className={it.done ? "tk-trace-dot" : "tk-trace-dot pending"} />
                   <span className="tk-trace-name">{it.name}</span>
                   <span className="tk-trace-detail">{summarizeToolInput(it.name, it.input)}</span>
-                  <span className={it.done ? "tk-trace-status" : "tk-trace-status running"}>
-                    {it.done ? "" : "running…"}
+                  <span className={it.done && it.count == null ? "tk-trace-status" :
+                    it.count != null ? "tk-trace-status tk-trace-count-badge" : "tk-trace-status running"}>
+                    {status}
                   </span>
+                </>
+              );
+              return (
+                <div key={i}>
+                  {clickable ? (
+                    <button
+                      type="button"
+                      className={open ? "tk-trace-row tk-trace-row-link open" : "tk-trace-row tk-trace-row-link"}
+                      aria-expanded={open}
+                      onClick={() => toggleSource(rowKey)}
+                    >
+                      {inner}
+                    </button>
+                  ) : (
+                    <div className="tk-trace-row">{inner}</div>
+                  )}
+                  {open && it.source && (
+                    <div className="tk-trace-source">
+                      <SourceCard source={it.source} />
+                    </div>
+                  )}
                 </div>
-              ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -446,8 +505,6 @@ export default function Chat({
   }
 
   const hasTurns = turns.length > 0;
-  const activeTurn = activeSourcesTurn != null ? turns[activeSourcesTurn] ?? null : null;
-  const showSources = panelOpen && activeTurn != null && activeTurn.sources.length > 0;
 
   return (
     <div className="tk-chat">
@@ -535,14 +592,37 @@ export default function Chat({
                     ) : turn.status === "streaming" && turn.trace.length === 0 ? (
                       <div className="tk-bubble-assistant"><span className="tk-caret" /></div>
                     ) : null}
-                    {turn.status === "done" && turn.sources.length > 0 && (
-                      <button
-                        type="button"
-                        className="tk-sources-btn"
-                        onClick={() => { setActiveSourcesTurn(i); setPanelOpen(true); }}
-                      >
-                        Sources ({turn.sources.length})
-                      </button>
+                    {turn.status === "done" && turn.content && (
+                      <div className="tk-answer-actions">
+                        <button
+                          type="button"
+                          className="tk-copy-btn"
+                          onClick={() => copyAnswer(i, turn.content)}
+                        >
+                          {copiedTurn === i ? (
+                            <>
+                              <svg className="tk-copy-icon" viewBox="0 0 24 24" fill="none"
+                                   stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+                                   strokeLinejoin="round" aria-hidden="true">
+                                <path d="M20 6 9 17l-5-5" />
+                              </svg>
+                              <span>Copied</span>
+                            </>
+                          ) : (
+                            <>
+                              <svg className="tk-copy-icon" viewBox="0 0 24 24" fill="none"
+                                   stroke="currentColor" strokeWidth={1.8} strokeLinecap="round"
+                                   strokeLinejoin="round" aria-hidden="true">
+                                <rect x="9" y="9" width="11" height="11" rx="2" />
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                              </svg>
+                              <span>Copy</span>
+                            </>
+                          )}
+                        </button>
+                        <div className="tk-answer-actions-spacer" />
+                        <div className="tk-answer-actions-note">markdown, citations included</div>
+                      </div>
                     )}
                   </div>
                 ),
@@ -550,19 +630,6 @@ export default function Chat({
               <div ref={bottomRef} />
             </div>
           </div>
-          {showSources && activeTurn && (
-            <div className="tk-sources">
-              <div className="tk-sources-header">
-                <div className="tk-sources-title">Sources</div>
-                <div className="tk-sources-count">{activeTurn.sources.length} read</div>
-                <div className="tk-sources-spacer" />
-                <button type="button" className="tk-sources-close" onClick={() => setPanelOpen(false)}>✕</button>
-              </div>
-              <div className="tk-sources-list">
-                {activeTurn.sources.map((s) => <SourceCard key={s.n} n={s.n} source={s} />)}
-              </div>
-            </div>
-          )}
         </div>
       )}
 

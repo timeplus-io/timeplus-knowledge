@@ -408,15 +408,18 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 }
 .tk-bubble-assistant hr { border: 0; border-top: 1px solid var(--gray-700); margin: 12px 0; }
 
-/* Per-answer button that opens the Sources panel for that turn. */
-.tk-sources-btn {
-  align-self: flex-start;
-  height: 28px; padding: 0 12px;
-  background: var(--white); color: var(--pink-400);
-  border: 1px solid var(--gray-700); border-radius: var(--radius);
-  font: 600 12px/1 Inter, sans-serif; cursor: pointer;
+/* Per-answer action row: Copy button (mockup t1). */
+.tk-answer-actions { display: flex; align-items: center; gap: 8px; align-self: stretch; margin-top: 2px; }
+.tk-copy-btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px;
+  background: none; border: 0; border-radius: var(--radius);
+  font: 600 12px/1 Inter, sans-serif; color: var(--gray-500); cursor: pointer;
 }
-.tk-sources-btn:hover:not(:disabled) { background: var(--gray-900); }
+.tk-copy-btn:hover:not(:disabled) { background: var(--gray-800); color: var(--gray-300); }
+.tk-copy-btn:focus-visible { outline: 2px solid var(--pink-500); outline-offset: 2px; }
+.tk-copy-icon { width: 13px; height: 13px; flex: none; }
+.tk-answer-actions-spacer { flex: 1; }
+.tk-answer-actions-note { font-size: 12px; color: var(--gray-500); }
 
 /* Streaming caret (1c) */
 .tk-caret {
@@ -458,6 +461,14 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 }
 .tk-trace-status { color: var(--gray-500); }
 .tk-trace-status.running { color: var(--pink-400); font-weight: 600; }
+.tk-trace-count-badge { flex: none; white-space: nowrap; color: var(--gray-500); }
+/* Clickable read_source rows (issue #40) — the row is a button citation. */
+.tk-trace-row-link {
+  width: 100%; height: auto; background: none; border: 0; color: inherit; cursor: pointer;
+}
+.tk-trace-row-link:hover, .tk-trace-row-link.open { background: var(--gray-900); }
+.tk-trace-row-link:focus-visible { outline: 2px solid var(--pink-500); outline-offset: -2px; }
+.tk-trace-source { padding: 2px 12px 10px 28px; }
 
 /* Agent thinking trace (mockup t7). Interleaves thinking steps with the tool
    rows above; header adapts to a "Thinking" / "Thought for Ns" state. */
@@ -482,26 +493,7 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
   white-space: pre-wrap;
 }
 
-/* Sources panel (1a) */
-.tk-sources {
-  width: 340px; flex: none; background: var(--white);
-  border-left: 1px solid var(--gray-700); display: flex; flex-direction: column;
-}
-.tk-sources-header {
-  padding: 14px 16px; border-bottom: 1px solid var(--gray-700);
-  display: flex; align-items: center; gap: 8px;
-}
-.tk-sources-title { font-size: 14px; font-weight: 600; color: var(--gray-200); }
-.tk-sources-count { font-size: 12px; color: var(--gray-500); }
-.tk-sources-spacer { flex: 1; }
-.tk-sources-close {
-  background: none; border: 0; padding: 0; height: auto;
-  font: 400 12px/1 Inter, sans-serif; color: var(--gray-500); cursor: pointer;
-}
-.tk-sources-close:hover { color: var(--gray-300); }
-.tk-sources-close:focus-visible { outline: 2px solid var(--pink-500); outline-offset: 2px; }
-.tk-sources-list { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
-
+/* Inline source preview under a clicked read_source row (issue #40). */
 .tk-source-card { border: 1px solid var(--gray-700); border-radius: var(--radius); overflow: hidden; }
 .tk-source-card-header {
   padding: 8px 12px; background: var(--gray-900); border-bottom: 1px solid var(--gray-700);
