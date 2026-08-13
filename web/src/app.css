@@ -133,11 +133,11 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 .tk-logo-subtitle { font-size: 12px; line-height: 1.2; color: var(--gray-500); }
 
 .tk-nav-item {
-  display: flex; align-items: center; height: 32px; padding: 0 10px;
+  display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px;
   border-radius: var(--radius);
   background: none; border: 0;
   color: var(--gray-300); font: 400 14px/1 Inter, sans-serif;
-  text-align: left; cursor: pointer;
+  text-align: left; cursor: pointer; position: relative;
 }
 .tk-nav-item:hover:not(.active) { background: var(--gray-900); }
 .tk-nav-item.active {
@@ -147,8 +147,48 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
   box-shadow: inset 3px 0 0 var(--pink-500);
 }
 .tk-nav-item:focus-visible { outline: 2px solid var(--pink-500); outline-offset: -2px; }
+.tk-nav-icon { width: 18px; height: 18px; flex: none; }
+.tk-nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .tk-nav-spacer { flex: 1; }
+
+/* Collapse / expand control (mockup t6). */
+.tk-nav-collapse {
+  display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px;
+  border-radius: var(--radius); background: none; border: 0;
+  color: var(--gray-500); font: 400 12px/1 Inter, sans-serif;
+  text-align: left; cursor: pointer;
+}
+.tk-nav-collapse:hover { background: var(--gray-900); }
+.tk-nav-collapse:focus-visible { outline: 2px solid var(--pink-500); outline-offset: -2px; }
+.tk-nav-collapse .tk-nav-icon { width: 16px; height: 16px; }
+
+/* Collapsed 56px icon rail. */
+.tk-sidebar.collapsed { width: 56px; padding: 16px 8px; }
+.tk-sidebar.collapsed .tk-logo { justify-content: center; }
+.tk-sidebar.collapsed .tk-logo-text { display: none; }
+.tk-sidebar.collapsed .tk-nav-item,
+.tk-sidebar.collapsed .tk-nav-collapse {
+  width: 40px; padding: 0; margin: 0 auto; justify-content: center; gap: 0;
+}
+.tk-sidebar.collapsed .tk-nav-item { height: 40px; }
+.tk-sidebar.collapsed .tk-nav-item.active { color: var(--pink-500); }
+.tk-sidebar.collapsed .tk-nav-collapse-label { display: none; }
+.tk-sidebar.collapsed .tk-account-name,
+.tk-sidebar.collapsed .tk-account-caret { display: none; }
+.tk-sidebar.collapsed .tk-account-trigger { justify-content: center; padding: 6px 0; }
+.tk-sidebar.collapsed .tk-account-menu { left: 8px; right: auto; width: 190px; }
+
+/* Collapsed nav labels become hover tooltips to the right. */
+.tk-sidebar.collapsed .tk-nav-label {
+  position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
+  background: var(--gray-200); color: var(--white);
+  font: 600 12px/1 Inter, sans-serif; padding: 5px 9px; border-radius: var(--radius);
+  white-space: nowrap; box-shadow: 0 4px 12px rgba(18, 15, 26, 0.2);
+  opacity: 0; pointer-events: none; transition: opacity 100ms; z-index: 20;
+}
+.tk-sidebar.collapsed .tk-nav-item:hover .tk-nav-label,
+.tk-sidebar.collapsed .tk-nav-item:focus-visible .tk-nav-label { opacity: 1; }
 
 /* Account footer: a trigger row that opens a popover menu (mockup 5a). */
 .tk-account { position: relative; padding: 8px; border-top: 1px solid var(--gray-700); }
@@ -165,7 +205,6 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
   display: flex; align-items: center; justify-content: center;
   font-size: 12px; font-weight: 600; color: var(--gray-300);
 }
-.tk-account-trigger .tk-avatar { background: var(--pink-500); color: var(--white); }
 .tk-account-name {
   flex: 1; min-width: 0; font-size: 13px; color: var(--gray-100);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
