@@ -41,6 +41,10 @@ def test_system_prompt_contains_corpus_and_citation_rules():
     assert "docs" in p and "Public product documentation" in p
     assert "repo/file_path:line" in p
     assert "could not find this in the knowledge graph" in p
+    # Graph traversal is encouraged for exploration generally, not gated to
+    # explicit "what calls X" questions.
+    assert "LEAN ON THE GRAPH" in p
+    assert "neighbors" in p and "path_between" in p
 
 
 def test_recursion_limit_constant():
