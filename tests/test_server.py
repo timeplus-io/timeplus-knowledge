@@ -291,6 +291,96 @@ def test_chat_streams_error_event():
     assert "model exploded" not in events[-1]["message"]
 
 
+# -- chat audit (support history, #45) --------------------------------------
+
+
+def test_chat_audit_logs_successful_turn():
+    read_args = {
+        "repo": "timeplus-knowledge",
+        "file_path": "src/tpk/server.py",
+        "line_start": 10,
+        "line_end": 20,
+    }
+    agent = FakeAgent(
+        [
+            _tool_end("search_entities", {"query": "q"}, output='[{"id": "a"}, {"id": "b"}]'),
+            _tool("read_source", read_args),
+            _tool_end("read_source", read_args, output="some code"),
+            _tok("Hello "),
+            _tok("world"),
+        ]
+    )
+    records = []
+    client = TestClient(
+        create_app(agent=agent, auth=_StubAuth(), audit_sink=records.append)
+    )
+    resp = client.post("/chat", json={"message": "how does chat work?"})
+    assert resp.status_code == 200
+
+    assert len(records) == 1
+    rec = records[0]
+    assert rec.status == "ok"
+    assert rec.error == ""
+    assert rec.username == "tester"
+    assert rec.question == "how does chat work?"
+    assert rec.answer == "Hello world"
+    assert rec.history_len == 0
+    # Both tool calls captured; search_entities carries its match count.
+    assert [t["name"] for t in rec.tool_calls] == ["search_entities", "read_source"]
+    assert rec.tool_calls[0]["count"] == 2 and rec.tool_calls[0]["unit"] == "matches"
+    # The cited source is captured too.
+    assert len(rec.sources) == 1
+    assert rec.sources[0]["file_path"] == "src/tpk/server.py"
+    # Row serializes to exactly the schema's columns.
+    from tpk.audit import CHAT_AUDIT_COLUMNS
+
+    assert len(rec.to_row()) == len(CHAT_AUDIT_COLUMNS)
+
+
+def test_chat_audit_logs_error_turn():
+    class BoomAgent:
+        async def astream_events(self, _input, version="v2", config=None):
+            raise RuntimeError("model exploded")
+            yield  # pragma: no cover
+
+    records = []
+    client = TestClient(
+        create_app(agent=BoomAgent(), auth=_StubAuth(), audit_sink=records.append)
+    )
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+
+    # Client still gets the error event...
+    assert events[-1]["type"] == "error"
+    # ...and the failed turn is recorded.
+    assert len(records) == 1
+    assert records[0].status == "error"
+    assert records[0].error == "RuntimeError"
+    assert records[0].question == "hi"
+
+
+def test_chat_audit_failure_does_not_break_stream():
+    def boom_sink(_record):
+        raise RuntimeError("audit store down")
+
+    agent = FakeAgent([_tok("Hello")])
+    client = TestClient(
+        create_app(agent=agent, auth=_StubAuth(), audit_sink=boom_sink)
+    )
+    resp = client.post("/chat", json={"message": "hi"})
+    assert resp.status_code == 200
+    events = _parse_sse(resp.text)
+    assert events[-1] == {"type": "done", "text": "Hello", "sources": []}
+
+
+def test_chat_audit_disabled_writes_nothing():
+    # No sink injected and TPK_CHAT_AUDIT=0 (conftest) -> no audit sink built.
+    agent = FakeAgent([_tok("Hello")])
+    client = TestClient(create_app(agent=agent, auth=_StubAuth()))
+    resp = client.post("/chat", json={"message": "hi"})
+    assert resp.status_code == 200
+    assert _parse_sse(resp.text)[-1]["text"] == "Hello"
+
+
 def test_chat_rejects_empty_message():
     client = TestClient(create_app(agent=FakeAgent([]), auth=_StubAuth()))
     assert client.post("/chat", json={"message": ""}).status_code == 422

@@ -9,6 +9,15 @@ requires_timeplus = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def _disable_chat_audit_by_default(monkeypatch):
+    """The /chat handler auto-builds a Timeplus audit sink unless disabled,
+    which would attempt a real DB connect on every chat turn. Unit tests are
+    infra-free, so default it off; tests exercising auditing inject their own
+    sink via create_app(audit_sink=...), which takes precedence over this."""
+    monkeypatch.setenv("TPK_CHAT_AUDIT", "0")
+
+
 @pytest.fixture()
 def tp():
     from tpk.config import Settings
