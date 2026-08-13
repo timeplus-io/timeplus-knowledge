@@ -451,6 +451,29 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 .tk-trace-status { color: var(--gray-500); }
 .tk-trace-status.running { color: var(--pink-400); font-weight: 600; }
 
+/* Agent thinking trace (mockup t7). Interleaves thinking steps with the tool
+   rows above; header adapts to a "Thinking" / "Thought for Ns" state. */
+.tk-trace-collapsed .tk-trace-header { border-bottom: 0; }
+.tk-think-label { color: var(--pink-400); }
+.tk-trace-summary {
+  flex: 1; min-width: 0; font-size: 12px; color: var(--gray-500);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tk-think-bulb { width: 14px; height: 14px; flex: none; color: var(--gray-500); }
+.tk-think-spinner {
+  width: 14px; height: 14px; flex: none; box-sizing: border-box;
+  border: 2px solid var(--gray-700); border-top-color: var(--pink-500);
+  border-radius: 9999px; animation: tk-spin 0.7s linear infinite;
+}
+@keyframes tk-spin { to { transform: rotate(360deg); } }
+.tk-think-block {
+  margin: 8px 12px; padding: 10px 12px;
+  border-left: 3px solid var(--gray-700); border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--gray-900);
+  font-size: 13px; line-height: 1.6; color: var(--gray-500); font-style: italic;
+  white-space: pre-wrap;
+}
+
 /* Sources panel (1a) */
 .tk-sources {
   width: 340px; flex: none; background: var(--white);
