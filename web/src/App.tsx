@@ -6,6 +6,7 @@ import Login from "./Login";
 import Manage from "./Manage";
 import Shell, { type View } from "./Shell";
 import Users from "./Users";
+import ChangePassword from "./ChangePassword";
 import { CAP, type Capability, hasCap } from "./capabilities";
 
 type Me = { username: string; role: string; capabilities: string[] };
@@ -40,18 +41,23 @@ export default function App() {
   // doesn't reappear on a later visit to Chat.
   const [chatPrefill, setChatPrefill] = useState<string | undefined>(undefined);
 
+  // Self-service password change (issue #27), opened from the sidebar account
+  // row; independent of the forced-change flow above.
+  const [changePwOpen, setChangePwOpen] = useState(false);
+
   function askAboutEntity(text: string) {
     setChatPrefill(text);
     setView("chat");
   }
 
   useEffect(() => {
-    onUnauthorized(() => { setMe(null); setPendingChangeUser(null); });
+    onUnauthorized(() => { setMe(null); setPendingChangeUser(null); setChangePwOpen(false); });
     // Centralized in api.ts: fires on a 403 password_change_required from
     // ANY apiFetch call (chat, Manage, Users) — not just chat's send().
     // Uses the setMe functional-updater form to read the current identity
     // without a stale closure over `me`.
     onPasswordChangeRequired(() => {
+      setChangePwOpen(false);
       setMe((prev) => { setPendingChangeUser(prev?.username ?? null); return null; });
     });
   }, []);
@@ -104,6 +110,7 @@ export default function App() {
       setToken(null);
       setMe(null);
       setView("chat");
+      setChangePwOpen(false);
     }
   }
 
@@ -127,7 +134,8 @@ export default function App() {
   }
 
   return (
-    <Shell me={me} view={view} onNavigate={setView} onLogout={logout}>
+    <Shell me={me} view={view} onNavigate={setView} onLogout={logout}
+           onChangePassword={() => setChangePwOpen(true)}>
       {/* Chat stays mounted across nav (unlike Explorer/Manage/Users, which
           are cheap to remount) so its turns state and any in-flight SSE
           stream survive a Chat -> Explorer -> Chat round trip; it's just
@@ -144,6 +152,9 @@ export default function App() {
       ) : view === "users" ? (
         <Users capabilities={me.capabilities} isAdmin={me.role === "admin"} />
       ) : null}
+      {changePwOpen && (
+        <ChangePassword username={me.username} onClose={() => setChangePwOpen(false)} />
+      )}
     </Shell>
   );
 }

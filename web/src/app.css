@@ -150,26 +150,54 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 
 .tk-nav-spacer { flex: 1; }
 
-.tk-account {
-  display: flex; align-items: center; gap: 8px; padding: 10px;
-  border-top: 1px solid var(--gray-700);
+/* Account footer: a trigger row that opens a popover menu (mockup 5a). */
+.tk-account { position: relative; padding: 8px; border-top: 1px solid var(--gray-700); }
+.tk-account-trigger {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  height: auto; background: none; border: 0; border-radius: var(--radius);
+  padding: 6px; cursor: pointer; text-align: left; color: var(--gray-100);
 }
+.tk-account-trigger:hover, .tk-account-trigger.open { background: var(--gray-800); }
+.tk-account-trigger:focus-visible { outline: 2px solid var(--pink-500); outline-offset: 2px; }
 .tk-avatar {
   width: 24px; height: 24px; flex: none;
   background: var(--gray-800); border-radius: 9999px;
   display: flex; align-items: center; justify-content: center;
   font-size: 12px; font-weight: 600; color: var(--gray-300);
 }
+.tk-account-trigger .tk-avatar { background: var(--pink-500); color: var(--white); }
 .tk-account-name {
   flex: 1; min-width: 0; font-size: 13px; color: var(--gray-100);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.tk-logout {
-  background: none; border: 0; padding: 0; cursor: pointer;
-  font: 400 12px/1 Inter, sans-serif; color: var(--pink-400);
+.tk-account-caret { flex: none; font-size: 11px; color: var(--gray-500); }
+.tk-account-menu {
+  position: absolute; left: 8px; right: 8px; bottom: 100%; margin-bottom: 6px;
+  background: var(--white); border: 1px solid var(--gray-700); border-radius: var(--radius);
+  box-shadow: 0 6px 16px rgba(18, 15, 26, 0.16);
+  display: flex; flex-direction: column; padding: 4px; z-index: 10;
 }
-.tk-logout:hover { text-decoration: underline; }
-.tk-logout:focus-visible { outline: 2px solid var(--pink-500); outline-offset: 2px; }
+.tk-account-menu-header {
+  padding: 8px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--gray-700);
+}
+.tk-account-menu-name { font-size: 13px; font-weight: 600; color: var(--gray-100); }
+.tk-account-menu-role { font: 600 11px/1.4 ui-monospace, Menlo, monospace; color: var(--pink-400); }
+.tk-account-menu-item {
+  display: flex; align-items: center; height: 32px; width: 100%;
+  padding: 0 10px; background: none; border: 0; border-radius: var(--radius);
+  cursor: pointer; text-align: left; font: 400 13px/1 Inter, sans-serif; color: var(--gray-100);
+}
+.tk-account-menu-item:hover { background: var(--gray-800); }
+.tk-account-menu-item-danger { color: var(--red-500); }
+
+/* New-password strength meter (mockup 5b). */
+.tk-strength { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+.tk-strength-track {
+  flex: 1; height: 4px; background: var(--gray-700); border-radius: 9999px; overflow: hidden;
+}
+.tk-strength-fill { height: 100%; background: var(--pink-500); transition: width 120ms ease; }
+.tk-strength-label { flex: none; font-size: 12px; color: var(--gray-500); }
+.tk-form-hint strong { color: var(--gray-200); font-weight: 600; }
 
 .tk-content {
   flex: 1; min-width: 0; min-height: 0;
