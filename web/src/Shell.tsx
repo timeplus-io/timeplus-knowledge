@@ -141,6 +141,7 @@ export default function Shell({
             className={menuOpen ? "tk-account-trigger open" : "tk-account-trigger"}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
+            aria-label={`Account menu for ${me.username}`}
             onClick={() => setMenuOpen((v) => !v)}
           >
             <div className="tk-avatar">{me.username.slice(0, 1).toUpperCase()}</div>
