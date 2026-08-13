@@ -64,6 +64,16 @@ def _think(text):
     return {"event": "on_chat_model_stream", "data": {"chunk": Chunk()}}
 
 
+def _reason(text):
+    """A chunk carrying OpenAI-compatible reasoning (gpt-oss/DeepSeek/Qwen):
+    reasoning on additional_kwargs, empty content."""
+    class Chunk:
+        content = ""
+        additional_kwargs = {"reasoning": text}
+
+    return {"event": "on_chat_model_stream", "data": {"chunk": Chunk()}}
+
+
 def _tool(name, inp):
     return {"event": "on_tool_start", "name": name, "data": {"input": inp}}
 
@@ -113,6 +123,20 @@ def test_chat_streams_thinking_interleaved_with_tools():
     think_before = [i for i, e in enumerate(events) if e["type"] == "thinking" and i < tool_idx]
     assert len(think_before) == 2
     assert events[-1] == {"type": "done", "text": "The view replays.", "sources": []}
+
+
+def test_chat_streams_openai_reasoning_as_thinking():
+    """OpenAI-compatible reasoning (additional_kwargs.reasoning) is surfaced as
+    thinking events, same as Anthropic thinking blocks."""
+    agent = FakeAgent([
+        _reason("91 = 7*13, so "), _reason("it's composite."),
+        _tok("91 is not prime."),
+    ])
+    client = TestClient(create_app(agent=agent, auth=_StubAuth()))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+    assert [e["text"] for e in events if e["type"] == "thinking"] == [
+        "91 = 7*13, so ", "it's composite."]
+    assert events[-1] == {"type": "done", "text": "91 is not prime.", "sources": []}
 
 
 def test_chat_no_thinking_emits_no_thinking_events():
