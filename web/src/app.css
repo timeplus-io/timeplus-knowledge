@@ -155,7 +155,7 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
   border-top: 1px solid var(--gray-700);
 }
 .tk-account-row { display: flex; align-items: center; gap: 8px; }
-.tk-account-actions { display: flex; gap: 12px; padding-left: 32px; }
+.tk-account-actions { display: flex; gap: 12px; }
 .tk-account-link {
   background: none; border: 0; padding: 0; cursor: pointer;
   font: 400 12px/1 Inter, sans-serif; color: var(--gray-500);
