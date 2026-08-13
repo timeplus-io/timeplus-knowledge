@@ -56,6 +56,14 @@ def _tok(text):
     return {"event": "on_chat_model_stream", "data": {"chunk": Chunk()}}
 
 
+def _think(text):
+    """A chunk whose content is an Anthropic-style thinking block."""
+    class Chunk:
+        content = [{"type": "thinking", "thinking": text}]
+
+    return {"event": "on_chat_model_stream", "data": {"chunk": Chunk()}}
+
+
 def _tool(name, inp):
     return {"event": "on_tool_start", "name": name, "data": {"input": inp}}
 
@@ -83,6 +91,37 @@ def test_chat_streams_tokens_tools_and_done():
     assert {"type": "tool", "name": "search_entities", "input": {"query": "q"}} in events
     assert {"type": "token", "text": "Hello "} in events
     assert events[-1] == {"type": "done", "text": "Hello world", "sources": []}
+
+
+def test_chat_streams_thinking_interleaved_with_tools():
+    """Thinking deltas are surfaced as `thinking` events, interleaved with
+    tool calls in stream order; the answer text is unaffected."""
+    agent = FakeAgent([
+        _think("Two candidate causes. "), _think("Checking the coordinator. "),
+        _tool("search_entities", {"query": "checkpoint"}),
+        _think("Confirmed the resume point. "),
+        _tok("The view "), _tok("replays."),
+    ])
+    client = TestClient(create_app(agent=agent, auth=_StubAuth()))
+    resp = client.post("/chat", json={"message": "hi"})
+    events = _parse_sse(resp.text)
+    thinking = [e for e in events if e["type"] == "thinking"]
+    assert [e["text"] for e in thinking] == [
+        "Two candidate causes. ", "Checking the coordinator. ", "Confirmed the resume point. "]
+    # order preserved: first two thinking events precede the tool event
+    tool_idx = next(i for i, e in enumerate(events) if e["type"] == "tool")
+    think_before = [i for i, e in enumerate(events) if e["type"] == "thinking" and i < tool_idx]
+    assert len(think_before) == 2
+    assert events[-1] == {"type": "done", "text": "The view replays.", "sources": []}
+
+
+def test_chat_no_thinking_emits_no_thinking_events():
+    """Models that don't expose thinking (str content) produce no thinking
+    events — the stream is exactly as before."""
+    agent = FakeAgent([_tok("Plain answer.")])
+    client = TestClient(create_app(agent=agent, auth=_StubAuth()))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+    assert not [e for e in events if e["type"] == "thinking"]
 
 
 def test_chat_emits_source_event_and_done_sources():

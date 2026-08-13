@@ -45,6 +45,21 @@ def _chunk_text(chunk) -> str:
     return ""
 
 
+def _chunk_thinking(chunk) -> str:
+    """Extract reasoning/thinking deltas from a model stream chunk. Anthropic
+    emits `thinking` content blocks when extended thinking is enabled and the
+    model/endpoint exposes readable thinking text; models that don't (or that
+    return redacted thinking) yield nothing here, so the caller emits no
+    thinking events and the UI is unchanged."""
+    content = getattr(chunk, "content", "")
+    if isinstance(content, list):
+        return "".join(
+            b.get("thinking", "") for b in content
+            if isinstance(b, dict) and b.get("type") == "thinking"
+        )
+    return ""
+
+
 def _build_kg_and_repos():
     """Production path: one shared `KnowledgeGraph` (+ the parsed repo
     config it needs) built up front in `create_app`, reused by both the
@@ -166,7 +181,15 @@ def create_app(agent=None, stream_prefix: str = "", auth=None, kg=None) -> FastA
                     ):
                         kind = event.get("event")
                         if kind == "on_chat_model_stream":
-                            text = _chunk_text(event["data"]["chunk"])
+                            chunk = event["data"]["chunk"]
+                            # Reasoning deltas (when the model exposes them)
+                            # stream ahead of the answer text and interleave
+                            # with tool calls in event order — the UI groups
+                            # consecutive deltas into a thinking step.
+                            thinking = _chunk_thinking(chunk)
+                            if thinking:
+                                yield _sse({"type": "thinking", "text": thinking})
+                            text = _chunk_text(chunk)
                             if text:
                                 full.append(text)
                                 yield _sse({"type": "token", "text": text})
