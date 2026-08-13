@@ -86,7 +86,7 @@ function newAssistantTurn(): Turn {
 const SUGGESTED_QUESTIONS = [
   { question: "How do materialized view checkpoints work?", meta: "architecture · proton" },
   { question: "What does the Helm chart set for timeplusd resources?", meta: "deployment · helm-charts" },
-  { question: "How do I create an external stream to Kafka?", meta: "usage · docs" },
+  { question: "How do I create an external stream to read from Kafka?", meta: "usage · docs" },
   { question: "Trace the call path from HTTP insert to nativelog write", meta: "code path · proton" },
 ];
 
