@@ -13,6 +13,31 @@ from tpk.config import AgentConfig, RepoConfig, entry_key
 _PLACEHOLDER_KEY = "placeholder-gateway-key"
 
 
+class _ReasoningChatOpenAI(ChatOpenAI):
+    """ChatOpenAI that preserves the non-standard `reasoning` /
+    `reasoning_content` streaming delta field.
+
+    Base ChatOpenAI targets the official OpenAI spec and deliberately drops
+    that field, but OpenAI-compatible reasoning models (gpt-oss, DeepSeek,
+    Qwen, Kimi, ...) stream their chain-of-thought there. We re-attach it to
+    the chunk's `additional_kwargs["reasoning"]` so the server can surface it
+    as a thinking event (see server._chunk_thinking). Verified against the
+    Bedrock gateway: gpt-oss-120b streams reasoning as `delta.reasoning`.
+    """
+
+    def _convert_chunk_to_generation_chunk(self, chunk, default_chunk_class, base_generation_info):
+        gen = super()._convert_chunk_to_generation_chunk(
+            chunk, default_chunk_class, base_generation_info)
+        if gen is not None:
+            choices = chunk.get("choices") or chunk.get("chunk", {}).get("choices") or []
+            if choices:
+                delta = choices[0].get("delta") or {}
+                reasoning = delta.get("reasoning") or delta.get("reasoning_content")
+                if reasoning:
+                    gen.message.additional_kwargs["reasoning"] = reasoning
+        return gen
+
+
 def build_chat_model(cfg: AgentConfig):
     if cfg.provider == "anthropic":
         return ChatAnthropic(
@@ -24,11 +49,13 @@ def build_chat_model(cfg: AgentConfig):
     # For reasoning models (gpt-oss et al): "low" keeps output on the content
     # channel instead of flooding the reasoning channel and ending with an
     # empty final message. Unset -> parameter not sent (non-reasoning models
-    # like qwen reject or ignore it).
+    # like qwen reject or ignore it). NOTE: with reasoning surfaced to the
+    # thinking panel, a non-"low" effort now feeds that panel — the empty-final
+    # -message risk is separately handled by the on_chat_model_end fallback.
     effort = os.environ.get("TPK_AGENT_REASONING_EFFORT")
     if effort:
         kwargs["reasoning_effort"] = effort
-    return ChatOpenAI(
+    return _ReasoningChatOpenAI(
         model=cfg.model,
         base_url=os.environ.get("OPENAI_BASE_URL") or None,
         api_key=os.environ.get("OPENAI_API_KEY") or _PLACEHOLDER_KEY,

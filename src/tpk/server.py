@@ -46,11 +46,22 @@ def _chunk_text(chunk) -> str:
 
 
 def _chunk_thinking(chunk) -> str:
-    """Extract reasoning/thinking deltas from a model stream chunk. Anthropic
-    emits `thinking` content blocks when extended thinking is enabled and the
-    model/endpoint exposes readable thinking text; models that don't (or that
-    return redacted thinking) yield nothing here, so the caller emits no
-    thinking events and the UI is unchanged."""
+    """Extract reasoning/thinking deltas from a model stream chunk.
+
+    Two shapes:
+    - OpenAI-compatible reasoning models (gpt-oss, DeepSeek, Qwen, ...) stream
+      reasoning as a `reasoning` / `reasoning_content` delta field, preserved
+      onto `additional_kwargs` by agent._ReasoningChatOpenAI.
+    - Anthropic emits `thinking` content blocks when extended thinking is
+      enabled and the endpoint exposes readable thinking text.
+
+    Models that expose neither (or that redact thinking) yield nothing, so the
+    caller emits no thinking events and the UI is unchanged."""
+    ak = getattr(chunk, "additional_kwargs", None)
+    if isinstance(ak, dict):
+        reasoning = ak.get("reasoning") or ak.get("reasoning_content")
+        if isinstance(reasoning, str) and reasoning:
+            return reasoning
     content = getattr(chunk, "content", "")
     if isinstance(content, list):
         return "".join(
