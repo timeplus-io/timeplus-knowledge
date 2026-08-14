@@ -1,9 +1,9 @@
 # Multi-stage build for the two deployment modes (issue #48). Two targets:
 #
-#   app       pure-Python tpk (serve + ingest + MCP); no timeplusd. Talks to a
+#   app       pure-Python tpk (serve + ingest + MCP); no DB. Talks to a
 #             separate DB over the network (TIMEPLUS_HOST). Small.
-#   allinone  timeplusd + tpk in one container (serve + toolkit). For tests /
-#             quick local runs.
+#   allinone  OSS proton + tpk in one container (serve + toolkit), fully
+#             open-source, TPK_DB_BACKEND=proton. For tests / quick local runs.
 #
 # Build a specific image with --target, e.g.:
 #   docker build -f deploy/docker/Dockerfile --target app      -t timeplus/tpk-app:dev .
@@ -61,9 +61,11 @@ ENTRYPOINT ["tpk"]
 CMD ["serve", "--host", "0.0.0.0", "--port", "8000"]
 
 # ============================================================================
-# Target: allinone  — timeplusd + tpk in one container (serve + toolkit).
+# Target: allinone  — OSS proton + tpk in one container (serve + toolkit).
+# Fully open-source: bundles proton (not Enterprise timeplusd) and runs the
+# agent against it via TPK_DB_BACKEND=proton (versioned_kv keyed streams).
 # ============================================================================
-FROM docker.timeplus.com/timeplus/timeplusd:latest AS allinone
+FROM ghcr.io/timeplus-io/proton:latest AS allinone
 USER root
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
@@ -72,11 +74,13 @@ COPY --from=pybuild /opt/uv/python /opt/uv/python
 COPY --from=pybuild /opt/tpk /opt/tpk
 COPY --from=webbuild /web/dist /opt/tpk/web/dist
 COPY deploy/docker/repos.container.toml /opt/tpk/repos.toml
-COPY deploy/timeplusd-dev/small-segments.yaml /etc/timeplusd-server/config.d/small-segments.yaml
+# proton preallocates nativelog segments too; the same dev override applies
+# (data.datastore.log keys are identical), just under proton's config dir.
+COPY deploy/timeplusd-dev/small-segments.yaml /etc/proton-server/config.d/small-segments.yaml
 COPY deploy/docker/render-users.sh /usr/local/bin/render-users.sh
 COPY deploy/docker/allinone-entrypoint.sh /usr/local/bin/allinone-entrypoint.sh
 RUN chmod +x /usr/local/bin/render-users.sh /usr/local/bin/allinone-entrypoint.sh \
-    && chmod u+w /etc/timeplusd-server/users.d \
+    && chmod u+w /etc/proton-server/users.d \
     && printf '#!/bin/sh\nPATH=/opt/tpk/.venv/bin:$PATH exec /opt/tpk/.venv/bin/tpk "$@"\n' > /usr/local/bin/tpk \
     && printf '#!/bin/sh\nPATH=/opt/tpk/.venv/bin:$PATH exec /opt/tpk/.venv/bin/python -m tpk.mcp_server "$@"\n' > /usr/local/bin/tpk-mcp \
     && chmod +x /usr/local/bin/tpk /usr/local/bin/tpk-mcp \
@@ -84,6 +88,7 @@ RUN chmod +x /usr/local/bin/render-users.sh /usr/local/bin/allinone-entrypoint.s
     && chown -R 101:101 /opt/tpk
 ENV TIMEPLUS_HOST=localhost \
     TIMEPLUS_USER=default \
+    TPK_DB_BACKEND=proton \
     PYTHONUNBUFFERED=1 \
     TPK_CHECKOUT_DIR=/opt/tpk/.checkouts
 EXPOSE 8000

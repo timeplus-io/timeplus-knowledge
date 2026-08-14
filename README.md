@@ -51,8 +51,9 @@ Two deployment modes are provided:
   pure-Python `app` container (chat agent + web UI + ingest + MCP).
   Production-shaped: independent lifecycle, DB tracks upstream timeplusd. Swap
   the `db` image line for OSS proton if you prefer.
-- **All-in-one** (`docker-compose.allinone.yml`) — timeplusd + tpk in a single
-  container. For tests, demos, and quick local runs.
+- **All-in-one** (`docker-compose.allinone.yml`) — **OSS proton** + tpk in a
+  single container (fully open-source, `TPK_DB_BACKEND=proton`). For tests,
+  demos, and quick local runs.
 
 <!-- -->
 
@@ -87,9 +88,10 @@ unauthenticated `default` user unless you configure it otherwise.
 ## Docker image (all-in-one)
 
 `deploy/docker/Dockerfile` is multi-stage with two targets (see issue #48):
-`app` (pure-Python tpk, no timeplusd) and `allinone` (timeplusd + tpk in one
-container — the default final stage). The all-in-one image runs timeplusd plus
-`tpk serve` (chat + web UI on :8000) via `deploy/docker/allinone-entrypoint.sh`.
+`app` (pure-Python tpk, no DB) and `allinone` (**OSS proton** + tpk in one
+container — fully open-source, `TPK_DB_BACKEND=proton`, the default final
+stage). The all-in-one image runs proton plus `tpk serve` (chat + web UI on
+:8000) via `deploy/docker/allinone-entrypoint.sh`.
 (The DB + App file's `db` service uses the stock timeplusd image directly — no
 build.)
 

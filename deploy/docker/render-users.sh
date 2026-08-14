@@ -1,13 +1,19 @@
 #!/bin/bash
-# Render a timeplusd users.d override from TIMEPLUS_PASSWORD. Shared by the
-# `db` and `allinone` entrypoints. When TIMEPLUS_PASSWORD is unset (a bare
-# dev container), nothing is rendered and the base image's open `default`
-# user is kept.
+# Render a users.d override from TIMEPLUS_PASSWORD. Shared by the `db` and
+# `allinone` entrypoints, and backend-agnostic: the server config dir is
+# timeplusd's (/etc/timeplusd-server) or proton's (/etc/proton-server). When
+# TIMEPLUS_PASSWORD is unset (a bare dev container), nothing is rendered and
+# the base image's open `default` user is kept.
 set -euo pipefail
 
-if [ -n "${TIMEPLUS_PASSWORD:-}" ]; then
+CFG=
+for d in /etc/timeplusd-server /etc/proton-server; do
+  if [ -d "$d/users.d" ]; then CFG="$d"; break; fi
+done
+
+if [ -n "${TIMEPLUS_PASSWORD:-}" ] && [ -n "$CFG" ]; then
   hash=$(printf %s "$TIMEPLUS_PASSWORD" | sha256sum | awk '{print $1}')
-  cat > /etc/timeplusd-server/users.d/tpk-users.yaml <<EOF
+  cat > "$CFG/users.d/tpk-users.yaml" <<EOF
 users:
     tpk:
         password_sha256_hex: ${hash}
