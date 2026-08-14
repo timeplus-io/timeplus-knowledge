@@ -68,12 +68,12 @@ unauthenticated `default` user unless you configure it otherwise.
 
 ## Docker image (all-in-one)
 
-`deploy/docker/Dockerfile` is multi-stage with three targets (see issue #48):
-`app` (pure-Python tpk, no timeplusd), `db` (stock timeplusd + config/user
-provisioning — optional, for a registry image), and `allinone` (timeplusd +
-tpk in one container — the default final stage). The all-in-one image runs
-timeplusd plus `tpk serve` (chat + web UI on :8000) via
-`deploy/docker/allinone-entrypoint.sh`.
+`deploy/docker/Dockerfile` is multi-stage with two targets (see issue #48):
+`app` (pure-Python tpk, no timeplusd) and `allinone` (timeplusd + tpk in one
+container — the default final stage). The all-in-one image runs timeplusd plus
+`tpk serve` (chat + web UI on :8000) via `deploy/docker/allinone-entrypoint.sh`.
+(The DB + App file's `db` service uses the stock timeplusd image directly — no
+build.)
 
 Two build commands map to the two deployment modes:
 

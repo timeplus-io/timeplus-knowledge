@@ -37,8 +37,6 @@ services:
     # user + password-locked `default`) — are bind-mounted and applied by an
     # entrypoint override, so this tracks upstream timeplusd exactly (bump the
     # tag; no rebuild) and swapping to OSS proton is a one-line image change.
-    # (A self-contained, registry-pushable DB image is still available via the
-    # Dockerfile `db` target: `make docker-build-db`.)
     image: docker.timeplus.com/timeplus/timeplusd:latest
     container_name: tpk-db
     entrypoint:

@@ -1,17 +1,16 @@
-# Multi-stage build for the two deployment modes (issue #48). Three targets:
+# Multi-stage build for the two deployment modes (issue #48). Two targets:
 #
 #   app       pure-Python tpk (serve + ingest + MCP); no timeplusd. Talks to a
 #             separate DB over the network (TIMEPLUS_HOST). Small.
-#   db        stock timeplusd + our config + user provisioning; no Python.
 #   allinone  timeplusd + tpk in one container (serve + toolkit). For tests /
 #             quick local runs.
 #
 # Build a specific image with --target, e.g.:
 #   docker build -f deploy/docker/Dockerfile --target app      -t timeplus/tpk-app:dev .
-#   docker build -f deploy/docker/Dockerfile --target db       -t timeplus/tpk-db:dev  .
 #   docker build -f deploy/docker/Dockerfile --target allinone -t timeplus/tpk:dev     .
 #
-# docker-compose.yml selects db + app; docker-compose.allinone.yml selects allinone.
+# docker-compose.yml uses stock timeplusd for its db service (no build) and
+# builds the app target; docker-compose.allinone.yml builds the allinone target.
 
 # --- shared: React chat UI (so runtime images don't need node) ---------------
 FROM node:22-alpine AS webbuild
@@ -62,26 +61,6 @@ ENTRYPOINT ["tpk"]
 CMD ["serve", "--host", "0.0.0.0", "--port", "8000"]
 
 # ============================================================================
-# Target: db  — stock timeplusd + our config + user provisioning. No Python.
-# ============================================================================
-FROM docker.timeplus.com/timeplus/timeplusd:latest AS db
-USER root
-# nativelog small-segments override (2GB/stream preallocation is a disk killer
-# on dev machines).
-COPY deploy/timeplusd-dev/small-segments.yaml /etc/timeplusd-server/config.d/small-segments.yaml
-# Entrypoint renders a users.d override (dedicated `tpk` DB user; `default`
-# password-locked) from TIMEPLUS_PASSWORD before handing off to timeplusd. The
-# base image ships users.d/ read-only even to its owner (UID 101); grant the
-# owner write access so the entrypoint can create the override at runtime.
-COPY deploy/docker/render-users.sh /usr/local/bin/render-users.sh
-COPY deploy/docker/tpk-entrypoint.sh /usr/local/bin/tpk-entrypoint.sh
-RUN chmod +x /usr/local/bin/render-users.sh /usr/local/bin/tpk-entrypoint.sh \
-    && chmod u+w /etc/timeplusd-server/users.d
-ENTRYPOINT ["/usr/local/bin/tpk-entrypoint.sh"]
-# timeplusd's ports (8123 SQL/HTTP, 3218 REST ingest) are declared by the base.
-USER 101:101
-
-# ============================================================================
 # Target: allinone  — timeplusd + tpk in one container (serve + toolkit).
 # ============================================================================
 FROM docker.timeplus.com/timeplus/timeplusd:latest AS allinone
@@ -95,10 +74,8 @@ COPY --from=webbuild /web/dist /opt/tpk/web/dist
 COPY deploy/docker/repos.container.toml /opt/tpk/repos.toml
 COPY deploy/timeplusd-dev/small-segments.yaml /etc/timeplusd-server/config.d/small-segments.yaml
 COPY deploy/docker/render-users.sh /usr/local/bin/render-users.sh
-COPY deploy/docker/tpk-entrypoint.sh /usr/local/bin/tpk-entrypoint.sh
 COPY deploy/docker/allinone-entrypoint.sh /usr/local/bin/allinone-entrypoint.sh
-RUN chmod +x /usr/local/bin/render-users.sh /usr/local/bin/tpk-entrypoint.sh \
-        /usr/local/bin/allinone-entrypoint.sh \
+RUN chmod +x /usr/local/bin/render-users.sh /usr/local/bin/allinone-entrypoint.sh \
     && chmod u+w /etc/timeplusd-server/users.d \
     && printf '#!/bin/sh\nPATH=/opt/tpk/.venv/bin:$PATH exec /opt/tpk/.venv/bin/tpk "$@"\n' > /usr/local/bin/tpk \
     && printf '#!/bin/sh\nPATH=/opt/tpk/.venv/bin:$PATH exec /opt/tpk/.venv/bin/python -m tpk.mcp_server "$@"\n' > /usr/local/bin/tpk-mcp \

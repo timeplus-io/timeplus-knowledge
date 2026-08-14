@@ -105,9 +105,6 @@ docker-build-app: ## Build the tpk app-only image (pure-Python; no timeplusd)
 
 docker-build: docker-build-allinone docker-build-app ## Build both deployable images
 
-docker-build-db: ## (optional) Build a self-contained timeplusd db image for a registry
-	docker build -f deploy/docker/Dockerfile --target db -t timeplus/tpk-db:dev .
-
 # --- hygiene -----------------------------------------------------------------
 
 clean: ## Remove local scratch (graphify output, __pycache__)
@@ -117,4 +114,4 @@ clean: ## Remove local scratch (graphify output, __pycache__)
 .PHONY: help sync db-up db-down db-logs test test-unit ingest ingest-repo \
         status mcp mcp-register serve web-build web-dev up down compose-ingest \
         compose-status up-allinone down-allinone docker-build-allinone \
-        docker-build-app docker-build docker-build-db clean
+        docker-build-app docker-build clean
