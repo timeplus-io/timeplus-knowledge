@@ -90,16 +90,23 @@ up-allinone: ## Start the single-container all-in-one stack
 down-allinone: ## Stop the all-in-one stack (named data volumes are kept)
 	docker compose -f $(ALLINONE) down
 
-# --- docker image builds (per target) ----------------------------------------
+# --- docker image builds -----------------------------------------------------
+# Two images map to the two deployment modes:
+#   all-in-one image  -> all-in-one mode (timeplusd + tpk in one container)
+#   app image         -> DB + App mode   (the db service uses stock timeplusd)
 
-docker-build-app: ## Build the app image (pure-Python tpk; no timeplusd)
-	docker build -f deploy/docker/Dockerfile --target app -t timeplus/tpk-app:dev .
+APP_IMAGE ?= timeplus/tpk-app:dev
 
-docker-build-db: ## Build the db image (stock timeplusd + config/user provisioning)
-	docker build -f deploy/docker/Dockerfile --target db -t timeplus/tpk-db:dev .
-
-docker-build: ## Build the all-in-one image (timeplusd + tpk)
+docker-build-allinone: ## Build the all-in-one image (timeplusd + tpk)
 	docker build -f deploy/docker/Dockerfile --target allinone -t $(IMAGE) .
+
+docker-build-app: ## Build the tpk app-only image (pure-Python; no timeplusd)
+	docker build -f deploy/docker/Dockerfile --target app -t $(APP_IMAGE) .
+
+docker-build: docker-build-allinone docker-build-app ## Build both deployable images
+
+docker-build-db: ## (optional) Build a self-contained timeplusd db image for a registry
+	docker build -f deploy/docker/Dockerfile --target db -t timeplus/tpk-db:dev .
 
 # --- hygiene -----------------------------------------------------------------
 
@@ -109,5 +116,5 @@ clean: ## Remove local scratch (graphify output, __pycache__)
 
 .PHONY: help sync db-up db-down db-logs test test-unit ingest ingest-repo \
         status mcp mcp-register serve web-build web-dev up down compose-ingest \
-        compose-status up-allinone down-allinone docker-build-app \
-        docker-build-db docker-build clean
+        compose-status up-allinone down-allinone docker-build-allinone \
+        docker-build-app docker-build docker-build-db clean

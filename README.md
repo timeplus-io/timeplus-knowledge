@@ -70,13 +70,22 @@ unauthenticated `default` user unless you configure it otherwise.
 
 `deploy/docker/Dockerfile` is multi-stage with three targets (see issue #48):
 `app` (pure-Python tpk, no timeplusd), `db` (stock timeplusd + config/user
-provisioning), and `allinone` (timeplusd + tpk in one container — the default
-final stage). The all-in-one image runs timeplusd plus `tpk serve` (chat + web
-UI on :8000) via `deploy/docker/allinone-entrypoint.sh`. Repo checkouts are
-mounted at `/repos` (paths come from the baked-in
-`deploy/docker/repos.container.toml`).
+provisioning — optional, for a registry image), and `allinone` (timeplusd +
+tpk in one container — the default final stage). The all-in-one image runs
+timeplusd plus `tpk serve` (chat + web UI on :8000) via
+`deploy/docker/allinone-entrypoint.sh`.
 
-    docker build -f deploy/docker/Dockerfile --target allinone -t timeplus/tpk:dev .
+Two build commands map to the two deployment modes:
+
+    make docker-build-allinone   # all-in-one image  -> all-in-one mode
+    make docker-build-app        # tpk app-only image -> DB + App mode
+    make docker-build            # both
+
+Equivalently, `docker build -f deploy/docker/Dockerfile --target <allinone|app> -t <tag> .`.
+Repo checkouts are mounted at `/repos` (paths come from the baked-in
+`deploy/docker/repos.container.toml`):
+
+    make docker-build-allinone
     docker run -d --name tpk -p 8000:8000 -p 8123:8123 -p 3218:3218 \
       -v ~/Code/timeplus:/repos:ro timeplus/tpk:dev
 
