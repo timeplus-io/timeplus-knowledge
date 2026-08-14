@@ -8,6 +8,8 @@ import time
 from contextvars import ContextVar
 from pathlib import Path
 
+from tpk import db
+
 # Per-request cap on which corpus entry keys are queryable. `None` means
 # unrestricted (admin chat, MCP server, CLI). Set/reset by the /chat
 # handler for non-admin users; langchain-core's executor copies the
@@ -139,7 +141,7 @@ class KnowledgeGraph:
             clauses.append("repo IN %(active_repos)s")
             params["active_repos"] = active or ["__none__"]
         rows = self._query_rows(
-            f"SELECT {', '.join(NODE_FIELDS)} FROM table({self.prefix}kg_nodes)"
+            f"SELECT {', '.join(NODE_FIELDS)} FROM {db.latest(f'{self.prefix}kg_nodes')}"
             f" WHERE {' AND '.join(clauses)}",
             parameters=params,
         )
@@ -164,7 +166,7 @@ class KnowledgeGraph:
             clauses.append("repo IN %(active_repos)s")
             params["active_repos"] = active or ["__none__"]
         rows = self._query_rows(
-            f"SELECT {', '.join(EDGE_FIELDS)} FROM table({self.prefix}kg_edges)"
+            f"SELECT {', '.join(EDGE_FIELDS)} FROM {db.latest(f'{self.prefix}kg_edges')}"
             f" WHERE {' AND '.join(clauses)}",
             parameters=params,
         )
@@ -204,7 +206,7 @@ class KnowledgeGraph:
 
         def _run(where_clauses, order):
             return self._query_rows(
-                f"SELECT {', '.join(NODE_FIELDS)} FROM table({self.prefix}kg_nodes)"
+                f"SELECT {', '.join(NODE_FIELDS)} FROM {db.latest(f'{self.prefix}kg_nodes')}"
                 f" WHERE {' AND '.join(where_clauses)}"
                 f" ORDER BY {order} LIMIT %(limit)s",
                 parameters=params,
@@ -327,7 +329,7 @@ class KnowledgeGraph:
         clause = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self._query_rows(
             f"SELECT repo, community, count() AS node_count"
-            f" FROM table({self.prefix}kg_nodes){clause}"
+            f" FROM {db.latest(f'{self.prefix}kg_nodes')}{clause}"
             " GROUP BY repo, community ORDER BY node_count DESC",
             parameters=params,
         )

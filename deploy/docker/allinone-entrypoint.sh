@@ -1,18 +1,19 @@
 #!/bin/bash
-# All-in-one entrypoint: run timeplusd AND `tpk serve` in one container.
+# All-in-one entrypoint: run the DB (OSS proton) AND `tpk serve` in one
+# container.
 #
-# Starts timeplusd in the background (via the base image's entrypoint), waits
-# for its SQL HTTP port to answer, then runs the chat server in the
-# foreground. The container exits (and the other process is stopped) as soon
-# as either process exits, and SIGTERM/SIGINT are forwarded to both so
-# `docker stop` shuts down cleanly. Intended for tests / quick local runs;
-# the DB + App compose file is the production shape.
+# Starts the DB in the background (via the base image's entrypoint), waits for
+# its SQL HTTP port to answer, then runs the chat server in the foreground. The
+# container exits (and the other process is stopped) as soon as either process
+# exits, and SIGTERM/SIGINT are forwarded to both so `docker stop` shuts down
+# cleanly. Intended for tests / quick local runs; the DB + App compose file is
+# the production shape.
 set -euo pipefail
 
 # Same user provisioning as the standalone db image.
 /usr/local/bin/render-users.sh
 
-# timeplusd in the background.
+# DB (proton) in the background.
 /entrypoint.sh &
 TP_PID=$!
 
@@ -23,17 +24,17 @@ shutdown() {
 }
 trap shutdown TERM INT
 
-# Wait for timeplusd to accept HTTP before starting the app. timeplusd answers
+# Wait for the DB to accept HTTP before starting the app. proton answers
 # `/` with 200 once it's up (there is no /ping). Bail early if it dies.
-echo "allinone: waiting for timeplusd on :8123 ..."
+echo "allinone: waiting for proton on :8123 ..."
 for _ in $(seq 1 60); do
   if wget -q -O /dev/null http://localhost:8123/ 2>/dev/null \
      || curl -sf http://localhost:8123/ -o /dev/null 2>/dev/null; then
-    echo "allinone: timeplusd is up"
+    echo "allinone: proton is up"
     break
   fi
   if ! kill -0 "$TP_PID" 2>/dev/null; then
-    echo "allinone: timeplusd exited during startup" >&2
+    echo "allinone: proton exited during startup" >&2
     wait "$TP_PID"
     exit $?
   fi

@@ -10,13 +10,31 @@ code, design, architecture, and devops. See
 web UI, docker image). The underlying steps:
 
 Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), and a running
-Timeplus Enterprise (mutable streams are an Enterprise feature):
+Timeplus — either **Timeplus Enterprise (timeplusd)** or **OSS
+[proton](https://github.com/timeplus-io/proton)** (see [Database
+backend](#database-backend) below):
 
     docker run -d --name timeplusd -p 8123:8123 -p 3218:3218 \
       -v $(pwd)/deploy/timeplusd-dev/small-segments.yaml:/etc/timeplusd-server/config.d/small-segments.yaml:ro \
       docker.timeplus.com/timeplus/timeplusd:latest
     uv sync
     export TIMEPLUS_HOST=localhost TIMEPLUS_USER=default TIMEPLUS_PASSWORD=
+
+### Database backend
+
+`TPK_DB_BACKEND` selects the backend (default `timeplusd`):
+
+- **`timeplusd`** — Timeplus Enterprise. Keyed state (`kg_nodes`, `kg_users`,
+  …) lives in **mutable streams** (upsert by primary key, real `DELETE`).
+- **`proton`** — OSS proton, which has **no mutable streams**. Keyed state uses
+  `versioned_kv` streams plus a `deleted` tombstone column: upserts overwrite
+  by key, `DELETE` becomes a tombstone write, and reads filter it out. Run OSS
+  proton and set `export TPK_DB_BACKEND=proton`:
+
+      docker run -d --name proton -p 8123:8123 ghcr.io/timeplus-io/proton:latest
+
+The choice only changes DDL and delete semantics (localized to `db.py`);
+everything else behaves identically. See issue #50.
 
 The `-v` mount is required on a laptop: the default timeplusd preallocates
 2GB of nativelog per stream shard, which fills a Docker VM's disk fast once
@@ -33,8 +51,9 @@ Two deployment modes are provided:
   pure-Python `app` container (chat agent + web UI + ingest + MCP).
   Production-shaped: independent lifecycle, DB tracks upstream timeplusd. Swap
   the `db` image line for OSS proton if you prefer.
-- **All-in-one** (`docker-compose.allinone.yml`) — timeplusd + tpk in a single
-  container. For tests, demos, and quick local runs.
+- **All-in-one** (`docker-compose.allinone.yml`) — **OSS proton** + tpk in a
+  single container (fully open-source, `TPK_DB_BACKEND=proton`). For tests,
+  demos, and quick local runs.
 
 <!-- -->
 
@@ -69,9 +88,10 @@ unauthenticated `default` user unless you configure it otherwise.
 ## Docker image (all-in-one)
 
 `deploy/docker/Dockerfile` is multi-stage with two targets (see issue #48):
-`app` (pure-Python tpk, no timeplusd) and `allinone` (timeplusd + tpk in one
-container — the default final stage). The all-in-one image runs timeplusd plus
-`tpk serve` (chat + web UI on :8000) via `deploy/docker/allinone-entrypoint.sh`.
+`app` (pure-Python tpk, no DB) and `allinone` (**OSS proton** + tpk in one
+container — fully open-source, `TPK_DB_BACKEND=proton`, the default final
+stage). The all-in-one image runs proton plus `tpk serve` (chat + web UI on
+:8000) via `deploy/docker/allinone-entrypoint.sh`.
 (The DB + App file's `db` service uses the stock timeplusd image directly — no
 build.)
 

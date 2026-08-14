@@ -1,13 +1,69 @@
-"""Timeplus client factory and knowledge-graph schema DDL."""
+"""Timeplus client factory and knowledge-graph schema DDL.
+
+Two DB backends are supported (issue #50), selected by TPK_DB_BACKEND:
+- "timeplusd" (default) — Timeplus Enterprise: keyed state lives in MUTABLE
+  STREAMs (upsert by PK, real DELETE, latest-state table() reads).
+- "proton" — OSS: no MUTABLE STREAM. Keyed state uses `versioned_kv` streams
+  (upsert by PK, table() = latest-per-key) plus a `deleted` tombstone column;
+  DELETE becomes a tombstone upsert and reads filter `deleted = 0`.
+
+The per-backend differences are localized to three helpers here — keyed-stream
+DDL (in ensure_schema), `latest()` (read source), and `delete()` — so call
+sites elsewhere stay backend-agnostic. Plain inserts are identical on both
+(the `deleted` column defaults to 0), and the two append-only streams
+(kg_ingest_log, chat_audit_log) are unchanged.
+"""
 
 import logging
 import time
 
 import timeplus_connect
 
-from tpk.config import Settings
+from tpk.config import Settings, db_backend
 
 logger = logging.getLogger(__name__)
+
+
+def _keyed_stream(prefix: str, name: str, columns: list[str], pk: str) -> str:
+    """DDL for a keyed (upsertable, latest-state) stream, per backend."""
+    cols = ",\n          ".join(columns)
+    if db_backend() == "proton":
+        return (
+            f"CREATE STREAM IF NOT EXISTS {prefix}{name} (\n"
+            f"          {cols},\n"
+            f"          deleted uint8 DEFAULT 0\n"
+            f"        ) PRIMARY KEY ({pk}) SETTINGS mode='versioned_kv'"
+        )
+    return (
+        f"CREATE MUTABLE STREAM IF NOT EXISTS {prefix}{name} (\n"
+        f"          {cols}\n"
+        f"        ) PRIMARY KEY ({pk})"
+    )
+
+
+def latest(stream: str) -> str:
+    """FROM-source SQL for a latest-state read of a keyed stream (full name,
+    prefix included). On proton, wraps table() to hide soft-deleted rows."""
+    if db_backend() == "proton":
+        return f"(SELECT * FROM table({stream}) WHERE deleted = 0)"
+    return f"table({stream})"
+
+
+def delete(client, stream: str, where: str, parameters: dict, pk: tuple[str, ...]) -> None:
+    """Delete rows from a keyed stream. Real DELETE on timeplusd; on proton
+    (versioned_kv has no DELETE) tombstone the matching live rows by upserting
+    their primary keys with deleted=1, which reads then filter out."""
+    if db_backend() != "proton":
+        client.command(f"DELETE FROM {stream} WHERE {where}", parameters=parameters)
+        return
+    pk_cols = ", ".join(pk)
+    rows = client.query(
+        f"SELECT {pk_cols} FROM table({stream}) WHERE deleted = 0 AND ({where})",
+        parameters=parameters,
+    ).result_rows
+    if not rows:
+        return
+    client.insert(stream, [[*r, 1] for r in rows], column_names=[*pk, "deleted"])
 
 
 def get_client(settings: Settings):
@@ -64,32 +120,18 @@ def _add_column_if_missing(client, stream: str, column: str, col_type: str) -> N
 
 
 def ensure_schema(client, prefix: str = "") -> None:
-    client.command(f"""
-        CREATE MUTABLE STREAM IF NOT EXISTS {prefix}kg_nodes (
-          id string,
-          repo string,
-          kind string,
-          name string,
-          qualified_name string,
-          file_path string,
-          line_start uint32,
-          line_end uint32,
-          summary string,
-          community string,
-          visibility string,
-          updated_at datetime64(3, 'UTC')
-        ) PRIMARY KEY (id)
-    """)
-    client.command(f"""
-        CREATE MUTABLE STREAM IF NOT EXISTS {prefix}kg_edges (
-          src string,
-          dst string,
-          rel string,
-          confidence string,
-          repo string,
-          updated_at datetime64(3, 'UTC')
-        ) PRIMARY KEY (src, dst, rel)
-    """)
+    # Keyed (upsertable, latest-state) streams -- MUTABLE on timeplusd,
+    # versioned_kv + `deleted` tombstone on proton (see _keyed_stream).
+    client.command(_keyed_stream(prefix, "kg_nodes", [
+        "id string", "repo string", "kind string", "name string",
+        "qualified_name string", "file_path string", "line_start uint32",
+        "line_end uint32", "summary string", "community string",
+        "visibility string", "updated_at datetime64(3, 'UTC')",
+    ], pk="id"))
+    client.command(_keyed_stream(prefix, "kg_edges", [
+        "src string", "dst string", "rel string", "confidence string",
+        "repo string", "updated_at datetime64(3, 'UTC')",
+    ], pk="src, dst, rel"))
     client.command(f"""
         CREATE STREAM IF NOT EXISTS {prefix}kg_ingest_log (
           repo string,
@@ -100,52 +142,29 @@ def ensure_schema(client, prefix: str = "") -> None:
           status string
         )
     """)
-    client.command(f"""
-        CREATE MUTABLE STREAM IF NOT EXISTS {prefix}kg_repos (
-          name string,
-          ref string,
-          github string,
-          path string,
-          enabled bool,
-          visibility string,
-          extraction string,
-          description string,
-          updated_at datetime64(3, 'UTC')
-        ) PRIMARY KEY (name, ref)
-    """)
-    client.command(f"""
-        CREATE MUTABLE STREAM IF NOT EXISTS {prefix}kg_users (
-          username string,
-          password_hash string,
-          role string,
-          must_change_password bool,
-          disabled bool,
-          created_at datetime64(3, 'UTC'),
-          updated_at datetime64(3, 'UTC')
-        ) PRIMARY KEY (username)
-    """)
-    client.command(f"""
-        CREATE MUTABLE STREAM IF NOT EXISTS {prefix}kg_roles (
-          name string,
-          entry_keys string,
-          capabilities string,
-          description string,
-          updated_at datetime64(3, 'UTC')
-        ) PRIMARY KEY (name)
-    """)
+    client.command(_keyed_stream(prefix, "kg_repos", [
+        "name string", "ref string", "github string", "path string",
+        "enabled bool", "visibility string", "extraction string",
+        "description string", "updated_at datetime64(3, 'UTC')",
+    ], pk="name, ref"))
+    client.command(_keyed_stream(prefix, "kg_users", [
+        "username string", "password_hash string", "role string",
+        "must_change_password bool", "disabled bool",
+        "created_at datetime64(3, 'UTC')", "updated_at datetime64(3, 'UTC')",
+    ], pk="username"))
+    client.command(_keyed_stream(prefix, "kg_roles", [
+        "name string", "entry_keys string", "capabilities string",
+        "description string", "updated_at datetime64(3, 'UTC')",
+    ], pk="name"))
     # Backfill for deployments whose kg_roles predates the capabilities
     # column (CREATE ... IF NOT EXISTS won't add it to an existing stream).
     # Existing role rows keep an empty cell, which auth._parse_capabilities
     # reads as the chat-only migration default.
     _add_column_if_missing(client, f"{prefix}kg_roles", "capabilities", "string")
-    client.command(f"""
-        CREATE MUTABLE STREAM IF NOT EXISTS {prefix}kg_sessions (
-          token_hash string,
-          username string,
-          expires_at datetime64(3, 'UTC'),
-          created_at datetime64(3, 'UTC')
-        ) PRIMARY KEY (token_hash)
-    """)
+    client.command(_keyed_stream(prefix, "kg_sessions", [
+        "token_hash string", "username string",
+        "expires_at datetime64(3, 'UTC')", "created_at datetime64(3, 'UTC')",
+    ], pk="token_hash"))
     # Append-only support-history audit log: one row per chat turn (question,
     # answer, and the tool calls made). Not MUTABLE -- like kg_ingest_log, we
     # want the full event history, not a keyed latest-state view.

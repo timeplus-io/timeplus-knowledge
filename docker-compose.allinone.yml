@@ -1,7 +1,9 @@
-# All-in-one deployment: timeplusd + tpk (chat agent + web UI + toolkit) in a
-# single container. Good for tests, demos, and quick local runs — one command,
-# no inter-container networking. For a production-shaped deployment (separate
-# DB and App containers), use the default file instead: `docker compose up -d`.
+# All-in-one deployment: OSS proton + tpk (chat agent + web UI + toolkit) in a
+# single container — fully open-source, runs the agent with TPK_DB_BACKEND=proton
+# (baked into the image). Good for tests, demos, and quick local runs — one
+# command, no inter-container networking. For a production-shaped deployment
+# (separate DB and App containers, Enterprise timeplusd), use the default file
+# instead: `docker compose up -d`.
 #
 #   cp .env.example .env   # put your API keys + GITHUB_TOKEN there
 #   docker compose -f docker-compose.allinone.yml up -d
@@ -22,13 +24,12 @@ services:
     ports:
       - "8000:8000"   # chat agent + web UI
       - "8123:8123"   # SQL over HTTP (ClickHouse-compatible)
-      - "3218:3218"   # REST ingest API
     volumes:
-      - tpk-data:/var/lib/timeplusd
+      - tpk-data:/var/lib/proton
       - tpk-checkouts:/opt/tpk/.checkouts
     environment:
-      # TIMEPLUS_HOST defaults to localhost in the image (serve talks to the
-      # timeplusd running in this same container).
+      # TIMEPLUS_HOST defaults to localhost and TPK_DB_BACKEND=proton is baked
+      # into the image (serve talks to the proton running in this container).
       TIMEPLUS_PASSWORD: ${TIMEPLUS_PASSWORD:?TIMEPLUS_PASSWORD must be set in .env}
       TIMEPLUS_USER: tpk
       TPK_AGENT_PROVIDER: ${TPK_AGENT_PROVIDER:-}
