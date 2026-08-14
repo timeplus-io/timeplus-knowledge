@@ -13,6 +13,8 @@ from datetime import datetime, timedelta, timezone
 from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError
 
+from tpk import db
+
 ROLE_ADMIN = "admin"
 SEED_USERNAME = "admin"
 SEED_PASSWORD = "changeme"
@@ -143,7 +145,7 @@ def upsert_user(client, user: User, prefix: str = "") -> None:
 def get_user(client, username: str, prefix: str = "") -> User | None:
     rows = client.query(
         f"SELECT username, password_hash, role, must_change_password, disabled"
-        f" FROM table({prefix}kg_users) WHERE username = %(u)s",
+        f" FROM {db.latest(f'{prefix}kg_users')} WHERE username = %(u)s",
         parameters={"u": username},
     ).result_rows
     if not rows:
@@ -155,21 +157,19 @@ def get_user(client, username: str, prefix: str = "") -> User | None:
 def list_users(client, prefix: str = "") -> list[User]:
     rows = client.query(
         f"SELECT username, password_hash, role, must_change_password, disabled"
-        f" FROM table({prefix}kg_users) ORDER BY username"
+        f" FROM {db.latest(f'{prefix}kg_users')} ORDER BY username"
     ).result_rows
     return [User(u, h, r, bool(mc), bool(dis)) for u, h, r, mc, dis in rows]
 
 
 def delete_user(client, username: str, prefix: str = "") -> None:
-    client.command(
-        f"DELETE FROM {prefix}kg_users WHERE username = %(u)s",
-        parameters={"u": username},
-    )
+    db.delete(client, f"{prefix}kg_users", "username = %(u)s",
+              {"u": username}, ("username",))
 
 
 def admin_count(client, prefix: str = "") -> int:
     rows = client.query(
-        f"SELECT count() FROM table({prefix}kg_users)"
+        f"SELECT count() FROM {db.latest(f'{prefix}kg_users')}"
         f" WHERE role = %(r)s AND NOT disabled",
         parameters={"r": ROLE_ADMIN},
     ).result_rows
@@ -201,7 +201,7 @@ def upsert_role(client, role: Role, prefix: str = "") -> None:
 
 def get_role(client, name: str, prefix: str = "") -> Role | None:
     rows = client.query(
-        f"SELECT name, entry_keys, capabilities, description FROM table({prefix}kg_roles)"
+        f"SELECT name, entry_keys, capabilities, description FROM {db.latest(f'{prefix}kg_roles')}"
         f" WHERE name = %(n)s",
         parameters={"n": name},
     ).result_rows
@@ -213,7 +213,7 @@ def get_role(client, name: str, prefix: str = "") -> Role | None:
 
 def list_roles(client, prefix: str = "") -> list[Role]:
     rows = client.query(
-        f"SELECT name, entry_keys, capabilities, description FROM table({prefix}kg_roles)"
+        f"SELECT name, entry_keys, capabilities, description FROM {db.latest(f'{prefix}kg_roles')}"
         f" ORDER BY name"
     ).result_rows
     return [Role(n, json.loads(k) if k else [], d, _parse_capabilities(c))
@@ -221,15 +221,12 @@ def list_roles(client, prefix: str = "") -> list[Role]:
 
 
 def delete_role(client, name: str, prefix: str = "") -> None:
-    client.command(
-        f"DELETE FROM {prefix}kg_roles WHERE name = %(n)s",
-        parameters={"n": name},
-    )
+    db.delete(client, f"{prefix}kg_roles", "name = %(n)s", {"n": name}, ("name",))
 
 
 def usernames_with_role(client, name: str, prefix: str = "") -> list[str]:
     rows = client.query(
-        f"SELECT username FROM table({prefix}kg_users) WHERE role = %(r)s"
+        f"SELECT username FROM {db.latest(f'{prefix}kg_users')} WHERE role = %(r)s"
         f" ORDER BY username",
         parameters={"r": name},
     ).result_rows
@@ -256,7 +253,7 @@ def create_session(client, username: str, ttl_seconds: int, prefix: str = "") ->
 def get_session(client, token: str, prefix: str = "") -> str | None:
     h = _token_hash(token)
     rows = client.query(
-        f"SELECT username, expires_at FROM table({prefix}kg_sessions)"
+        f"SELECT username, expires_at FROM {db.latest(f'{prefix}kg_sessions')}"
         f" WHERE token_hash = %(h)s",
         parameters={"h": h},
     ).result_rows
@@ -264,29 +261,25 @@ def get_session(client, token: str, prefix: str = "") -> str | None:
         return None
     username, expires_at = rows[0]
     if expires_at.replace(tzinfo=timezone.utc) < _now():
-        client.command(
-            f"DELETE FROM {prefix}kg_sessions WHERE token_hash = %(h)s",
-            parameters={"h": h},
-        )
+        db.delete(client, f"{prefix}kg_sessions", "token_hash = %(h)s",
+                  {"h": h}, ("token_hash",))
         return None
     return username
 
 
 def delete_session(client, token: str, prefix: str = "") -> None:
-    client.command(
-        f"DELETE FROM {prefix}kg_sessions WHERE token_hash = %(h)s",
-        parameters={"h": _token_hash(token)},
-    )
+    db.delete(client, f"{prefix}kg_sessions", "token_hash = %(h)s",
+              {"h": _token_hash(token)}, ("token_hash",))
 
 
 def delete_user_sessions(client, username: str, prefix: str = "",
                          keep_token: str | None = None) -> None:
-    sql = f"DELETE FROM {prefix}kg_sessions WHERE username = %(u)s"
+    where = "username = %(u)s"
     params = {"u": username}
     if keep_token is not None:
-        sql += " AND token_hash != %(k)s"
+        where += " AND token_hash != %(k)s"
         params["k"] = _token_hash(keep_token)
-    client.command(sql, parameters=params)
+    db.delete(client, f"{prefix}kg_sessions", where, params, ("token_hash",))
 
 
 # -- HTTP layer ------------------------------------------------------------

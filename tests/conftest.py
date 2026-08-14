@@ -29,3 +29,38 @@ def tp():
     db.ensure_schema(client, prefix)
     yield client, prefix
     db.drop_schema(client, prefix)
+
+
+# Backend-parametrized integration fixture (#50). Each backend is exercised
+# against its own Timeplus instance, addressed by an env var so the two can be
+# distinct servers (timeplusd Enterprise vs OSS proton):
+#   TPK_TEST_TIMEPLUSD_PORT / TPK_TEST_PROTON_PORT  (host localhost, user default)
+# A backend whose port env is unset is skipped, mirroring `requires_timeplus`.
+_BACKEND_ENV = {
+    "timeplusd": "TPK_TEST_TIMEPLUSD_PORT",
+    "proton": "TPK_TEST_PROTON_PORT",
+}
+
+_KG_STREAMS = (
+    "kg_nodes", "kg_edges", "kg_ingest_log", "kg_repos", "kg_users",
+    "kg_roles", "kg_sessions", "chat_audit_log",
+)
+
+
+@pytest.fixture(params=["timeplusd", "proton"])
+def backend_tp(request, monkeypatch):
+    backend = request.param
+    port = os.environ.get(_BACKEND_ENV[backend])
+    if not port:
+        pytest.skip(f"{_BACKEND_ENV[backend]} not set; no {backend} instance to test")
+    monkeypatch.setenv("TPK_DB_BACKEND", backend)
+    from tpk.config import Settings
+    from tpk import db
+
+    host = os.environ.get("TPK_TEST_HOST", "localhost")
+    client = db.get_client(Settings(host=host, user="default", password="", port=int(port)))
+    prefix = f"test_{uuid.uuid4().hex[:6]}_"
+    db.ensure_schema(client, prefix)
+    yield client, prefix, backend
+    for name in _KG_STREAMS:
+        client.command(f"DROP STREAM IF EXISTS {prefix}{name}")

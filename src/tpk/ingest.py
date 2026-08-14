@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from tpk import db
 from tpk.config import RepoConfig, entry_key
 from tpk.fetch import fetch_github_repo
 from tpk.graphify_runner import parse_graph_json, run_graphify
@@ -41,11 +42,10 @@ def upsert_graph(
         # explicitly.
         repos = {n.repo for n in nodes} | {e.repo for e in edges}
     for repo in repos:
-        for stream in ("kg_nodes", "kg_edges"):
-            client.command(
-                f"DELETE FROM {prefix}{stream} WHERE repo = %(r)s AND updated_at < %(t)s",
-                parameters={"r": repo, "t": run_started_at},
-            )
+        params = {"r": repo, "t": run_started_at}
+        where = "repo = %(r)s AND updated_at < %(t)s"
+        db.delete(client, f"{prefix}kg_nodes", where, params, ("id",))
+        db.delete(client, f"{prefix}kg_edges", where, params, ("src", "dst", "rel"))
 
 
 def _git_sha(repo_path: Path) -> str:

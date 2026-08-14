@@ -10,13 +10,31 @@ code, design, architecture, and devops. See
 web UI, docker image). The underlying steps:
 
 Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), and a running
-Timeplus Enterprise (mutable streams are an Enterprise feature):
+Timeplus — either **Timeplus Enterprise (timeplusd)** or **OSS
+[proton](https://github.com/timeplus-io/proton)** (see [Database
+backend](#database-backend) below):
 
     docker run -d --name timeplusd -p 8123:8123 -p 3218:3218 \
       -v $(pwd)/deploy/timeplusd-dev/small-segments.yaml:/etc/timeplusd-server/config.d/small-segments.yaml:ro \
       docker.timeplus.com/timeplus/timeplusd:latest
     uv sync
     export TIMEPLUS_HOST=localhost TIMEPLUS_USER=default TIMEPLUS_PASSWORD=
+
+### Database backend
+
+`TPK_DB_BACKEND` selects the backend (default `timeplusd`):
+
+- **`timeplusd`** — Timeplus Enterprise. Keyed state (`kg_nodes`, `kg_users`,
+  …) lives in **mutable streams** (upsert by primary key, real `DELETE`).
+- **`proton`** — OSS proton, which has **no mutable streams**. Keyed state uses
+  `versioned_kv` streams plus a `deleted` tombstone column: upserts overwrite
+  by key, `DELETE` becomes a tombstone write, and reads filter it out. Run OSS
+  proton and set `export TPK_DB_BACKEND=proton`:
+
+      docker run -d --name proton -p 8123:8123 ghcr.io/timeplus-io/proton:latest
+
+The choice only changes DDL and delete semantics (localized to `db.py`);
+everything else behaves identically. See issue #50.
 
 The `-v` mount is required on a laptop: the default timeplusd preallocates
 2GB of nativelog per stream shard, which fills a Docker VM's disk fast once

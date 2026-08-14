@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
+from tpk import db
 from tpk.config import RepoConfig, entry_key, load_repos, resolved_repo_path
 
 _COLUMNS = [
@@ -36,7 +37,7 @@ def upsert_entry(client, cfg: RepoConfig, prefix: str = "") -> None:
 
 def list_entries(client, prefix: str = "") -> list[RepoConfig]:
     rows = client.query(
-        f"SELECT {', '.join(_COLUMNS)} FROM table({prefix}kg_repos)"
+        f"SELECT {', '.join(_COLUMNS)} FROM {db.latest(f'{prefix}kg_repos')}"
         " ORDER BY name, ref"
     ).result_rows
     return [_to_cfg(r) for r in rows]
@@ -44,7 +45,7 @@ def list_entries(client, prefix: str = "") -> list[RepoConfig]:
 
 def find_entry(client, name: str, ref: str, prefix: str = "") -> RepoConfig | None:
     rows = client.query(
-        f"SELECT {', '.join(_COLUMNS)} FROM table({prefix}kg_repos)"
+        f"SELECT {', '.join(_COLUMNS)} FROM {db.latest(f'{prefix}kg_repos')}"
         " WHERE name = %(n)s AND ref = %(r)s",
         parameters={"n": name, "r": ref},
     ).result_rows
@@ -65,23 +66,19 @@ def delete_entry(
     cfg = find_entry(client, name, ref, prefix=prefix)
     if cfg is None:
         return False
-    client.command(
-        f"DELETE FROM {prefix}kg_repos WHERE name = %(n)s AND ref = %(r)s",
-        parameters={"n": name, "r": ref},
-    )
+    db.delete(client, f"{prefix}kg_repos", "name = %(n)s AND ref = %(r)s",
+              {"n": name, "r": ref}, ("name", "ref"))
     if purge:
         key = entry_key(cfg)
-        for stream in ("kg_nodes", "kg_edges"):
-            client.command(
-                f"DELETE FROM {prefix}{stream} WHERE repo = %(k)s",
-                parameters={"k": key},
-            )
+        db.delete(client, f"{prefix}kg_nodes", "repo = %(k)s", {"k": key}, ("id",))
+        db.delete(client, f"{prefix}kg_edges", "repo = %(k)s", {"k": key},
+                  ("src", "dst", "rel"))
     return True
 
 
 def enabled_keys(client, prefix: str = "") -> list[str]:
     rows = client.query(
-        f"SELECT name, ref FROM table({prefix}kg_repos) WHERE enabled"
+        f"SELECT name, ref FROM {db.latest(f'{prefix}kg_repos')} WHERE enabled"
         " ORDER BY name, ref"
     ).result_rows
     return [f"{n}@{r}" if r else n for n, r in rows]

@@ -9,6 +9,9 @@ EXTRACTION_MODES = ("code-only", "semantic")
 LLM_BACKENDS = ("auto", "claude", "openai")
 
 
+DB_BACKENDS = ("timeplusd", "proton")
+
+
 @dataclass(frozen=True)
 class Settings:
     host: str
@@ -16,14 +19,34 @@ class Settings:
     password: str
     port: int = 8123
     stream_prefix: str = ""
+    # Backend DB: "timeplusd" (Timeplus Enterprise, mutable streams) or
+    # "proton" (OSS, no mutable streams -> versioned_kv + soft-delete). See #50.
+    backend: str = "timeplusd"
 
     @classmethod
     def from_env(cls) -> "Settings":
+        backend = os.environ.get("TPK_DB_BACKEND", "timeplusd")
+        if backend not in DB_BACKENDS:
+            raise ValueError(
+                f"TPK_DB_BACKEND must be one of {DB_BACKENDS}, got {backend!r}"
+            )
         return cls(
             host=os.environ.get("TIMEPLUS_HOST", "localhost"),
             user=os.environ.get("TIMEPLUS_USER", "default"),
             password=os.environ.get("TIMEPLUS_PASSWORD", ""),
+            backend=backend,
         )
+
+
+def db_backend() -> str:
+    """The configured DB backend, read from the environment. Used by db.py
+    helpers that need it without threading it through every signature."""
+    backend = os.environ.get("TPK_DB_BACKEND", "timeplusd")
+    if backend not in DB_BACKENDS:
+        raise ValueError(
+            f"TPK_DB_BACKEND must be one of {DB_BACKENDS}, got {backend!r}"
+        )
+    return backend
 
 
 @dataclass(frozen=True)
