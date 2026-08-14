@@ -28,9 +28,11 @@ do not use it in production.
 
 Two deployment modes are provided:
 
-- **DB + App** (`docker-compose.yml`, the default) — a stock-timeplusd `db`
-  container plus a pure-Python `app` container (chat agent + web UI + ingest +
-  MCP). Production-shaped: separate images, independent lifecycle.
+- **DB + App** (`docker-compose.yml`, the default) — the **stock timeplusd
+  image** (no build; config + user provisioning bind-mounted) plus a
+  pure-Python `app` container (chat agent + web UI + ingest + MCP).
+  Production-shaped: independent lifecycle, DB tracks upstream timeplusd. Swap
+  the `db` image line for OSS proton if you prefer.
 - **All-in-one** (`docker-compose.allinone.yml`) — timeplusd + tpk in a single
   container. For tests, demos, and quick local runs.
 

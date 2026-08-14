@@ -32,17 +32,29 @@
 
 services:
   db:
-    build:
-      context: .
-      dockerfile: deploy/docker/Dockerfile
-      target: db
-    image: timeplus/tpk-db:dev
+    # Stock timeplusd, no custom build. The two things we add — the dev
+    # small-segments override and the users.d provisioning (dedicated `tpk`
+    # user + password-locked `default`) — are bind-mounted and applied by an
+    # entrypoint override, so this tracks upstream timeplusd exactly (bump the
+    # tag; no rebuild) and swapping to OSS proton is a one-line image change.
+    # (A self-contained, registry-pushable DB image is still available via the
+    # Dockerfile `db` target: `make docker-build-db`.)
+    image: docker.timeplus.com/timeplus/timeplusd:latest
     container_name: tpk-db
+    entrypoint:
+      - /bin/bash
+      - -c
+      # users.d ships read-only even to its owner (UID 101, the runtime user);
+      # the owner can still chmod it. Run render-users via `bash` so the
+      # bind-mounted script needs no execute bit.
+      - "chmod u+w /etc/timeplusd-server/users.d && bash /opt/tpk/render-users.sh && exec /entrypoint.sh"
     ports:
       - "8123:8123"   # SQL over HTTP (ClickHouse-compatible)
       - "3218:3218"   # REST ingest API
     volumes:
       - tpk-data:/var/lib/timeplusd
+      - ./deploy/timeplusd-dev/small-segments.yaml:/etc/timeplusd-server/config.d/small-segments.yaml:ro
+      - ./deploy/docker/render-users.sh:/opt/tpk/render-users.sh:ro
     environment:
       TIMEPLUS_PASSWORD: ${TIMEPLUS_PASSWORD:?TIMEPLUS_PASSWORD must be set in .env}
     restart: unless-stopped
