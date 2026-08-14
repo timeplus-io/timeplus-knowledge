@@ -26,43 +26,63 @@ do not use it in production.
 
 ## Docker compose (quickest start)
 
+Two deployment modes are provided:
+
+- **DB + App** (`docker-compose.yml`, the default) — a stock-timeplusd `db`
+  container plus a pure-Python `app` container (chat agent + web UI + ingest +
+  MCP). Production-shaped: separate images, independent lifecycle.
+- **All-in-one** (`docker-compose.allinone.yml`) — timeplusd + tpk in a single
+  container. For tests, demos, and quick local runs.
+
+<!-- -->
+
     cp .env.example .env        # add ANTHROPIC_API_KEY / OPENAI_API_KEY, and
                                  # set TIMEPLUS_PASSWORD (see below)
+
+    # DB + App (default):
     docker compose up -d        # or: make up
-    docker compose exec tpk tpk ingest
-    claude mcp add timeplus-knowledge -- docker compose exec -T tpk tpk-mcp
+    docker compose exec app tpk ingest
+    claude mcp add timeplus-knowledge -- docker compose exec -T app tpk-mcp
+
+    # …or all-in-one (single container):
+    docker compose -f docker-compose.allinone.yml up -d   # or: make up-allinone
+    docker compose -f docker-compose.allinone.yml exec tpk tpk ingest
+
     open http://localhost:8000  # log in as admin / changeme (forced change)
 
-`.env` (gitignored) carries the LLM keys for semantic extraction and an
-optional `REPOS_MOUNT` override; graph data lives in the named volume
-`tpk-data` and survives `docker compose down`.
+`.env` (gitignored) carries the LLM keys for semantic extraction; graph data
+lives in the named volume `tpk-data` and survives `docker compose down`.
 
 **`TIMEPLUS_PASSWORD` is required** — `docker compose up` fails fast without
-it. It provisions two DB users on the `tpk` service: a dedicated `tpk` user
-(used by both the `tpk` and `agent` services to talk to timeplusd) and the
-built-in `default` user, locked to the same password rather than left with
-the base image's empty password. Both services authenticate as `tpk`, not
-`default`; use `TIMEPLUS_USER=tpk TIMEPLUS_PASSWORD=...` if you connect to
-the compose stack's DB directly (`uv run tpk status`, manual SQL, `pytest`).
+it. It provisions two DB users: a dedicated `tpk` user (used by the app to
+talk to timeplusd) and the built-in `default` user, locked to the same
+password rather than left with the base image's empty password. The app
+authenticates as `tpk`, not `default`; use `TIMEPLUS_USER=tpk
+TIMEPLUS_PASSWORD=...` if you connect to the compose stack's DB directly
+(`uv run tpk status`, manual SQL, `pytest`).
 This only applies inside docker compose — a bare `timeplusd` container
 started per the [Setup](#setup) section above still runs with the
 unauthenticated `default` user unless you configure it otherwise.
 
 ## Docker image (all-in-one)
 
-`deploy/docker/Dockerfile` builds a single image on top of the Timeplus
-Enterprise image: timeplusd runs unchanged as the main process, with the
-`tpk` CLI, the `graphify` extractor, a Python 3.11 venv, and the
-small-segments override baked in. Repo checkouts are mounted at `/repos`
-(paths come from the baked-in `deploy/docker/repos.container.toml`).
+`deploy/docker/Dockerfile` is multi-stage with three targets (see issue #48):
+`app` (pure-Python tpk, no timeplusd), `db` (stock timeplusd + config/user
+provisioning), and `allinone` (timeplusd + tpk in one container — the default
+final stage). The all-in-one image runs timeplusd plus `tpk serve` (chat + web
+UI on :8000) via `deploy/docker/allinone-entrypoint.sh`. Repo checkouts are
+mounted at `/repos` (paths come from the baked-in
+`deploy/docker/repos.container.toml`).
 
-    docker build -f deploy/docker/Dockerfile -t timeplus/tpk:dev .
-    docker run -d --name tpk -p 8123:8123 -p 3218:3218 \
+    docker build -f deploy/docker/Dockerfile --target allinone -t timeplus/tpk:dev .
+    docker run -d --name tpk -p 8000:8000 -p 8123:8123 -p 3218:3218 \
       -v ~/Code/timeplus:/repos:ro timeplus/tpk:dev
 
     docker exec tpk tpk ingest              # build the graph inside
     docker exec tpk tpk status
     claude mcp add timeplus-knowledge -- docker exec -i tpk tpk-mcp
+
+(The compose files are the easier path — see [Docker compose](#docker-compose-quickest-start).)
 
 For semantic-extraction repos, pass the LLM key at run time:
 `docker run ... -e ANTHROPIC_API_KEY` (or `-e OPENAI_API_KEY`). The
@@ -276,9 +296,9 @@ Local dev:
     make serve         # tpk serve, reads WEB_DIST=web/dist if present
     make web-dev       # Vite dev server with hot reload, proxies /chat to :8000
 
-Via docker compose, the `agent` service builds the same image as `tpk`
-(the web build stage runs during `docker compose build`) and runs `tpk serve`
-against the `tpk` service's database:
+Via docker compose (DB + App), the `app` service builds the `app` image (the
+web build stage runs during `docker compose build`) and runs `tpk serve`
+against the `db` service's database:
 
     docker compose up -d
     open http://localhost:8000

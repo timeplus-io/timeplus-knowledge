@@ -1,94 +1,86 @@
-# All-in-one Timeplus knowledge stack: timeplusd + tpk toolkit in one service,
-# plus a chat agent + web UI service.
+# DB + App deployment (production-ready): a stock-timeplusd `db` container and
+# a pure-Python `app` container (chat agent + web UI + ingest + MCP). The two
+# talk over the network (TIMEPLUS_HOST: db). This is the recommended shape for
+# anything beyond a quick local run.
+#
+# For a single-container test/local runner, use the all-in-one file instead:
+#   docker compose -f docker-compose.allinone.yml up -d
 #
 #   cp .env.example .env   # put your API keys + GITHUB_TOKEN there
 #   docker compose up -d
-#   docker compose exec tpk tpk ingest
-#   docker compose exec tpk tpk status
-#   claude mcp add timeplus-knowledge -- docker compose exec -T tpk tpk-mcp
+#   docker compose exec app tpk ingest
+#   docker compose exec app tpk status
+#   claude mcp add timeplus-knowledge -- docker compose exec -T app tpk-mcp
 #   open http://localhost:8000   # chat agent + web UI
 #
 # Repos are fetched from GitHub at the tags pinned in repos.toml (the
-# tpk-checkouts volume caches them, shared with the agent so citations can
-# quote source). GITHUB_TOKEN is required for the private repos.
+# tpk-checkouts volume caches them so citations can quote source).
+# GITHUB_TOKEN is required for private repos.
 #
 # Variables (set in .env or the shell):
-#   GITHUB_TOKEN        fetch private corpus repos at their pinned tags; also
-#                       needed by the agent service, which runs ingest/reindex
-#                       jobs submitted through the management API
-#   ANTHROPIC_API_KEY   for semantic extraction with the claude backend; also
-#                       used by the agent service for jobs submitted through
-#                       the management API (same extraction backend/model as
-#                       the tpk service, since ingest can run in either)
-#   OPENAI_API_KEY      for semantic extraction with the openai backend (see
-#                       above: also needed by the agent service)
-#   ANTHROPIC_MODEL     extraction model override (claude backend); needed by
-#                       both services for the same reason as the key above
-#   OPENAI_MODEL        extraction model override (openai backend); ditto
-#   TPK_AGENT_PROVIDER  chat agent LLM backend (anthropic/openai); may differ
-#                       from the extraction backend above
-#   TPK_AGENT_MODEL     chat agent model override
 #   TIMEPLUS_PASSWORD   required; provisions the `tpk` DB user and locks the
 #                       `default` user with the same password
+#   GITHUB_TOKEN        fetch private corpus repos; also used by ingest/reindex
+#                       jobs submitted through the management API
+#   ANTHROPIC_API_KEY   semantic extraction (claude backend) + agent chat
+#   OPENAI_API_KEY      semantic extraction (openai backend) + agent chat
+#   ANTHROPIC_MODEL / OPENAI_MODEL           extraction model overrides
+#   ANTHROPIC_BASE_URL / OPENAI_BASE_URL     custom endpoints / gateways
+#   TPK_AGENT_PROVIDER  chat agent LLM backend (anthropic/openai)
+#   TPK_AGENT_MODEL     chat agent model override
+#   TPK_CHAT_AUDIT      set to 0 to disable chat support-history auditing
 
 services:
-  tpk:
+  db:
     build:
       context: .
       dockerfile: deploy/docker/Dockerfile
-    image: timeplus/tpk:dev
-    container_name: tpk
+      target: db
+    image: timeplus/tpk-db:dev
+    container_name: tpk-db
     ports:
       - "8123:8123"   # SQL over HTTP (ClickHouse-compatible)
       - "3218:3218"   # REST ingest API
     volumes:
       - tpk-data:/var/lib/timeplusd
-      - tpk-checkouts:/opt/tpk/.checkouts
     environment:
       TIMEPLUS_PASSWORD: ${TIMEPLUS_PASSWORD:?TIMEPLUS_PASSWORD must be set in .env}
-      TIMEPLUS_USER: tpk
-      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      # Custom endpoints (self-hosted or gateways, e.g. AWS Bedrock behind
-      # LiteLLM / Bedrock Access Gateway) and model overrides:
-      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
-      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-}
     restart: unless-stopped
-    # timeplusd answers HTTP on `/` (200) before it accepts SQL; the agent
-    # additionally retries the connection (db.connect_with_retry), so this
-    # healthcheck just gates `depends_on` so the agent doesn't start into a
-    # refused connection on `up`. `/ping` is not implemented by timeplusd.
+    # timeplusd answers HTTP on `/` (200) before it accepts SQL; the app also
+    # retries the connection (db.connect_with_retry). This healthcheck gates
+    # `depends_on` so the app doesn't start into a refused connection on `up`.
+    # `/ping` is not implemented by timeplusd. wget-or-curl fallback so a
+    # base-image change dropping either tool can't silently wedge the app.
     healthcheck:
-      # wget-or-curl fallback so a base-image change dropping either tool
-      # can't silently wedge the agent (both ship in the base image today).
       test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8123/ || curl -sf http://localhost:8123/ -o /dev/null || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 30
       start_period: 5s
 
-  agent:
-    image: timeplus/tpk:dev
-    container_name: tpk-agent
+  app:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      target: app
+    image: timeplus/tpk-app:dev
+    container_name: tpk-app
     depends_on:
-      tpk:
+      db:
         condition: service_healthy
-    entrypoint: ["tpk"]
     command: ["serve", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "8000:8000"
     volumes:
       - tpk-checkouts:/opt/tpk/.checkouts
     environment:
-      TIMEPLUS_HOST: tpk
-      TIMEPLUS_PASSWORD: ${TIMEPLUS_PASSWORD:?TIMEPLUS_PASSWORD must be set in .env}
+      TIMEPLUS_HOST: db
       TIMEPLUS_USER: tpk
+      TIMEPLUS_PASSWORD: ${TIMEPLUS_PASSWORD:?TIMEPLUS_PASSWORD must be set in .env}
       TPK_AGENT_PROVIDER: ${TPK_AGENT_PROVIDER:-}
       TPK_AGENT_MODEL: ${TPK_AGENT_MODEL:-}
       TPK_AGENT_REASONING_EFFORT: ${TPK_AGENT_REASONING_EFFORT:-}
+      TPK_CHAT_AUDIT: ${TPK_CHAT_AUDIT:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}

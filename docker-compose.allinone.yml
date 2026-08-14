@@ -1,0 +1,49 @@
+# All-in-one deployment: timeplusd + tpk (chat agent + web UI + toolkit) in a
+# single container. Good for tests, demos, and quick local runs — one command,
+# no inter-container networking. For a production-shaped deployment (separate
+# DB and App containers), use the default file instead: `docker compose up -d`.
+#
+#   cp .env.example .env   # put your API keys + GITHUB_TOKEN there
+#   docker compose -f docker-compose.allinone.yml up -d
+#   docker compose -f docker-compose.allinone.yml exec tpk tpk ingest
+#   docker compose -f docker-compose.allinone.yml exec tpk tpk status
+#   open http://localhost:8000   # chat agent + web UI
+#
+# Variables are the same as the DB + App file (see docker-compose.yml).
+
+services:
+  tpk:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      target: allinone
+    image: timeplus/tpk:dev
+    container_name: tpk
+    ports:
+      - "8000:8000"   # chat agent + web UI
+      - "8123:8123"   # SQL over HTTP (ClickHouse-compatible)
+      - "3218:3218"   # REST ingest API
+    volumes:
+      - tpk-data:/var/lib/timeplusd
+      - tpk-checkouts:/opt/tpk/.checkouts
+    environment:
+      # TIMEPLUS_HOST defaults to localhost in the image (serve talks to the
+      # timeplusd running in this same container).
+      TIMEPLUS_PASSWORD: ${TIMEPLUS_PASSWORD:?TIMEPLUS_PASSWORD must be set in .env}
+      TIMEPLUS_USER: tpk
+      TPK_AGENT_PROVIDER: ${TPK_AGENT_PROVIDER:-}
+      TPK_AGENT_MODEL: ${TPK_AGENT_MODEL:-}
+      TPK_AGENT_REASONING_EFFORT: ${TPK_AGENT_REASONING_EFFORT:-}
+      TPK_CHAT_AUDIT: ${TPK_CHAT_AUDIT:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    restart: unless-stopped
+
+volumes:
+  tpk-data:
+  tpk-checkouts:
