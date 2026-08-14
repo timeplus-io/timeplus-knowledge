@@ -1,0 +1,123 @@
+# Build the two deployment images and push them to Docker Hub (issue #48).
+#
+#   timeplus/tpk-app   app-only image (pure-Python tpk; no timeplusd)  -> App mode
+#   timeplus/tpk       all-in-one image (timeplusd + tpk)              -> all-in-one mode
+#
+# Tags produced: `latest` (main only), the git short SHA, and — on a vX.Y.Z tag —
+# the semver `X.Y.Z` and `X.Y`.
+#
+# Required repository secrets:
+#   DOCKERHUB_USERNAME / DOCKERHUB_TOKEN   Docker Hub creds with push access to
+#                                          the `timeplus` org (a Hub access token).
+# Optional (only if the timeplusd base image needs auth to pull):
+#   TIMEPLUSD_REGISTRY_USERNAME / TIMEPLUSD_REGISTRY_PASSWORD   for docker.timeplus.com
+#
+# Pull requests build the app image as a smoke test but never push.
+
+name: Docker
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    name: app image (timeplus/tpk-app)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: timeplus/tpk-app
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          target: app
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,mode=max,scope=app
+
+  allinone:
+    name: all-in-one image (timeplus/tpk)
+    # Bundles timeplusd from the (possibly private) Timeplus registry, so only
+    # build when we intend to publish — push, tag, or manual — where the
+    # registry secrets are available. PRs skip it.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      TP_REGISTRY_USER: ${{ secrets.TIMEPLUSD_REGISTRY_USERNAME }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to Timeplus registry (base image)
+        if: env.TP_REGISTRY_USER != ''
+        uses: docker/login-action@v3
+        with:
+          registry: docker.timeplus.com
+          username: ${{ secrets.TIMEPLUSD_REGISTRY_USERNAME }}
+          password: ${{ secrets.TIMEPLUSD_REGISTRY_PASSWORD }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: timeplus/tpk
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          target: allinone
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=allinone
+          cache-to: type=gha,mode=max,scope=allinone

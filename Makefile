@@ -5,8 +5,6 @@
 TIMEPLUS_HOST ?= localhost
 IMAGE         ?= timeplus/tpk:dev
 DB_CONTAINER  ?= timeplusd
-TPK_CONTAINER ?= tpk
-REPOS_MOUNT   ?= $(HOME)/Code/timeplus
 REPO          ?=
 
 help: ## Show available targets
@@ -68,31 +66,44 @@ web-build: ## Build the React UI into web/dist
 web-dev: ## Run the Vite dev server (proxies /chat to :8000)
 	cd web && npm install && npm run dev
 
-# --- docker compose ----------------------------------------------------------
+# --- docker compose: DB + App (production-shaped) ----------------------------
 
-up: ## Start the all-in-one stack via docker compose (.env for API keys)
-	docker compose up -d
+up: ## Start the DB + App stack via docker compose (.env for API keys)
+	docker compose up -d --build
 
-down: ## Stop the compose stack (named data volume is kept)
+down: ## Stop the DB + App stack (named data volumes are kept)
 	docker compose down
 
-# --- all-in-one docker image -------------------------------------------------
+compose-ingest: ## Ingest inside the running app container
+	docker compose exec app tpk ingest
 
-docker-build: ## Build the all-in-one image (timeplusd + tpk)
-	docker build -f deploy/docker/Dockerfile -t $(IMAGE) .
+compose-status: ## tpk status inside the running app container
+	docker compose exec app tpk status
 
-docker-run: ## Run the all-in-one image with repos mounted read-only
-	docker run -d --name $(TPK_CONTAINER) -p 8123:8123 -p 3218:3218 \
-	  -v $(REPOS_MOUNT):/repos:ro $(IMAGE)
+# --- docker compose: all-in-one (single container, test/local) ---------------
 
-docker-ingest: ## Ingest inside the running all-in-one container
-	docker exec $(TPK_CONTAINER) tpk ingest
+ALLINONE ?= docker-compose.allinone.yml
 
-docker-status: ## tpk status inside the running all-in-one container
-	docker exec $(TPK_CONTAINER) tpk status
+up-allinone: ## Start the single-container all-in-one stack
+	docker compose -f $(ALLINONE) up -d --build
 
-docker-stop: ## Stop and remove the all-in-one container (DELETES its data volume)
-	docker rm -f -v $(TPK_CONTAINER)
+down-allinone: ## Stop the all-in-one stack (named data volumes are kept)
+	docker compose -f $(ALLINONE) down
+
+# --- docker image builds -----------------------------------------------------
+# Two images map to the two deployment modes:
+#   all-in-one image  -> all-in-one mode (timeplusd + tpk in one container)
+#   app image         -> DB + App mode   (the db service uses stock timeplusd)
+
+APP_IMAGE ?= timeplus/tpk-app:dev
+
+docker-build-allinone: ## Build the all-in-one image (timeplusd + tpk)
+	docker build -f deploy/docker/Dockerfile --target allinone -t $(IMAGE) .
+
+docker-build-app: ## Build the tpk app-only image (pure-Python; no timeplusd)
+	docker build -f deploy/docker/Dockerfile --target app -t $(APP_IMAGE) .
+
+docker-build: docker-build-allinone docker-build-app ## Build both deployable images
 
 # --- hygiene -----------------------------------------------------------------
 
@@ -101,5 +112,6 @@ clean: ## Remove local scratch (graphify output, __pycache__)
 	find . -name __pycache__ -type d -not -path './.venv/*' -prune -exec rm -rf {} +
 
 .PHONY: help sync db-up db-down db-logs test test-unit ingest ingest-repo \
-        status mcp mcp-register serve web-build web-dev up down docker-build \
-        docker-run docker-ingest docker-status docker-stop clean
+        status mcp mcp-register serve web-build web-dev up down compose-ingest \
+        compose-status up-allinone down-allinone docker-build-allinone \
+        docker-build-app docker-build clean

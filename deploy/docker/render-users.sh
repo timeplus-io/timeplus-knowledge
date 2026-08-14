@@ -1,7 +1,8 @@
 #!/bin/bash
-# Renders a users.d override from TIMEPLUS_PASSWORD before starting
-# timeplusd. When the var is unset (bare dev container), nothing is
-# rendered and the base image's open `default` user is kept.
+# Render a timeplusd users.d override from TIMEPLUS_PASSWORD. Shared by the
+# `db` and `allinone` entrypoints. When TIMEPLUS_PASSWORD is unset (a bare
+# dev container), nothing is rendered and the base image's open `default`
+# user is kept.
 set -euo pipefail
 
 if [ -n "${TIMEPLUS_PASSWORD:-}" ]; then
@@ -26,4 +27,3 @@ users:
         password_sha256_hex: ${hash}
 EOF
 fi
-exec /entrypoint.sh "$@"
