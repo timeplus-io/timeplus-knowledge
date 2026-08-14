@@ -19,8 +19,9 @@ class Settings:
     password: str
     port: int = 8123
     stream_prefix: str = ""
-    # Backend DB: "timeplusd" (Timeplus Enterprise, mutable streams) or
-    # "proton" (OSS, no mutable streams -> versioned_kv + soft-delete). See #50.
+    # DB stream-semantics mode: "timeplusd" (mutable streams; requires Timeplus
+    # Enterprise) or "proton" (versioned_kv + soft-delete; runs on OSS proton
+    # AND Enterprise, which supports the full proton feature set). See #50.
     backend: str = "timeplusd"
 
     @classmethod

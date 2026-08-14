@@ -1,11 +1,15 @@
 """Timeplus client factory and knowledge-graph schema DDL.
 
-Two DB backends are supported (issue #50), selected by TPK_DB_BACKEND:
-- "timeplusd" (default) — Timeplus Enterprise: keyed state lives in MUTABLE
-  STREAMs (upsert by PK, real DELETE, latest-state table() reads).
-- "proton" — OSS: no MUTABLE STREAM. Keyed state uses `versioned_kv` streams
-  (upsert by PK, table() = latest-per-key) plus a `deleted` tombstone column;
-  DELETE becomes a tombstone upsert and reads filter `deleted = 0`.
+Two DB backends are supported (issue #50), selected by TPK_DB_BACKEND. These
+name a *stream-semantics mode*, not strictly a server product:
+- "timeplusd" (default) — keyed state lives in MUTABLE STREAMs (upsert by PK,
+  real DELETE, latest-state table() reads). MUTABLE STREAM is a Timeplus
+  Enterprise (timeplusd) feature, so this mode requires Enterprise.
+- "proton" — no MUTABLE STREAM. Keyed state uses `versioned_kv` streams (upsert
+  by PK, table() = latest-per-key) plus a `deleted` tombstone column; DELETE
+  becomes a tombstone upsert and reads filter `deleted = 0`. `versioned_kv` is
+  in OSS proton *and* Enterprise (which supports the full proton feature set),
+  so this mode runs on BOTH — it's the OSS-compatible mode, not proton-only.
 
 The per-backend differences are localized to three helpers here — keyed-stream
 DDL (in ensure_schema), `latest()` (read source), and `delete()` — so call
