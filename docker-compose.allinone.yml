@@ -25,7 +25,12 @@ services:
       - "8000:8000"   # chat agent + web UI
       - "8123:8123"   # SQL over HTTP (ClickHouse-compatible)
     volumes:
-      - tpk-data:/var/lib/proton
+      # Distinct volume from the DB+App file's `tpk-data` (timeplusd). proton
+      # and timeplusd data dirs are NOT interchangeable -- proton can't load a
+      # metastore written by Enterprise timeplusd (bootstrap fails,
+      # CANNOT_LOAD_CONFIG), so the two deployments must not share a data
+      # volume. Same compose project name would otherwise collide on `tpk-data`.
+      - tpk-proton-data:/var/lib/proton
       - tpk-checkouts:/opt/tpk/.checkouts
     environment:
       # TIMEPLUS_HOST defaults to localhost and TPK_DB_BACKEND=proton is baked
@@ -36,6 +41,11 @@ services:
       TPK_AGENT_MODEL: ${TPK_AGENT_MODEL:-}
       TPK_AGENT_REASONING_EFFORT: ${TPK_AGENT_REASONING_EFFORT:-}
       TPK_CHAT_AUDIT: ${TPK_CHAT_AUDIT:-}
+      # Semantic-extraction (graphify) backend. `auto` is ambiguous when both
+      # API keys are set (picks claude), so set this to openai|claude to choose.
+      # The model comes from OPENAI_MODEL / ANTHROPIC_MODEL (graphify reads them).
+      TPK_EXTRACTION_BACKEND: ${TPK_EXTRACTION_BACKEND:-}
+      TPK_EXTRACTION_MODEL: ${TPK_EXTRACTION_MODEL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
@@ -46,5 +56,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  tpk-data:
+  tpk-proton-data:
   tpk-checkouts:

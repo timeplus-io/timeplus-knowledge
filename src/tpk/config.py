@@ -134,12 +134,17 @@ def load_repos(toml_path: Path) -> dict[str, RepoConfig]:
 def load_llm(toml_path: Path) -> LLMConfig:
     data = tomllib.loads(toml_path.read_text())
     llm = data.get("llm", {})
-    backend = llm.get("backend", "auto")
+    # Env overrides win over repos.toml so the extraction backend/model can be
+    # set without rebuilding a baked-in repos.toml (e.g. the all-in-one image).
+    # `auto` picks whichever API key is set, which is ambiguous when both are
+    # exported -- set TPK_EXTRACTION_BACKEND=openai|claude to disambiguate.
+    backend = os.environ.get("TPK_EXTRACTION_BACKEND") or llm.get("backend", "auto")
     if backend not in LLM_BACKENDS:
         raise ValueError(f"llm.backend must be one of {LLM_BACKENDS}, got {backend!r}")
+    model = os.environ.get("TPK_EXTRACTION_MODEL") or llm.get("model", "")
     return LLMConfig(
         backend=backend,
-        model=llm.get("model", ""),
+        model=model,
         token_budget=int(llm.get("token_budget", 0)),
     )
 
