@@ -1,10 +1,13 @@
 # Dev-only override for local timeplusd/proton (do NOT use in production).
 # Two dev conveniences:
 #
-# 1. Shrink nativelog segment preallocation. Default is 2GB preallocated per
-#    stream shard, which fills a laptop Docker VM fast when tests create/drop
-#    many short-lived streams (each stream costs ~6GB across data + system
-#    streams). 64MB non-preallocated keeps local disk sane.
+# 1. Disable nativelog segment preallocation. By default each stream shard
+#    PREallocates a 2GB segment, so a handful of streams costs many GB up
+#    front and fills a laptop Docker VM fast. `preallocate: false` lets
+#    segments grow as data is written instead. Measured across 8 streams:
+#    default preallocation = 27GB; `preallocate: false` = 313MB. (Shrinking
+#    segment_size is unnecessary once preallocation is off — it made no
+#    additional difference — so only the preallocate flag is set here.)
 #
 # 2. Raise the disk-usage guard. Both servers refuse writes once the data
 #    disk exceeds `max_local_disk_usage_ratio` (default 0.9). Dev laptops
@@ -17,6 +20,4 @@ max_local_disk_usage_ratio: 0.98
 data:
     datastore:
         log:
-            segment_size: 67108864 # 64MB (default 2GB)
-            min_size_to_keep: 67108864
             preallocate: false
