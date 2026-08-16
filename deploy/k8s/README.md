@@ -1,15 +1,18 @@
 # Deploying tpk on Kubernetes
 
 Manifests for running the Timeplus knowledge agent (chat agent + web UI +
-ingest + MCP) on Kubernetes, in the same two modes as the docker-compose files:
+ingest + MCP) on Kubernetes, in three modes:
 
 | Mode | File | What runs | Use it for |
 |------|------|-----------|------------|
 | **All-in-one** | [`allinone.yaml`](allinone.yaml) | OSS **proton** + tpk in one pod (`timeplus/tpk` image, `TPK_DB_BACKEND=proton`) | demos, evaluations, single-node clusters — fully open-source, one object to manage |
-| **DB + App** | [`enterprise.yaml`](enterprise.yaml) | stock **Timeplus Enterprise timeplusd** StatefulSet + a separate stateless tpk `app` Deployment | production — independently scalable app, Enterprise mutable-stream backend |
+| **DB + App** | [`enterprise.yaml`](enterprise.yaml) | stock **Timeplus Enterprise timeplusd** StatefulSet + a separate stateless tpk `app` Deployment | production, when tpk should also bring up the DB |
+| **App only** | [`app-only.yaml`](app-only.yaml) | just the tpk `app` Deployment, pointed at an **already-running** Timeplus Enterprise | production, when Timeplus Enterprise is already deployed and managed separately |
 
-Both reference one Secret, [`secret.example.yaml`](secret.example.yaml)
-(`tpk-secrets`), and share the `timeplus-knowledge` namespace.
+All reference one Secret, [`secret.example.yaml`](secret.example.yaml)
+(`tpk-secrets`), and share the `timeplus-knowledge` namespace. Pick **one** mode —
+`enterprise.yaml` and `app-only.yaml` both define the `tpk-app` Deployment/Service,
+so they're alternatives, not layers.
 
 The images are the ones published by [`.github/workflows/docker-publish.yml`](../../.github/workflows/docker-publish.yml):
 `timeplus/tpk-app` (app-only) and `timeplus/tpk` (all-in-one). Pin `:latest` to a
@@ -64,6 +67,38 @@ kubectl -n timeplus-knowledge rollout status statefulset/tpk-db
 kubectl -n timeplus-knowledge rollout status deployment/tpk-app
 ```
 
+## 2c. App only (existing Timeplus Enterprise)
+
+Use this when timeplusd is **already deployed** (its own Helm chart / operator /
+cluster) and you only want to add the agent. First edit `TIMEPLUS_HOST` and
+`TIMEPLUS_USER` in `app-only.yaml` to point at your DB, and make sure
+`TIMEPLUS_PASSWORD` in the Secret is that user's password. Then:
+
+```sh
+kubectl apply -f app-only.yaml
+kubectl -n timeplus-knowledge rollout status deployment/tpk-app
+```
+
+The app connects to timeplusd's SQL-over-HTTP port, which is **fixed at 8123**.
+If your DB is reachable at a different port, or lives outside the cluster, put a
+Service in front of it that exposes 8123 and point `TIMEPLUS_HOST` at that
+Service. For an out-of-cluster host, an `ExternalName` Service works:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: timeplusd
+  namespace: timeplus-knowledge
+spec:
+  type: ExternalName
+  externalName: timeplusd.your-db-host.example.com   # then TIMEPLUS_HOST: timeplusd
+```
+
+Or, to remap the port, a headless Service + an `EndpointSlice` pointing at the
+DB's IP on its real port, exposed as `port: 8123`. The DB user in `TIMEPLUS_USER`
+must already exist on your timeplusd — `app-only.yaml` does not provision users.
+
 ## 3. Build the knowledge graph (ingest)
 
 The corpus is defined in the `repos.toml` baked into the image. Run ingest once
@@ -74,7 +109,7 @@ The corpus is defined in the `repos.toml` baked into the image. Run ingest once
 kubectl -n timeplus-knowledge exec -it tpk-allinone-0 -- tpk ingest
 kubectl -n timeplus-knowledge exec -it tpk-allinone-0 -- tpk status
 
-# DB + App
+# DB + App, or App only
 kubectl -n timeplus-knowledge exec deploy/tpk-app -- tpk ingest
 kubectl -n timeplus-knowledge exec deploy/tpk-app -- tpk status
 ```
@@ -91,7 +126,7 @@ Quickest, no ingress needed:
 ```sh
 # all-in-one
 kubectl -n timeplus-knowledge port-forward svc/tpk-allinone 8000:8000
-# DB + App
+# DB + App, or App only
 kubectl -n timeplus-knowledge port-forward svc/tpk-app 8000:8000
 ```
 

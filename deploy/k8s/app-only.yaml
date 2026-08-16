@@ -1,0 +1,145 @@
+# App-only deployment: the tpk `app` (chat agent + web UI + ingest + MCP)
+# ALONE, connecting to a Timeplus Enterprise (timeplusd) that is ALREADY
+# running — deployed and managed separately (its own Helm chart / operator /
+# existing cluster). Nothing here provisions or runs a database.
+#
+# Use this when you already operate Timeplus Enterprise and just want to add the
+# knowledge agent against it. If you want tpk to bring up its own timeplusd too,
+# use enterprise.yaml instead (DB StatefulSet + app). For a self-contained
+# open-source runner, use allinone.yaml.
+#
+# Before applying, set TIMEPLUS_HOST / TIMEPLUS_USER below to your existing DB
+# (see the two REQUIRED markers), and put that user's password in the Secret:
+#
+#   kubectl create namespace timeplus-knowledge
+#   kubectl -n timeplus-knowledge create secret generic tpk-secrets \
+#     --from-literal=TIMEPLUS_PASSWORD='<password for TIMEPLUS_USER>' \
+#     --from-literal=OPENAI_API_KEY='sk-...' --from-literal=GITHUB_TOKEN='ghp-...'
+#   # edit TIMEPLUS_HOST / TIMEPLUS_USER in this file, then:
+#   kubectl apply -f app-only.yaml
+#   kubectl -n timeplus-knowledge rollout status deployment/tpk-app
+#   kubectl -n timeplus-knowledge exec deploy/tpk-app -- tpk ingest
+#   kubectl -n timeplus-knowledge port-forward svc/tpk-app 8000:8000
+#
+# The app talks to timeplusd's SQL-over-HTTP port, which is fixed at 8123. If
+# your existing DB is reachable on a different port or outside the cluster, put
+# a Service in front of it that exposes 8123 and point TIMEPLUS_HOST at that
+# (see deploy/k8s/README.md → "App only").
+#
+# The DB user must already exist on your timeplusd (this file does NOT run
+# render-users.sh). Timeplus Enterprise deployments commonly expose a `default`
+# or a dedicated user — use whichever you have, with its password in the Secret.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: timeplus-knowledge
+---
+# Persistent cache for github-sourced repo checkouts, shared across app restarts.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tpk-checkouts
+  namespace: timeplus-knowledge
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tpk-app
+  namespace: timeplus-knowledge
+  labels:
+    app: tpk-app
+spec:
+  replicas: 1            # checkouts PVC is ReadWriteOnce; see README to scale out
+  strategy:
+    type: Recreate       # single RWO volume — don't run old+new pods at once
+  selector:
+    matchLabels:
+      app: tpk-app
+  template:
+    metadata:
+      labels:
+        app: tpk-app
+    spec:
+      containers:
+        - name: app
+          image: timeplus/tpk-app:latest      # app-only image (no DB)
+          imagePullPolicy: IfNotPresent
+          command: ["tpk", "serve", "--host", "0.0.0.0", "--port", "8000"]
+          env:
+            # REQUIRED: host of your already-running timeplusd (SQL port 8123).
+            # An in-cluster Service DNS name, or an ExternalName / plain host for
+            # a DB outside the cluster.
+            - name: TIMEPLUS_HOST
+              value: "timeplusd.CHANGEME.svc.cluster.local"
+            # REQUIRED: a DB user that already exists on that timeplusd; its
+            # password goes in the tpk-secrets Secret (TIMEPLUS_PASSWORD).
+            - name: TIMEPLUS_USER
+              value: "tpk"
+            # Enterprise timeplusd -> `timeplusd` backend (mutable streams).
+            - name: TPK_DB_BACKEND
+              value: "timeplusd"
+            # The DB is already up; a short connect-retry covers transient blips.
+            - name: TPK_DB_WAIT_SECONDS
+              value: "120"
+            # Optional chat-agent overrides:
+            # - name: TPK_AGENT_PROVIDER
+            #   value: "anthropic"
+            # - name: TPK_AGENT_MODEL
+            #   value: "claude-sonnet-5"
+            # - name: TPK_EXTRACTION_BACKEND
+            #   value: "openai"
+          # TIMEPLUS_PASSWORD + API keys + GITHUB_TOKEN from the Secret (names match).
+          envFrom:
+            - secretRef:
+                name: tpk-secrets
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          volumeMounts:
+            - name: checkouts
+              mountPath: /opt/tpk/.checkouts
+      volumes:
+        - name: checkouts
+          persistentVolumeClaim:
+            claimName: tpk-checkouts
+---
+# Access service for the chat agent + web UI — target from Ingress / port-forward.
+apiVersion: v1
+kind: Service
+metadata:
+  name: tpk-app
+  namespace: timeplus-knowledge
+  labels:
+    app: tpk-app
+spec:
+  type: ClusterIP
+  selector:
+    app: tpk-app
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
