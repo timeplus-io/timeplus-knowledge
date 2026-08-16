@@ -21,6 +21,30 @@ backend = "auto"
 # reject oversized request bodies; 16000 stays under the limit.
 token_budget = 16000
 
+# --- Runtime settings ------------------------------------------------------
+# Every key below is also settable via an environment variable, which WINS over
+# the file value (precedence: env var > this file > built-in default). Secrets
+# (TIMEPLUS_PASSWORD, ANTHROPIC_API_KEY, OPENAI_API_KEY, GITHUB_TOKEN) are
+# env-only. In the docker images these are driven by compose env vars, so the
+# keys are left commented here (defaults shown). See README "Configuration".
+
+[db]
+# host         = "localhost"     # env: TIMEPLUS_HOST      (DB+App image sets this to "db")
+# user         = "default"       # env: TIMEPLUS_USER      (images set this to "tpk")
+# backend      = "timeplusd"     # env: TPK_DB_BACKEND     (all-in-one image bakes "proton")
+# stream_prefix = ""             # env: TPK_STREAM_PREFIX
+# wait_seconds = 60              # env: TPK_DB_WAIT_SECONDS
+
+[agent]
+# provider         = ""          # env: TPK_AGENT_PROVIDER
+# model            = ""          # env: TPK_AGENT_MODEL
+# reasoning_effort = ""          # env: TPK_AGENT_REASONING_EFFORT
+
+[server]
+# checkout_dir = "/opt/tpk/.checkouts"  # env: TPK_CHECKOUT_DIR
+# session_ttl  = 86400                  # env: TPK_SESSION_TTL
+# chat_audit   = true                   # env: TPK_CHAT_AUDIT
+
 [repos.proton-enterprise]
 github = "timeplus-io/proton-enterprise"
 ref = "v3.3.1"

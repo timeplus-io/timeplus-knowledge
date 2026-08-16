@@ -1,4 +1,14 @@
-"""Environment settings and corpus (repos.toml) configuration."""
+"""Settings and corpus configuration.
+
+Every non-secret setting is resolvable from BOTH the config TOML and an
+environment variable, with one precedence rule everywhere (issue #54):
+
+    environment variable  >  config-file value  >  built-in default
+
+Secrets (TIMEPLUS_PASSWORD, ANTHROPIC_API_KEY, OPENAI_API_KEY, GITHUB_TOKEN)
+are env-only and never read from the file. The config file is repos.toml (or
+$TPK_CONFIG); its sections are [db], [agent], [llm], [server], and [repos.*].
+"""
 
 import os
 import tomllib
@@ -10,6 +20,45 @@ LLM_BACKENDS = ("auto", "claude", "openai")
 
 
 DB_BACKENDS = ("timeplusd", "proton")
+
+
+def config_path() -> Path:
+    """The config TOML: $TPK_CONFIG if set, else repos.toml at the repo root."""
+    override = os.environ.get("TPK_CONFIG")
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parents[2] / "repos.toml"
+
+
+def _config_data(toml_path: Path | None = None) -> dict:
+    """Parse the config TOML (default: config_path()). Missing/invalid -> {}.
+    Not cached: settings are resolved at startup and tests vary env/file."""
+    p = toml_path or config_path()
+    try:
+        return tomllib.loads(p.read_text()) if p.exists() else {}
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+
+
+def setting(env_name: str, section: str, key: str, default, *,
+            cast=str, toml_path: Path | None = None):
+    """Resolve one setting: env var > config-file [section].key > default.
+
+    Empty string counts as unset for both env and file. `cast` is applied to
+    env/file values (which may be strings); `default` is returned as-is."""
+    raw = os.environ.get(env_name)
+    if raw not in (None, ""):
+        return cast(raw)
+    sec = _config_data(toml_path).get(section) or {}
+    val = sec.get(key)
+    if val not in (None, ""):
+        return cast(val)
+    return default
+
+
+def as_bool(v) -> bool:
+    """Cast an env/file value to bool: '0'/'false'/'no'/'off' -> False."""
+    return str(v).strip().lower() not in ("0", "false", "no", "off", "")
 
 
 @dataclass(frozen=True)
@@ -26,26 +75,23 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        backend = os.environ.get("TPK_DB_BACKEND", "timeplusd")
-        if backend not in DB_BACKENDS:
-            raise ValueError(
-                f"TPK_DB_BACKEND must be one of {DB_BACKENDS}, got {backend!r}"
-            )
         return cls(
-            host=os.environ.get("TIMEPLUS_HOST", "localhost"),
-            user=os.environ.get("TIMEPLUS_USER", "default"),
+            host=setting("TIMEPLUS_HOST", "db", "host", "localhost"),
+            user=setting("TIMEPLUS_USER", "db", "user", "default"),
+            # password is a secret: env-only, never read from the config file.
             password=os.environ.get("TIMEPLUS_PASSWORD", ""),
-            backend=backend,
+            stream_prefix=setting("TPK_STREAM_PREFIX", "db", "stream_prefix", ""),
+            backend=db_backend(),
         )
 
 
 def db_backend() -> str:
-    """The configured DB backend, read from the environment. Used by db.py
+    """The configured DB backend (env > [db].backend > default). Used by db.py
     helpers that need it without threading it through every signature."""
-    backend = os.environ.get("TPK_DB_BACKEND", "timeplusd")
+    backend = setting("TPK_DB_BACKEND", "db", "backend", "timeplusd")
     if backend not in DB_BACKENDS:
         raise ValueError(
-            f"TPK_DB_BACKEND must be one of {DB_BACKENDS}, got {backend!r}"
+            f"TPK_DB_BACKEND / [db].backend must be one of {DB_BACKENDS}, got {backend!r}"
         )
     return backend
 
@@ -67,10 +113,11 @@ class RepoConfig:
 
 
 def checkout_root() -> Path:
-    """Cache directory for github-sourced repo checkouts."""
-    return Path(
-        os.environ.get("TPK_CHECKOUT_DIR", str(Path.home() / ".tpk" / "checkouts"))
-    )
+    """Cache directory for github-sourced repo checkouts (env > [server] > default)."""
+    return Path(setting(
+        "TPK_CHECKOUT_DIR", "server", "checkout_dir",
+        str(Path.home() / ".tpk" / "checkouts"),
+    )).expanduser()
 
 
 def resolved_repo_path(cfg: RepoConfig) -> Path:
@@ -159,10 +206,11 @@ class AgentConfig:
 
     @classmethod
     def from_env(cls) -> "AgentConfig":
-        provider = os.environ.get("TPK_AGENT_PROVIDER", "")
+        provider = setting("TPK_AGENT_PROVIDER", "agent", "provider", "")
         if provider and provider not in AGENT_PROVIDERS:
             raise ValueError(
-                f"TPK_AGENT_PROVIDER must be one of {AGENT_PROVIDERS}, got {provider!r}"
+                f"TPK_AGENT_PROVIDER / [agent].provider must be one of "
+                f"{AGENT_PROVIDERS}, got {provider!r}"
             )
         if not provider:
             if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_BASE_URL"):
@@ -171,9 +219,17 @@ class AgentConfig:
                 provider = "openai"
             else:
                 raise ValueError(
-                    "no agent LLM configured: set TPK_AGENT_PROVIDER plus "
-                    "ANTHROPIC_API_KEY/ANTHROPIC_BASE_URL or "
-                    "OPENAI_API_KEY/OPENAI_BASE_URL"
+                    "no agent LLM configured: set TPK_AGENT_PROVIDER (or "
+                    "[agent].provider) plus ANTHROPIC_API_KEY/ANTHROPIC_BASE_URL "
+                    "or OPENAI_API_KEY/OPENAI_BASE_URL"
                 )
         default_model = "claude-sonnet-5" if provider == "anthropic" else "gpt-5.2"
-        return cls(provider=provider, model=os.environ.get("TPK_AGENT_MODEL") or default_model)
+        return cls(
+            provider=provider,
+            model=setting("TPK_AGENT_MODEL", "agent", "model", default_model),
+        )
+
+    @classmethod
+    def reasoning_effort(cls) -> str | None:
+        """Agent reasoning effort (env > [agent].reasoning_effort > unset)."""
+        return setting("TPK_AGENT_REASONING_EFFORT", "agent", "reasoning_effort", None)

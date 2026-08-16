@@ -27,6 +27,30 @@ model = "openai.gpt-oss-120b"
 # reject oversized request bodies; 16000 stays under the limit.
 token_budget = 16000
 
+# --- Runtime settings ------------------------------------------------------
+# Every key below is also settable via an environment variable, which WINS over
+# the file value (precedence: env var > this file > built-in default). Secrets
+# (TIMEPLUS_PASSWORD, ANTHROPIC_API_KEY, OPENAI_API_KEY, GITHUB_TOKEN) are
+# env-only and never read from here. All keys are commented out (defaults shown);
+# uncomment to override. See README "Configuration" for the full matrix.
+
+[db]
+# host         = "localhost"     # env: TIMEPLUS_HOST
+# user         = "default"       # env: TIMEPLUS_USER
+# backend      = "timeplusd"     # env: TPK_DB_BACKEND      ("timeplusd" | "proton")
+# stream_prefix = ""             # env: TPK_STREAM_PREFIX   (namespaces all streams)
+# wait_seconds = 60              # env: TPK_DB_WAIT_SECONDS (serve: DB connect retry budget)
+
+[agent]
+# provider         = ""          # env: TPK_AGENT_PROVIDER  ("anthropic" | "openai"; auto from API keys if unset)
+# model            = ""          # env: TPK_AGENT_MODEL     (default: claude-sonnet-5 / gpt-5.2)
+# reasoning_effort = ""          # env: TPK_AGENT_REASONING_EFFORT (e.g. "low"; OpenAI reasoning models)
+
+[server]
+# checkout_dir = "~/.tpk/checkouts"  # env: TPK_CHECKOUT_DIR (github checkout cache)
+# session_ttl  = 86400               # env: TPK_SESSION_TTL  (login session lifetime, seconds)
+# chat_audit   = true                # env: TPK_CHAT_AUDIT   (false/0 disables chat auditing)
+
 [repos.proton-enterprise]
 github = "timeplus-io/proton-enterprise"
 ref = "v3.3.1"

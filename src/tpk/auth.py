@@ -284,14 +284,14 @@ def delete_user_sessions(client, username: str, prefix: str = "",
 
 # -- HTTP layer ------------------------------------------------------------
 
-import os
-
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
+from tpk.config import setting
+
 
 def _session_ttl() -> int:
-    return int(os.environ.get("TPK_SESSION_TTL", "86400"))
+    return setting("TPK_SESSION_TTL", "server", "session_ttl", 86400, cast=int)
 
 
 def effective_capabilities(user: User, role: Role | None) -> set[str]:

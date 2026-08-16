@@ -52,7 +52,7 @@ def build_chat_model(cfg: AgentConfig):
     # like qwen reject or ignore it). NOTE: with reasoning surfaced to the
     # thinking panel, a non-"low" effort now feeds that panel — the empty-final
     # -message risk is separately handled by the on_chat_model_end fallback.
-    effort = os.environ.get("TPK_AGENT_REASONING_EFFORT")
+    effort = AgentConfig.reasoning_effort()
     if effort:
         kwargs["reasoning_effort"] = effort
     return _ReasoningChatOpenAI(

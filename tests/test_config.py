@@ -2,13 +2,136 @@ from pathlib import Path
 
 import pytest
 
-from tpk.config import Settings, load_llm, load_repos
+from tpk.config import (
+    AgentConfig,
+    Settings,
+    as_bool,
+    checkout_root,
+    db_backend,
+    load_llm,
+    load_repos,
+    setting,
+)
+
+
+# -- env > file > default precedence (issue #54) -----------------------------
+
+
+@pytest.fixture()
+def config_file(tmp_path, monkeypatch):
+    """Point config_path()/setting() at a writable temp TOML via TPK_CONFIG."""
+    path = tmp_path / "config.toml"
+    path.write_text("")
+    monkeypatch.setenv("TPK_CONFIG", str(path))
+    return path
+
+
+def test_setting_prefers_default_when_unset(config_file, monkeypatch):
+    monkeypatch.delenv("TPK_X", raising=False)
+    assert setting("TPK_X", "db", "x", "fallback") == "fallback"
+
+
+def test_setting_reads_file_over_default(config_file, monkeypatch):
+    monkeypatch.delenv("TPK_X", raising=False)
+    config_file.write_text('[db]\nx = "from_file"\n')
+    assert setting("TPK_X", "db", "x", "fallback") == "from_file"
+
+
+def test_setting_env_wins_over_file(config_file, monkeypatch):
+    config_file.write_text('[db]\nx = "from_file"\n')
+    monkeypatch.setenv("TPK_X", "from_env")
+    assert setting("TPK_X", "db", "x", "fallback") == "from_env"
+
+
+def test_setting_empty_env_counts_as_unset(config_file, monkeypatch):
+    config_file.write_text('[db]\nx = "from_file"\n')
+    monkeypatch.setenv("TPK_X", "")
+    assert setting("TPK_X", "db", "x", "fallback") == "from_file"
+
+
+def test_setting_casts_file_and_env(config_file, monkeypatch):
+    config_file.write_text("[db]\nn = 7\n")
+    monkeypatch.delenv("TPK_N", raising=False)
+    assert setting("TPK_N", "db", "n", 0, cast=int) == 7
+    monkeypatch.setenv("TPK_N", "9")
+    assert setting("TPK_N", "db", "n", 0, cast=int) == 9
+
+
+def test_setting_tolerates_missing_or_bad_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("TPK_CONFIG", str(tmp_path / "nope.toml"))
+    monkeypatch.delenv("TPK_X", raising=False)
+    assert setting("TPK_X", "db", "x", "fallback") == "fallback"
+    bad = tmp_path / "bad.toml"
+    bad.write_text("this is = not [ valid toml")
+    monkeypatch.setenv("TPK_CONFIG", str(bad))
+    assert setting("TPK_X", "db", "x", "fallback") == "fallback"
+
+
+def test_as_bool():
+    assert as_bool(True) is True
+    assert as_bool("1") is True and as_bool("true") is True and as_bool("yes") is True
+    assert as_bool(False) is False
+    for falsy in ("0", "false", "False", "no", "off", ""):
+        assert as_bool(falsy) is False
+
+
+def test_db_backend_precedence(config_file, monkeypatch):
+    monkeypatch.delenv("TPK_DB_BACKEND", raising=False)
+    assert db_backend() == "timeplusd"
+    config_file.write_text('[db]\nbackend = "proton"\n')
+    assert db_backend() == "proton"
+    monkeypatch.setenv("TPK_DB_BACKEND", "timeplusd")
+    assert db_backend() == "timeplusd"
+
+
+def test_db_backend_rejects_bad_value(config_file, monkeypatch):
+    monkeypatch.setenv("TPK_DB_BACKEND", "sqlite")
+    with pytest.raises(ValueError):
+        db_backend()
+
+
+def test_settings_reads_db_section_from_file(config_file, monkeypatch):
+    for var in ("TIMEPLUS_HOST", "TIMEPLUS_USER", "TPK_STREAM_PREFIX", "TPK_DB_BACKEND"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.delenv("TIMEPLUS_PASSWORD", raising=False)
+    config_file.write_text(
+        '[db]\nhost = "db.internal"\nuser = "tpk"\nstream_prefix = "p_"\nbackend = "proton"\n'
+    )
+    s = Settings.from_env()
+    assert (s.host, s.user, s.stream_prefix, s.backend) == ("db.internal", "tpk", "p_", "proton")
+    # env still wins over the file
+    monkeypatch.setenv("TIMEPLUS_HOST", "override")
+    assert Settings.from_env().host == "override"
+
+
+def test_checkout_root_precedence(config_file, monkeypatch):
+    monkeypatch.delenv("TPK_CHECKOUT_DIR", raising=False)
+    config_file.write_text('[server]\ncheckout_dir = "/data/checkouts"\n')
+    assert checkout_root() == Path("/data/checkouts")
+    monkeypatch.setenv("TPK_CHECKOUT_DIR", "/env/checkouts")
+    assert checkout_root() == Path("/env/checkouts")
+
+
+def test_agent_config_reads_file(config_file, monkeypatch):
+    for var in ("TPK_AGENT_PROVIDER", "TPK_AGENT_MODEL", "TPK_AGENT_REASONING_EFFORT"):
+        monkeypatch.delenv(var, raising=False)
+    config_file.write_text(
+        '[agent]\nprovider = "openai"\nmodel = "gpt-5.2"\nreasoning_effort = "low"\n'
+    )
+    cfg = AgentConfig.from_env()
+    assert (cfg.provider, cfg.model) == ("openai", "gpt-5.2")
+    assert AgentConfig.reasoning_effort() == "low"
+    # env wins
+    monkeypatch.setenv("TPK_AGENT_MODEL", "gpt-override")
+    assert AgentConfig.from_env().model == "gpt-override"
 
 
 def test_settings_from_env_defaults(monkeypatch):
     monkeypatch.delenv("TIMEPLUS_HOST", raising=False)
     monkeypatch.delenv("TIMEPLUS_USER", raising=False)
     monkeypatch.delenv("TIMEPLUS_PASSWORD", raising=False)
+    monkeypatch.delenv("TPK_STREAM_PREFIX", raising=False)
+    monkeypatch.delenv("TPK_CONFIG", raising=False)
     s = Settings.from_env()
     assert s.host == "localhost"
     assert s.user == "default"

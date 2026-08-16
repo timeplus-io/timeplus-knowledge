@@ -1,17 +1,16 @@
 """tpk command-line interface."""
 
-import os
 from pathlib import Path
 
 import typer
 
 from tpk import corpus, db
-from tpk.config import Settings, entry_key, load_llm
+from tpk.config import Settings, config_path, entry_key, load_llm, setting
 from tpk.ingest import IngestResult, ingest_repo
 
 app = typer.Typer(help="Timeplus knowledge graph toolkit")
 
-REPOS_TOML = Path(__file__).resolve().parents[2] / "repos.toml"
+REPOS_TOML = config_path()
 
 
 @app.command()
@@ -27,7 +26,7 @@ def ingest(
     """Run graphify on repo checkouts and upsert the graph into Timeplus."""
     settings = Settings.from_env()
     client = db.get_client(settings)
-    prefix = os.environ.get("TPK_STREAM_PREFIX", "")
+    prefix = setting("TPK_STREAM_PREFIX", "db", "stream_prefix", "")
     db.ensure_schema(client, prefix)
     corpus.seed_from_toml(client, repos_file, prefix=prefix)
     llm = load_llm(repos_file)
@@ -75,7 +74,7 @@ def export(
     from tpk import transfer
 
     client = db.get_client(Settings.from_env())
-    prefix = os.environ.get("TPK_STREAM_PREFIX", "")
+    prefix = setting("TPK_STREAM_PREFIX", "db", "stream_prefix", "")
     manifest = transfer.export_bundle(client, out, prefix=prefix, fmt=fmt)
     for stream, info in manifest["streams"].items():
         typer.echo(f"{stream:16s} {info['rows']:>9} rows -> {info['file']}")
@@ -93,7 +92,7 @@ def import_bundle(
     from tpk import transfer
 
     client = db.get_client(Settings.from_env())
-    prefix = os.environ.get("TPK_STREAM_PREFIX", "")
+    prefix = setting("TPK_STREAM_PREFIX", "db", "stream_prefix", "")
     manifest = transfer.import_bundle(client, src, prefix=prefix, replace=replace)
     for stream, info in manifest["streams"].items():
         typer.echo(f"{stream:16s} loaded {info['rows']:>9} rows")
@@ -115,7 +114,7 @@ def serve(
     # starts before the DB is ready (see db.connect_with_retry).
     client = db.connect_with_retry(
         Settings.from_env(),
-        timeout_s=float(os.environ.get("TPK_DB_WAIT_SECONDS", "60")),
+        timeout_s=setting("TPK_DB_WAIT_SECONDS", "db", "wait_seconds", 60.0, cast=float),
     )
     db.ensure_schema(client)
     if REPOS_TOML.exists():

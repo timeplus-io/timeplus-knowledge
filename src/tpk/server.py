@@ -2,7 +2,6 @@
 
 import json
 import logging
-import os
 import threading
 import time
 import uuid
@@ -15,6 +14,8 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+
+from tpk.config import as_bool, setting
 
 REPOS_TOML = Path(__file__).resolve().parents[2] / "repos.toml"
 WEB_DIST = Path(__file__).resolve().parents[2] / "web" / "dist"
@@ -142,8 +143,11 @@ def create_app(
 
     # Support-history audit sink: one row per chat turn. Tests inject their
     # own `audit_sink`; production builds a best-effort Timeplus writer unless
-    # TPK_CHAT_AUDIT=0 disables it. A None sink means "don't audit".
-    if audit_sink is None and os.environ.get("TPK_CHAT_AUDIT", "1") != "0":
+    # chat auditing is disabled (TPK_CHAT_AUDIT=0 or [server].chat_audit=false).
+    # A None sink means "don't audit".
+    if audit_sink is None and as_bool(
+        setting("TPK_CHAT_AUDIT", "server", "chat_audit", True)
+    ):
         from tpk import audit, db
         from tpk.config import Settings
 

@@ -46,8 +46,42 @@ versioned_kv semantics). The choice only changes DDL and delete semantics
 The `-v` mount is required on a laptop: the default timeplusd preallocates
 2GB of nativelog per stream shard, which fills a Docker VM's disk fast once
 you have a handful of streams. `deploy/timeplusd-dev/small-segments.yaml`
-overrides this to 64MB segments with no preallocation for local/dev use —
-do not use it in production.
+disables preallocation (segments grow as written) and raises the disk-usage
+guard for local/dev use — do not use it in production.
+
+## Configuration
+
+Every non-secret setting can be set **either** in the config file (`repos.toml`,
+or the file named by `TPK_CONFIG`) **or** via an environment variable. When both
+are present the environment variable wins:
+
+    environment variable  >  config-file value  >  built-in default
+
+Put settings in `[db]`, `[agent]`, and `[server]` sections of the config file
+(the shipped `repos.toml` documents each with its default commented out), or
+export the matching env var — whichever suits your deployment. Secrets are
+**env-only** and never read from the file.
+
+| Env var | File `[section].key` | Default | Purpose |
+|---|---|---|---|
+| `TIMEPLUS_HOST` | `[db].host` | `localhost` | DB host |
+| `TIMEPLUS_USER` | `[db].user` | `default` | DB user |
+| `TPK_DB_BACKEND` | `[db].backend` | `timeplusd` | Stream-semantics mode (`timeplusd`\|`proton`) |
+| `TPK_STREAM_PREFIX` | `[db].stream_prefix` | `` | Namespace prefix for all streams |
+| `TPK_DB_WAIT_SECONDS` | `[db].wait_seconds` | `60` | `serve`: DB connect retry budget |
+| `TPK_AGENT_PROVIDER` | `[agent].provider` | auto | Chat LLM backend (`anthropic`\|`openai`) |
+| `TPK_AGENT_MODEL` | `[agent].model` | per-provider | Chat model override |
+| `TPK_AGENT_REASONING_EFFORT` | `[agent].reasoning_effort` | unset | OpenAI reasoning effort (e.g. `low`) |
+| `TPK_CHECKOUT_DIR` | `[server].checkout_dir` | `~/.tpk/checkouts` | GitHub checkout cache |
+| `TPK_SESSION_TTL` | `[server].session_ttl` | `86400` | Login session lifetime (seconds) |
+| `TPK_CHAT_AUDIT` | `[server].chat_audit` | `true` | Chat Q&A auditing (`false`/`0` disables) |
+| `TPK_EXTRACTION_BACKEND` | `[llm].backend` | `auto` | Semantic-extraction backend (`auto`\|`claude`\|`openai`) |
+| `TPK_EXTRACTION_MODEL` | `[llm].model` | backend default | Semantic-extraction model |
+
+Secrets — **env-only**, never in the file: `TIMEPLUS_PASSWORD`,
+`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GITHUB_TOKEN` (plus the
+`ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` / `*_MODEL` endpoint variables the LLM
+clients read directly).
 
 ## Docker compose (quickest start)
 
