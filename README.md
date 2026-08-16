@@ -168,6 +168,7 @@ tpk in one pod) and DB + App (Enterprise timeplusd StatefulSet + a separate app
 Deployment) — plus a Secret template and a walkthrough. See
 [`deploy/k8s/README.md`](deploy/k8s/README.md):
 
+    kubectl create namespace timeplus-knowledge
     kubectl -n timeplus-knowledge create secret generic tpk-secrets \
       --from-literal=TIMEPLUS_PASSWORD='...' --from-literal=OPENAI_API_KEY='...'
     kubectl apply -f deploy/k8s/allinone.yaml      # or enterprise.yaml

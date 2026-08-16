@@ -248,8 +248,11 @@ spec:
             - name: TPK_DB_BACKEND
               value: "timeplusd"
             # The DB may still be starting when the app boots; serve retries.
+            # K8s has no depends_on, so allow at least the DB's own startupProbe
+            # budget (periodSeconds 5 x failureThreshold 60 = 300s) to avoid the
+            # app CrashLoopBackOff-ing on a slow first boot (cold image/PVC).
             - name: TPK_DB_WAIT_SECONDS
-              value: "120"
+              value: "300"
             # Optional chat-agent overrides:
             # - name: TPK_AGENT_PROVIDER
             #   value: "anthropic"

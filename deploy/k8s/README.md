@@ -126,8 +126,8 @@ sure response buffering is disabled (e.g. nginx `proxy_buffering off`).
 
 Every non-secret setting is settable by environment variable (and has a
 `repos.toml` equivalent — see the repo README's **Configuration** section). Set
-them in the container `env:` blocks. Common ones, already stubbed as comments in
-the manifests:
+them in the container `env:` blocks. Common ones (some already set in the
+manifests, others stubbed as commented-out examples):
 
 | Env var | Purpose |
 |---------|---------|
@@ -209,3 +209,10 @@ spec:
 - **Backups.** Snapshot the DB data PVC (`/var/lib/proton` or
   `/var/lib/timeplusd`), or use `tpk export` to write a portable bundle you can
   `tpk import` elsewhere.
+- **All-in-one disk guard (dev tuning).** The `timeplus/tpk` image bakes in the
+  dev override `deploy/timeplusd-dev/small-segments.yaml`, which — besides
+  disabling nativelog preallocation — raises proton's disk-usage write guard to
+  0.98 (default 0.9). That's a dev convenience, not production-safe. For a
+  hardened all-in-one deployment, rebuild the image without that override (the
+  DB + App mode's `enterprise.yaml` deliberately ships only the production-safe
+  `preallocate: false` half and leaves the guard at its default).
