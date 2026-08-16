@@ -1,7 +1,5 @@
 """MCP server exposing the Timeplus knowledge graph to Claude Code / Cursor."""
 
-from pathlib import Path
-
 # The installed `mcp` distribution (2.0.0) no longer ships
 # `mcp.server.fastmcp.FastMCP`; the equivalent decorator-based server class
 # lives at `mcp.server.mcpserver.MCPServer`. Same API surface (`.tool()`,
@@ -10,11 +8,11 @@ from pathlib import Path
 from mcp.server.mcpserver import MCPServer as FastMCP
 
 from tpk import corpus, db
-from tpk.config import Settings, load_repos
+from tpk.config import Settings, config_path, load_repos
 from tpk.config import repo_paths as resolved_repo_paths
 from tpk.tools import KnowledgeGraph
 
-REPOS_TOML = Path(__file__).resolve().parents[2] / "repos.toml"
+REPOS_TOML = config_path()
 
 
 def build_server(kg) -> FastMCP:

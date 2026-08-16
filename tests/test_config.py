@@ -26,6 +26,37 @@ def config_file(tmp_path, monkeypatch):
     return path
 
 
+def test_config_path_honours_tpk_config(tmp_path, monkeypatch):
+    from tpk.config import config_path
+
+    monkeypatch.delenv("TPK_CONFIG", raising=False)
+    assert config_path().name == "repos.toml"
+    custom = tmp_path / "custom.toml"
+    monkeypatch.setenv("TPK_CONFIG", str(custom))
+    assert config_path() == custom
+
+
+def test_modules_resolve_repos_toml_via_config_path(tmp_path, monkeypatch):
+    """server/api/mcp_server must honour TPK_CONFIG like cli does, so the whole
+    app reads one config file (regression: they hardcoded repos.toml)."""
+    import importlib
+
+    mod_names = ("tpk.cli", "tpk.server", "tpk.api", "tpk.mcp_server")
+    custom = tmp_path / "custom.toml"
+    custom.write_text("")
+    monkeypatch.setenv("TPK_CONFIG", str(custom))
+    try:
+        for mod_name in mod_names:
+            mod = importlib.reload(importlib.import_module(mod_name))
+            assert mod.REPOS_TOML == custom, f"{mod_name}.REPOS_TOML ignored TPK_CONFIG"
+    finally:
+        # Reload without TPK_CONFIG so the module-level REPOS_TOML constants
+        # don't leak the temp path into other tests.
+        monkeypatch.delenv("TPK_CONFIG", raising=False)
+        for mod_name in mod_names:
+            importlib.reload(importlib.import_module(mod_name))
+
+
 def test_setting_prefers_default_when_unset(config_file, monkeypatch):
     monkeypatch.delenv("TPK_X", raising=False)
     assert setting("TPK_X", "db", "x", "fallback") == "fallback"

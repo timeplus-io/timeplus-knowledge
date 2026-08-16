@@ -15,9 +15,9 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from tpk.config import as_bool, setting
+from tpk.config import as_bool, config_path, setting
 
-REPOS_TOML = Path(__file__).resolve().parents[2] / "repos.toml"
+REPOS_TOML = config_path()
 WEB_DIST = Path(__file__).resolve().parents[2] / "web" / "dist"
 
 logger = logging.getLogger(__name__)
