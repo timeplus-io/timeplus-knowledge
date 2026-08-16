@@ -1,0 +1,154 @@
+# All-in-one deployment: OSS proton + tpk (chat agent + web UI + toolkit) in a
+# SINGLE pod — fully open-source, runs the agent with TPK_DB_BACKEND=proton
+# (baked into the image). The Kubernetes equivalent of docker-compose.allinone.yml.
+#
+# Good for demos, evaluations, and single-node clusters. For a production shape
+# (separate DB and app, Enterprise timeplusd, independently scalable), use
+# enterprise.yaml instead.
+#
+# Apply order:
+#   kubectl apply -f secret.example.yaml   # after editing, or `kubectl create secret` (see README)
+#   kubectl apply -f allinone.yaml
+#   kubectl -n timeplus-knowledge rollout status statefulset/tpk-allinone
+#   kubectl -n timeplus-knowledge exec -it tpk-allinone-0 -- tpk ingest    # build the graph
+#   kubectl -n timeplus-knowledge port-forward svc/tpk-allinone 8000:8000  # open http://localhost:8000
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: timeplus-knowledge
+---
+# Headless service that governs the StatefulSet (stable pod DNS).
+apiVersion: v1
+kind: Service
+metadata:
+  name: tpk-allinone-headless
+  namespace: timeplus-knowledge
+  labels:
+    app: tpk-allinone
+spec:
+  clusterIP: None
+  selector:
+    app: tpk-allinone
+  ports:
+    - name: http
+      port: 8000
+---
+# Access service — target this from an Ingress / LoadBalancer / port-forward.
+apiVersion: v1
+kind: Service
+metadata:
+  name: tpk-allinone
+  namespace: timeplus-knowledge
+  labels:
+    app: tpk-allinone
+spec:
+  type: ClusterIP
+  selector:
+    app: tpk-allinone
+  ports:
+    - name: http           # chat agent + web UI
+      port: 8000
+      targetPort: 8000
+    - name: sql            # proton SQL over HTTP (ClickHouse-compatible)
+      port: 8123
+      targetPort: 8123
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tpk-allinone
+  namespace: timeplus-knowledge
+  labels:
+    app: tpk-allinone
+spec:
+  serviceName: tpk-allinone-headless
+  replicas: 1            # single-instance DB; do NOT scale this StatefulSet
+  selector:
+    matchLabels:
+      app: tpk-allinone
+  template:
+    metadata:
+      labels:
+        app: tpk-allinone
+    spec:
+      # proton runs as uid/gid 101 (the image's USER); fsGroup makes the
+      # mounted PVCs group-writable by it.
+      securityContext:
+        fsGroup: 101
+      containers:
+        - name: tpk
+          image: timeplus/tpk:latest      # all-in-one image (proton + tpk)
+          imagePullPolicy: IfNotPresent
+          env:
+            # TIMEPLUS_HOST defaults to localhost and TPK_DB_BACKEND=proton is
+            # baked into the image (the app talks to the proton in this pod).
+            - name: TIMEPLUS_USER
+              value: "tpk"
+            - name: TIMEPLUS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tpk-secrets
+                  key: TIMEPLUS_PASSWORD
+            # Optional chat-agent overrides (defaults inferred from the keys below).
+            # - name: TPK_AGENT_PROVIDER
+            #   value: "anthropic"
+            # - name: TPK_AGENT_MODEL
+            #   value: "claude-sonnet-5"
+            # Semantic-extraction backend for `tpk ingest` (auto is ambiguous
+            # when both API keys are set; pin to openai|claude to choose).
+            # - name: TPK_EXTRACTION_BACKEND
+            #   value: "openai"
+          # API keys / GITHUB_TOKEN come straight from the Secret (names match).
+          envFrom:
+            - secretRef:
+                name: tpk-secrets
+          ports:
+            - name: http
+              containerPort: 8000
+            - name: sql
+              containerPort: 8123
+          # First boot starts proton, waits for it, then serves — allow time.
+          startupProbe:
+            httpGet:
+              path: /
+              port: 8000
+            periodSeconds: 10
+            failureThreshold: 30        # up to 5 minutes to come up
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8000
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
+          volumeMounts:
+            - name: data                 # proton streams / nativelog
+              mountPath: /var/lib/proton
+            - name: checkouts            # cached github repo checkouts
+              mountPath: /opt/tpk/.checkouts
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+    - metadata:
+        name: checkouts
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi

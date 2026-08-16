@@ -161,6 +161,20 @@ For semantic-extraction repos, pass the LLM key at run time:
 read-only `/repos` mount is fine — graphify's in-checkout cache writes are
 skipped harmlessly.
 
+## Kubernetes
+
+`deploy/k8s/` has manifests for the same two modes — all-in-one (OSS proton +
+tpk in one pod) and DB + App (Enterprise timeplusd StatefulSet + a separate app
+Deployment) — plus a Secret template and a walkthrough. See
+[`deploy/k8s/README.md`](deploy/k8s/README.md):
+
+    kubectl create namespace timeplus-knowledge
+    kubectl -n timeplus-knowledge create secret generic tpk-secrets \
+      --from-literal=TIMEPLUS_PASSWORD='...' --from-literal=OPENAI_API_KEY='...'
+    kubectl apply -f deploy/k8s/allinone.yaml      # or enterprise.yaml
+    kubectl -n timeplus-knowledge exec -it tpk-allinone-0 -- tpk ingest
+    kubectl -n timeplus-knowledge port-forward svc/tpk-allinone 8000:8000
+
 ## Ingest
 
 Corpus lives in `repos.toml`. Each repo declares **one source** — the

@@ -1,0 +1,311 @@
+# DB + App deployment (production-ready): a stock Timeplus Enterprise
+# `timeplusd` StatefulSet and a separate stateless tpk `app` Deployment, talking
+# over the network (TIMEPLUS_HOST=tpk-db). The Kubernetes equivalent of
+# docker-compose.yml. This is the recommended shape for anything beyond a demo.
+#
+# The `app` runs the agent in the default `timeplusd` backend mode (mutable
+# streams), which requires Timeplus Enterprise. To run the app against OSS
+# proton instead, set TPK_DB_BACKEND=proton on the app container (proton
+# semantics work on Enterprise too).
+#
+# Apply order:
+#   kubectl apply -f secret.example.yaml     # after editing, or `kubectl create secret` (see README)
+#   kubectl apply -f enterprise.yaml
+#   kubectl -n timeplus-knowledge rollout status statefulset/tpk-db
+#   kubectl -n timeplus-knowledge rollout status deployment/tpk-app
+#   kubectl -n timeplus-knowledge exec deploy/tpk-app -- tpk ingest         # build the graph
+#   kubectl -n timeplus-knowledge port-forward svc/tpk-app 8000:8000        # open http://localhost:8000
+#
+# The timeplusd image lives on docker.timeplus.com. If your cluster needs
+# credentials to pull it, create a pull secret and reference it (see README):
+#   kubectl -n timeplus-knowledge create secret docker-registry timeplus-registry \
+#     --docker-server=docker.timeplus.com --docker-username=... --docker-password=...
+# then uncomment `imagePullSecrets` on the tpk-db StatefulSet below.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: timeplus-knowledge
+---
+# Provisioning assets for the STOCK timeplusd image (which doesn't bundle them):
+#  - render-users.sh  creates the `tpk` DB user from TIMEPLUS_PASSWORD and locks
+#                     the `default` user (same script the docker images use).
+#  - small-segments.yaml  disables 2GB nativelog segment preallocation so a
+#                     handful of streams doesn't balloon the data PVC. (This is
+#                     the only production-safe half of the dev override; it does
+#                     NOT raise the disk-usage guard.)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tpk-db-provision
+  namespace: timeplus-knowledge
+data:
+  render-users.sh: |
+    #!/bin/bash
+    # Render a users.d override from TIMEPLUS_PASSWORD, backend-agnostic
+    # (timeplusd or proton config dir). Unset password -> keep the open default.
+    set -euo pipefail
+    CFG=
+    for d in /etc/timeplusd-server /etc/proton-server; do
+      if [ -d "$d/users.d" ]; then CFG="$d"; break; fi
+    done
+    if [ -n "${TIMEPLUS_PASSWORD:-}" ] && [ -n "$CFG" ]; then
+      hash=$(printf %s "$TIMEPLUS_PASSWORD" | sha256sum | awk '{print $1}')
+      cat > "$CFG/users.d/tpk-users.yaml" <<EOF
+    users:
+        tpk:
+            password_sha256_hex: ${hash}
+            profile: default
+            quota: default
+            networks:
+                ip: "::/0"
+        default:
+            password:
+                '@remove': '1'
+            password_sha256_hex: ${hash}
+    EOF
+    fi
+  small-segments.yaml: |
+    # Grow nativelog segments as data is written instead of preallocating 2GB
+    # per stream shard up front. Safe for production; keeps the data PVC lean.
+    data:
+        datastore:
+            log:
+                preallocate: false
+---
+# Headless service governing the DB StatefulSet.
+apiVersion: v1
+kind: Service
+metadata:
+  name: tpk-db-headless
+  namespace: timeplus-knowledge
+  labels:
+    app: tpk-db
+spec:
+  clusterIP: None
+  selector:
+    app: tpk-db
+  ports:
+    - name: sql
+      port: 8123
+---
+# Stable in-cluster address the app connects to: TIMEPLUS_HOST=tpk-db.
+apiVersion: v1
+kind: Service
+metadata:
+  name: tpk-db
+  namespace: timeplus-knowledge
+  labels:
+    app: tpk-db
+spec:
+  type: ClusterIP
+  selector:
+    app: tpk-db
+  ports:
+    - name: sql            # SQL over HTTP (ClickHouse-compatible) — used by tpk
+      port: 8123
+      targetPort: 8123
+    - name: ingest         # REST ingest API (not used by tpk; exposed for parity)
+      port: 3218
+      targetPort: 3218
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tpk-db
+  namespace: timeplus-knowledge
+  labels:
+    app: tpk-db
+spec:
+  serviceName: tpk-db-headless
+  replicas: 1            # single-instance DB; do NOT scale this StatefulSet
+  selector:
+    matchLabels:
+      app: tpk-db
+  template:
+    metadata:
+      labels:
+        app: tpk-db
+    spec:
+      # timeplusd runs as uid/gid 101; fsGroup makes the data PVC writable by it.
+      securityContext:
+        fsGroup: 101
+      # imagePullSecrets:            # uncomment if docker.timeplus.com needs auth
+      #   - name: timeplus-registry
+      containers:
+        - name: timeplusd
+          image: docker.timeplus.com/timeplus/timeplusd:latest
+          imagePullPolicy: IfNotPresent
+          # Reproduce the compose entrypoint: make users.d writable, render the
+          # `tpk` user from the password, then hand off to the stock entrypoint.
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              chmod u+w /etc/timeplusd-server/users.d && \
+              bash /opt/tpk/render-users.sh && \
+              exec /entrypoint.sh
+          env:
+            - name: TIMEPLUS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tpk-secrets
+                  key: TIMEPLUS_PASSWORD
+          ports:
+            - name: sql
+              containerPort: 8123
+            - name: ingest
+              containerPort: 3218
+          # timeplusd answers `/` with 200 once SQL is accepting connections.
+          startupProbe:
+            httpGet:
+              path: /
+              port: 8123
+            periodSeconds: 5
+            failureThreshold: 60        # up to 5 minutes for first boot
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8123
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8123
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"      # raise for large corpora
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/timeplusd
+            - name: provision
+              mountPath: /opt/tpk/render-users.sh
+              subPath: render-users.sh
+            - name: provision
+              mountPath: /etc/timeplusd-server/config.d/small-segments.yaml
+              subPath: small-segments.yaml
+      volumes:
+        - name: provision
+          configMap:
+            name: tpk-db-provision
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi
+---
+# Persistent cache for github-sourced repo checkouts, shared across app restarts.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tpk-checkouts
+  namespace: timeplus-knowledge
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tpk-app
+  namespace: timeplus-knowledge
+  labels:
+    app: tpk-app
+spec:
+  replicas: 1            # checkouts PVC is ReadWriteOnce; see README to scale out
+  strategy:
+    type: Recreate       # single RWO volume — don't run old+new pods at once
+  selector:
+    matchLabels:
+      app: tpk-app
+  template:
+    metadata:
+      labels:
+        app: tpk-app
+    spec:
+      containers:
+        - name: app
+          image: timeplus/tpk-app:latest      # app-only image (no DB)
+          imagePullPolicy: IfNotPresent
+          command: ["tpk", "serve", "--host", "0.0.0.0", "--port", "8000"]
+          env:
+            - name: TIMEPLUS_HOST
+              value: "tpk-db"
+            - name: TIMEPLUS_USER
+              value: "tpk"
+            # Stream-semantics mode: `timeplusd` (mutable streams, Enterprise) is
+            # the default. Set to `proton` to run against OSS proton semantics.
+            - name: TPK_DB_BACKEND
+              value: "timeplusd"
+            # The DB may still be starting when the app boots; serve retries.
+            # K8s has no depends_on, so allow at least the DB's own startupProbe
+            # budget (periodSeconds 5 x failureThreshold 60 = 300s) to avoid the
+            # app CrashLoopBackOff-ing on a slow first boot (cold image/PVC).
+            - name: TPK_DB_WAIT_SECONDS
+              value: "300"
+            # Optional chat-agent overrides:
+            # - name: TPK_AGENT_PROVIDER
+            #   value: "anthropic"
+            # - name: TPK_AGENT_MODEL
+            #   value: "claude-sonnet-5"
+            # - name: TPK_EXTRACTION_BACKEND
+            #   value: "openai"
+          # TIMEPLUS_PASSWORD + API keys + GITHUB_TOKEN from the Secret (names match).
+          envFrom:
+            - secretRef:
+                name: tpk-secrets
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          volumeMounts:
+            - name: checkouts
+              mountPath: /opt/tpk/.checkouts
+      volumes:
+        - name: checkouts
+          persistentVolumeClaim:
+            claimName: tpk-checkouts
+---
+# Access service for the chat agent + web UI — target from Ingress / port-forward.
+apiVersion: v1
+kind: Service
+metadata:
+  name: tpk-app
+  namespace: timeplus-knowledge
+  labels:
+    app: tpk-app
+spec:
+  type: ClusterIP
+  selector:
+    app: tpk-app
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
