@@ -13,10 +13,10 @@ from pydantic import BaseModel
 import tpk.auth as auth_mod
 from tpk import corpus, db
 from tpk.auth import AuthLayer, User
-from tpk.config import RepoConfig, Settings, entry_key, load_llm
+from tpk.config import RepoConfig, Settings, config_path, entry_key, load_llm
 from tpk.ingest import ingest_repo
 
-REPOS_TOML = Path(__file__).resolve().parents[2] / "repos.toml"
+REPOS_TOML = config_path()
 
 # `name` keys the graph (`entry_key`) and is also used as a raw filesystem
 # path segment (`resolved_repo_path` in tpk.config: `checkout_root() / name /
