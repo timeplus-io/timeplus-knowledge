@@ -1,7 +1,11 @@
 # App-only deployment: the tpk `app` (chat agent + web UI + ingest + MCP)
 # ALONE, connecting to a Timeplus Enterprise (timeplusd) that is ALREADY
 # running — deployed and managed separately (its own Helm chart / operator /
-# existing cluster). Nothing here provisions or runs a database.
+# existing cluster). This does not run a database *server*; but on startup the
+# app DOES create its own database (`tpk` by default) on that server and puts
+# all its streams there. So the DB user you point it at needs CREATE DATABASE
+# (first run only) plus read/write on that database. If the user is restricted,
+# pre-create the database and grant it, then set TIMEPLUS_DATABASE (see below).
 #
 # Use this when you already operate Timeplus Enterprise and just want to add the
 # knowledge agent against it. If you want tpk to bring up its own timeplusd too,
@@ -84,6 +88,13 @@ spec:
             # Enterprise timeplusd -> `timeplusd` backend (mutable streams).
             - name: TPK_DB_BACKEND
               value: "timeplusd"
+            # All tpk streams live under this database, which the app creates on
+            # startup (CREATE DATABASE IF NOT EXISTS) — so the DB user needs
+            # CREATE DATABASE the first time, plus read/write on it. If the user
+            # can't create databases, pre-create this one and grant access, or
+            # point at an existing database you control.
+            - name: TIMEPLUS_DATABASE
+              value: "tpk"
             # The DB is already up; a short connect-retry covers transient blips.
             - name: TPK_DB_WAIT_SECONDS
               value: "120"
