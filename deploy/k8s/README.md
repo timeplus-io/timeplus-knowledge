@@ -99,6 +99,22 @@ Or, to remap the port, a headless Service + an `EndpointSlice` pointing at the
 DB's IP on its real port, exposed as `port: 8123`. The DB user in `TIMEPLUS_USER`
 must already exist on your timeplusd — `app-only.yaml` does not provision users.
 
+**The `tpk` database.** All tpk streams live under a dedicated database (`tpk`
+by default, `TIMEPLUS_DATABASE`), which the app creates on startup (`CREATE
+DATABASE IF NOT EXISTS`). Against a shared, externally-managed Timeplus this is
+the one extra grant to check: the `TIMEPLUS_USER` needs **CREATE DATABASE** (the
+first time) plus read/write on that database. If that user isn't allowed to
+create databases, pre-create it and grant access, then keep `TIMEPLUS_DATABASE`
+pointed at it:
+
+```sql
+CREATE DATABASE IF NOT EXISTS tpk;
+-- grant your tpk user read/write on tpk (per your Timeplus access model)
+```
+
+This only applies to app-only: `enterprise.yaml` and `allinone.yaml` provision a
+`tpk` user with full privileges, so database creation just works there.
+
 ## 3. Build the knowledge graph (ingest)
 
 The corpus is defined in the `repos.toml` baked into the image. Run ingest once
@@ -169,6 +185,7 @@ manifests, others stubbed as commented-out examples):
 | `TPK_AGENT_PROVIDER` / `TPK_AGENT_MODEL` | chat-agent backend + model |
 | `TPK_EXTRACTION_BACKEND` | `tpk ingest` semantic backend (`openai`\|`claude`\|`auto`) |
 | `TPK_DB_BACKEND` | `timeplusd` (Enterprise, mutable streams) or `proton` |
+| `TIMEPLUS_DATABASE` | database all tpk streams live under (default `tpk`; app-only: user needs CREATE DATABASE) |
 | `TPK_DB_WAIT_SECONDS` | how long the app waits for the DB on boot |
 
 ### Custom corpus (`repos.toml`) via ConfigMap
