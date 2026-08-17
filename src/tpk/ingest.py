@@ -31,9 +31,9 @@ def upsert_graph(
     repos: set[str] | None = None,
 ) -> None:
     if nodes:
-        client.insert(f"{prefix}kg_nodes", node_rows(nodes, run_started_at), column_names=NODE_COLUMNS)
+        client.insert(db.qualified("kg_nodes", prefix), node_rows(nodes, run_started_at), column_names=NODE_COLUMNS)
     if edges:
-        client.insert(f"{prefix}kg_edges", edge_rows(edges, run_started_at), column_names=EDGE_COLUMNS)
+        client.insert(db.qualified("kg_edges", prefix), edge_rows(edges, run_started_at), column_names=EDGE_COLUMNS)
     if repos is None:
         # Derived from the batch: callers seeding multi-repo test data rely on
         # this. Note this means a repo whose parse yielded zero nodes/edges
@@ -44,8 +44,8 @@ def upsert_graph(
     for repo in repos:
         params = {"r": repo, "t": run_started_at}
         where = "repo = %(r)s AND updated_at < %(t)s"
-        db.delete(client, f"{prefix}kg_nodes", where, params, ("id",))
-        db.delete(client, f"{prefix}kg_edges", where, params, ("src", "dst", "rel"))
+        db.delete(client, db.qualified("kg_nodes", prefix), where, params, ("id",))
+        db.delete(client, db.qualified("kg_edges", prefix), where, params, ("src", "dst", "rel"))
 
 
 def _git_sha(repo_path: Path) -> str:
@@ -60,7 +60,7 @@ def _git_sha(repo_path: Path) -> str:
 
 def _log(client, prefix: str, result: IngestResult, git_sha: str) -> None:
     client.insert(
-        f"{prefix}kg_ingest_log",
+        db.qualified("kg_ingest_log", prefix),
         [[result.repo, result.run_id, result.nodes, result.edges, git_sha, result.status]],
         column_names=["repo", "run_id", "nodes", "edges", "git_sha", "status"],
     )

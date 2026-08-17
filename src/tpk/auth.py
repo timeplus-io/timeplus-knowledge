@@ -135,7 +135,7 @@ def _now():
 
 def upsert_user(client, user: User, prefix: str = "") -> None:
     client.insert(
-        f"{prefix}kg_users",
+        db.qualified("kg_users", prefix),
         [[user.username, user.password_hash, user.role,
           user.must_change_password, user.disabled, _now(), _now()]],
         column_names=_USER_COLUMNS,
@@ -145,7 +145,7 @@ def upsert_user(client, user: User, prefix: str = "") -> None:
 def get_user(client, username: str, prefix: str = "") -> User | None:
     rows = client.query(
         f"SELECT username, password_hash, role, must_change_password, disabled"
-        f" FROM {db.latest(f'{prefix}kg_users')} WHERE username = %(u)s",
+        f" FROM {db.latest(db.qualified('kg_users', prefix))} WHERE username = %(u)s",
         parameters={"u": username},
     ).result_rows
     if not rows:
@@ -157,19 +157,19 @@ def get_user(client, username: str, prefix: str = "") -> User | None:
 def list_users(client, prefix: str = "") -> list[User]:
     rows = client.query(
         f"SELECT username, password_hash, role, must_change_password, disabled"
-        f" FROM {db.latest(f'{prefix}kg_users')} ORDER BY username"
+        f" FROM {db.latest(db.qualified('kg_users', prefix))} ORDER BY username"
     ).result_rows
     return [User(u, h, r, bool(mc), bool(dis)) for u, h, r, mc, dis in rows]
 
 
 def delete_user(client, username: str, prefix: str = "") -> None:
-    db.delete(client, f"{prefix}kg_users", "username = %(u)s",
+    db.delete(client, db.qualified("kg_users", prefix), "username = %(u)s",
               {"u": username}, ("username",))
 
 
 def admin_count(client, prefix: str = "") -> int:
     rows = client.query(
-        f"SELECT count() FROM {db.latest(f'{prefix}kg_users')}"
+        f"SELECT count() FROM {db.latest(db.qualified('kg_users', prefix))}"
         f" WHERE role = %(r)s AND NOT disabled",
         parameters={"r": ROLE_ADMIN},
     ).result_rows
@@ -192,7 +192,7 @@ def seed_admin(client, prefix: str = "") -> bool:
 
 def upsert_role(client, role: Role, prefix: str = "") -> None:
     client.insert(
-        f"{prefix}kg_roles",
+        db.qualified("kg_roles", prefix),
         [[role.name, json.dumps(role.entry_keys), json.dumps(role.capabilities),
           role.description, _now()]],
         column_names=_ROLE_COLUMNS,
@@ -201,7 +201,7 @@ def upsert_role(client, role: Role, prefix: str = "") -> None:
 
 def get_role(client, name: str, prefix: str = "") -> Role | None:
     rows = client.query(
-        f"SELECT name, entry_keys, capabilities, description FROM {db.latest(f'{prefix}kg_roles')}"
+        f"SELECT name, entry_keys, capabilities, description FROM {db.latest(db.qualified('kg_roles', prefix))}"
         f" WHERE name = %(n)s",
         parameters={"n": name},
     ).result_rows
@@ -213,7 +213,7 @@ def get_role(client, name: str, prefix: str = "") -> Role | None:
 
 def list_roles(client, prefix: str = "") -> list[Role]:
     rows = client.query(
-        f"SELECT name, entry_keys, capabilities, description FROM {db.latest(f'{prefix}kg_roles')}"
+        f"SELECT name, entry_keys, capabilities, description FROM {db.latest(db.qualified('kg_roles', prefix))}"
         f" ORDER BY name"
     ).result_rows
     return [Role(n, json.loads(k) if k else [], d, _parse_capabilities(c))
@@ -221,12 +221,12 @@ def list_roles(client, prefix: str = "") -> list[Role]:
 
 
 def delete_role(client, name: str, prefix: str = "") -> None:
-    db.delete(client, f"{prefix}kg_roles", "name = %(n)s", {"n": name}, ("name",))
+    db.delete(client, db.qualified("kg_roles", prefix), "name = %(n)s", {"n": name}, ("name",))
 
 
 def usernames_with_role(client, name: str, prefix: str = "") -> list[str]:
     rows = client.query(
-        f"SELECT username FROM {db.latest(f'{prefix}kg_users')} WHERE role = %(r)s"
+        f"SELECT username FROM {db.latest(db.qualified('kg_users', prefix))} WHERE role = %(r)s"
         f" ORDER BY username",
         parameters={"r": name},
     ).result_rows
@@ -242,7 +242,7 @@ def _token_hash(token: str) -> str:
 def create_session(client, username: str, ttl_seconds: int, prefix: str = "") -> str:
     token = secrets.token_urlsafe(32)
     client.insert(
-        f"{prefix}kg_sessions",
+        db.qualified("kg_sessions", prefix),
         [[_token_hash(token), username,
           _now() + timedelta(seconds=ttl_seconds), _now()]],
         column_names=_SESSION_COLUMNS,
@@ -253,7 +253,7 @@ def create_session(client, username: str, ttl_seconds: int, prefix: str = "") ->
 def get_session(client, token: str, prefix: str = "") -> str | None:
     h = _token_hash(token)
     rows = client.query(
-        f"SELECT username, expires_at FROM {db.latest(f'{prefix}kg_sessions')}"
+        f"SELECT username, expires_at FROM {db.latest(db.qualified('kg_sessions', prefix))}"
         f" WHERE token_hash = %(h)s",
         parameters={"h": h},
     ).result_rows
@@ -261,14 +261,14 @@ def get_session(client, token: str, prefix: str = "") -> str | None:
         return None
     username, expires_at = rows[0]
     if expires_at.replace(tzinfo=timezone.utc) < _now():
-        db.delete(client, f"{prefix}kg_sessions", "token_hash = %(h)s",
+        db.delete(client, db.qualified("kg_sessions", prefix), "token_hash = %(h)s",
                   {"h": h}, ("token_hash",))
         return None
     return username
 
 
 def delete_session(client, token: str, prefix: str = "") -> None:
-    db.delete(client, f"{prefix}kg_sessions", "token_hash = %(h)s",
+    db.delete(client, db.qualified("kg_sessions", prefix), "token_hash = %(h)s",
               {"h": _token_hash(token)}, ("token_hash",))
 
 
@@ -279,7 +279,7 @@ def delete_user_sessions(client, username: str, prefix: str = "",
     if keep_token is not None:
         where += " AND token_hash != %(k)s"
         params["k"] = _token_hash(keep_token)
-    db.delete(client, f"{prefix}kg_sessions", where, params, ("token_hash",))
+    db.delete(client, db.qualified("kg_sessions", prefix), where, params, ("token_hash",))
 
 
 # -- HTTP layer ------------------------------------------------------------

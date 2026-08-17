@@ -59,7 +59,7 @@ def status():
     rows = client.query(
         "SELECT repo, max(_tp_time) AS last_run, arg_max(status, _tp_time) AS status,"
         " arg_max(nodes, _tp_time) AS nodes, arg_max(edges, _tp_time) AS edges"
-        " FROM table(kg_ingest_log) GROUP BY repo ORDER BY repo"
+        f" FROM table({db.qualified('kg_ingest_log')}) GROUP BY repo ORDER BY repo"
     ).result_rows
     for repo, last_run, status_, nodes, edges in rows:
         typer.echo(f"{repo:35s} {status_:7s} {nodes:>8} nodes {edges:>8} edges  {last_run}")

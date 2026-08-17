@@ -263,13 +263,13 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
         entries = corpus.list_entries(client, prefix=prefix)
         counts = dict(
             client.query(
-                f"SELECT repo, count() FROM {db.latest(f'{prefix}kg_nodes')} GROUP BY repo"
+                f"SELECT repo, count() FROM {db.latest(db.qualified('kg_nodes', prefix))} GROUP BY repo"
             ).result_rows
         )
         last: dict[str, tuple] = {}
         for repo, sha, status, t in client.query(
             f"SELECT repo, arg_max(git_sha, _tp_time), arg_max(status, _tp_time),"
-            f" max(_tp_time) FROM table({prefix}kg_ingest_log) GROUP BY repo"
+            f" max(_tp_time) FROM table({db.qualified('kg_ingest_log', prefix)}) GROUP BY repo"
         ).result_rows:
             last[repo] = (sha, status, t)
         out = []

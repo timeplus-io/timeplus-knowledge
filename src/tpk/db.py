@@ -23,23 +23,33 @@ import time
 
 import timeplus_connect
 
-from tpk.config import Settings, db_backend
+from tpk.config import Settings, database, db_backend
 
 logger = logging.getLogger(__name__)
+
+
+def qualified(name: str, prefix: str = "") -> str:
+    """Fully-qualified identifier for a tpk stream: `<database>.<prefix><name>`.
+
+    All tpk streams live under the configured database (default `tpk`, #58), so
+    every DDL/DML/read site builds its stream name through here. `prefix`
+    (TPK_STREAM_PREFIX) still namespaces within the database, e.g. for tests."""
+    return f"{database()}.{prefix}{name}"
 
 
 def _keyed_stream(prefix: str, name: str, columns: list[str], pk: str) -> str:
     """DDL for a keyed (upsertable, latest-state) stream, per backend."""
     cols = ",\n          ".join(columns)
+    stream = qualified(name, prefix)
     if db_backend() == "proton":
         return (
-            f"CREATE STREAM IF NOT EXISTS {prefix}{name} (\n"
+            f"CREATE STREAM IF NOT EXISTS {stream} (\n"
             f"          {cols},\n"
             f"          deleted uint8 DEFAULT 0\n"
             f"        ) PRIMARY KEY ({pk}) SETTINGS mode='versioned_kv'"
         )
     return (
-        f"CREATE MUTABLE STREAM IF NOT EXISTS {prefix}{name} (\n"
+        f"CREATE MUTABLE STREAM IF NOT EXISTS {stream} (\n"
         f"          {cols}\n"
         f"        ) PRIMARY KEY ({pk})"
     )
@@ -124,6 +134,11 @@ def _add_column_if_missing(client, stream: str, column: str, col_type: str) -> N
 
 
 def ensure_schema(client, prefix: str = "") -> None:
+    # All tpk streams live under a dedicated database (default `tpk`, #58);
+    # create it first so the qualified DDL below resolves. CREATE DATABASE is a
+    # global statement (works from the default-database session get_client uses)
+    # and is a no-op if it already exists, on both timeplusd and proton.
+    client.command(f"CREATE DATABASE IF NOT EXISTS {database()}")
     # Keyed (upsertable, latest-state) streams -- MUTABLE on timeplusd,
     # versioned_kv + `deleted` tombstone on proton (see _keyed_stream).
     client.command(_keyed_stream(prefix, "kg_nodes", [
@@ -137,7 +152,7 @@ def ensure_schema(client, prefix: str = "") -> None:
         "repo string", "updated_at datetime64(3, 'UTC')",
     ], pk="src, dst, rel"))
     client.command(f"""
-        CREATE STREAM IF NOT EXISTS {prefix}kg_ingest_log (
+        CREATE STREAM IF NOT EXISTS {qualified('kg_ingest_log', prefix)} (
           repo string,
           run_id string,
           nodes uint64,
@@ -164,7 +179,7 @@ def ensure_schema(client, prefix: str = "") -> None:
     # column (CREATE ... IF NOT EXISTS won't add it to an existing stream).
     # Existing role rows keep an empty cell, which auth._parse_capabilities
     # reads as the chat-only migration default.
-    _add_column_if_missing(client, f"{prefix}kg_roles", "capabilities", "string")
+    _add_column_if_missing(client, qualified("kg_roles", prefix), "capabilities", "string")
     client.command(_keyed_stream(prefix, "kg_sessions", [
         "token_hash string", "username string",
         "expires_at datetime64(3, 'UTC')", "created_at datetime64(3, 'UTC')",
@@ -173,7 +188,7 @@ def ensure_schema(client, prefix: str = "") -> None:
     # answer, and the tool calls made). Not MUTABLE -- like kg_ingest_log, we
     # want the full event history, not a keyed latest-state view.
     client.command(f"""
-        CREATE STREAM IF NOT EXISTS {prefix}chat_audit_log (
+        CREATE STREAM IF NOT EXISTS {qualified('chat_audit_log', prefix)} (
           ts datetime64(3, 'UTC'),
           turn_id string,
           conversation_id string,
@@ -200,6 +215,6 @@ def drop_schema(client, prefix: str) -> None:
         raise ValueError("refusing to drop unprefixed (production) streams")
     for name in (
         "kg_nodes", "kg_edges", "kg_ingest_log", "kg_repos",
-        "kg_users", "kg_roles", "kg_sessions",
+        "kg_users", "kg_roles", "kg_sessions", "chat_audit_log",
     ):
-        client.command(f"DROP STREAM IF EXISTS {prefix}{name}")
+        client.command(f"DROP STREAM IF EXISTS {qualified(name, prefix)}")

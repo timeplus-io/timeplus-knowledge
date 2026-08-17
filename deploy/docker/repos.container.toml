@@ -31,6 +31,7 @@ token_budget = 16000
 [db]
 # host         = "localhost"     # env: TIMEPLUS_HOST      (DB+App image sets this to "db")
 # user         = "default"       # env: TIMEPLUS_USER      (images set this to "tpk")
+# database     = "tpk"           # env: TIMEPLUS_DATABASE  (all tpk streams live here)
 # backend      = "timeplusd"     # env: TPK_DB_BACKEND     (all-in-one image bakes "proton")
 # stream_prefix = ""             # env: TPK_STREAM_PREFIX
 # wait_seconds = 60              # env: TPK_DB_WAIT_SECONDS

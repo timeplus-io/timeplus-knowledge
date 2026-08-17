@@ -28,7 +28,7 @@ _EXT = {"Parquet": "parquet", "Native": "native"}
 def _stream_columns(client, stream: str, prefix: str = "") -> list[str]:
     """Real, insertable columns of a stream — excludes proton's internal
     `_tp_*` pseudo-columns and any ALIAS/MATERIALIZED columns."""
-    rows = client.query(f"DESCRIBE {prefix}{stream}").result_rows
+    rows = client.query(f"DESCRIBE {db.qualified(stream, prefix)}").result_rows
     cols = []
     for row in rows:
         name = row[0]
@@ -40,7 +40,7 @@ def _stream_columns(client, stream: str, prefix: str = "") -> list[str]:
 
 
 def _row_count(client, stream: str, prefix: str = "") -> int:
-    r = client.query(f"SELECT count() FROM table({prefix}{stream})").result_rows
+    r = client.query(f"SELECT count() FROM table({db.qualified(stream, prefix)})").result_rows
     return int(r[0][0]) if r else 0
 
 
@@ -65,7 +65,7 @@ def export_bundle(client, out_dir, streams=None, prefix: str = "",
         # object; copy it out in chunks so a 300k-row stream never lands
         # wholly in memory.
         src = client.raw_stream(
-            f"SELECT {', '.join(cols)} FROM table({prefix}{stream})", fmt=fmt)
+            f"SELECT {', '.join(cols)} FROM table({db.qualified(stream, prefix)})", fmt=fmt)
         with open(out / fname, "wb") as fh:
             shutil.copyfileobj(src, fh)
         manifest["streams"][stream] = {
@@ -120,10 +120,10 @@ def import_bundle(client, in_dir, prefix: str = "", replace: bool = False) -> di
             # follows. Done per stream, immediately before its load, so a
             # mid-run failure only affects the stream in flight rather than
             # leaving every earlier-dropped stream empty.
-            client.command(f"DROP STREAM IF EXISTS {prefix}{stream}")
+            client.command(f"DROP STREAM IF EXISTS {db.qualified(stream, prefix)}")
             db.ensure_schema(client, prefix)
         with open(src / info["file"], "rb") as fh:
-            client.raw_insert(table=f"{prefix}{stream}",
+            client.raw_insert(table=db.qualified(stream, prefix),
                               column_names=info["columns"],
                               insert_block=fh, fmt=fmt)
     return manifest

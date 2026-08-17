@@ -1,5 +1,6 @@
 """Chat support-history audit: one row per chat turn written to the
-append-only ``{prefix}chat_audit_log`` stream (see db.ensure_schema).
+append-only ``chat_audit_log`` stream (qualified as ``<database>.<prefix>
+chat_audit_log`` via db.qualified; see db.ensure_schema).
 
 The sink is deliberately best-effort: auditing must never break or slow the
 chat response, so every write is wrapped and any failure is logged and
@@ -11,6 +12,8 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
+
+from tpk import db
 
 logger = logging.getLogger(__name__)
 
@@ -81,8 +84,8 @@ class AuditRecord:
 
 
 def make_db_sink(prefix: str, client_factory):
-    """Return a ``sink(record: AuditRecord) -> None`` that inserts into
-    ``{prefix}chat_audit_log``.
+    """Return a ``sink(record: AuditRecord) -> None`` that inserts into the
+    ``chat_audit_log`` stream (qualified via db.qualified).
 
     ``client_factory`` is called per write to obtain a Timeplus client -- a
     fresh, single-use session avoids timeplus_connect's concurrent-query
@@ -96,7 +99,7 @@ def make_db_sink(prefix: str, client_factory):
         try:
             client = client_factory()
             client.insert(
-                f"{prefix}chat_audit_log",
+                db.qualified("chat_audit_log", prefix),
                 [record.to_row()],
                 column_names=CHAT_AUDIT_COLUMNS,
             )
