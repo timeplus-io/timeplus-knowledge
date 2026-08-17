@@ -169,8 +169,12 @@ def ensure_schema(client, prefix: str = "") -> None:
     client.command(_keyed_stream(prefix, "kg_users", [
         "username string", "password_hash string", "role string",
         "must_change_password bool", "disabled bool",
+        "daily_token_limit uint32",
         "created_at datetime64(3, 'UTC')", "updated_at datetime64(3, 'UTC')",
     ], pk="username"))
+    # Per-user daily token budget override (0 = inherit role/global), #62;
+    # backfilled onto users created before it as 0.
+    _add_column_if_missing(client, qualified("kg_users", prefix), "daily_token_limit", "uint32")
     client.command(_keyed_stream(prefix, "kg_roles", [
         "name string", "entry_keys string", "capabilities string",
         "description string", "daily_token_limit uint32",

@@ -54,6 +54,19 @@ def test_tokens_used_today_handles_null_sum(monkeypatch):
     assert usage.tokens_used_today(c, "bob", now=datetime.now(timezone.utc)) == 0
 
 
+def test_effective_daily_limit_precedence():
+    class _Role:
+        daily_token_limit = 5000
+    # user override wins over role and global
+    assert usage.effective_daily_limit(100, _Role(), 9999) == 100
+    # no user override -> role limit
+    assert usage.effective_daily_limit(0, _Role(), 9999) == 5000
+    # no user or role limit -> global fallback
+    assert usage.effective_daily_limit(0, None, 9999) == 9999
+    # nothing set anywhere -> 0 (unlimited)
+    assert usage.effective_daily_limit(0, None, 0) == 0
+
+
 def test_db_usage_read_fails_open():
     def boom():
         raise RuntimeError("store down")

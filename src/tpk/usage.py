@@ -21,10 +21,14 @@ logger = logging.getLogger(__name__)
 USAGE_COLUMNS = ["ts", "username", "tokens"]
 
 
-def effective_daily_limit(role, global_default: int) -> int:
-    """The daily token budget that applies to a user: their role's own limit
-    if it sets one, else the global fallback. 0 means unlimited. `role` may be
-    a Role or None (unreadable/absent role -> falls back to the global)."""
+def effective_daily_limit(user_limit: int, role, global_default: int) -> int:
+    """The daily token budget that applies to a user, by precedence (#62):
+    the user's own override, else their role's limit, else the global fallback.
+    0 at every level means unlimited. `role` may be a Role or None (an
+    unreadable/absent role falls through to the global)."""
+    ul = int(user_limit or 0)
+    if ul > 0:
+        return ul
     role_limit = getattr(role, "daily_token_limit", 0) or 0
     return int(role_limit) if role_limit > 0 else max(int(global_default), 0)
 

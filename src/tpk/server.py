@@ -235,7 +235,7 @@ def create_app(
             role = auth_mod.get_role(auth._client(), user.role, prefix=stream_prefix)
         except Exception:
             role = None
-        limit = effective_daily_limit(role, daily_token_limit())
+        limit = effective_daily_limit(user.daily_token_limit, role, daily_token_limit())
         if limit <= 0:
             return {"limited": False}
         used = usage.used_today(user.username)
@@ -278,9 +278,10 @@ def create_app(
             # scope = tools see nothing, rather than falling through to
             # unrestricted (None) access.
             scope = frozenset(role.entry_keys) if role else frozenset()
-            # Effective daily token budget: the role's own limit, else the
-            # global fallback (config). admin is never limited (branch skipped).
-            turn_limit = effective_daily_limit(role, daily_token_limit())
+            # Effective daily token budget by precedence: the user's own
+            # override, else the role's limit, else the global fallback. admin
+            # is never limited (this branch is skipped for admins).
+            turn_limit = effective_daily_limit(user.daily_token_limit, role, daily_token_limit())
 
             # Enforce the budget BEFORE running the agent (#62). Enforcement is
             # necessarily next-turn: a turn's cost is only known once it runs, so

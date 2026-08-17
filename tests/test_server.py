@@ -158,6 +158,29 @@ def test_chat_no_usage_store_skips_enforcement(monkeypatch):
     assert client.post("/chat", json={"message": "q"}).status_code == 200
 
 
+def test_chat_user_override_wins_over_global(monkeypatch):
+    # A tight per-user override beats a generous global default.
+    monkeypatch.setenv("TPK_DAILY_TOKEN_LIMIT", "1000000")
+    monkeypatch.delenv("TPK_CONFIG", raising=False)
+    usage = _Usage(used=100)
+    user = User("bob", "", "member", daily_token_limit=100)
+    auth = _StubAuth(user, caps=["chat"])
+    client = TestClient(create_app(agent=FakeAgent([_tok("hi")]), auth=auth, usage=usage))
+    resp = client.post("/chat", json={"message": "q"})
+    assert resp.status_code == 429
+    assert resp.json()["detail"]["limit"] == 100
+
+
+def test_chat_usage_status_reflects_user_override(monkeypatch):
+    monkeypatch.setenv("TPK_DAILY_TOKEN_LIMIT", "1000000")
+    monkeypatch.delenv("TPK_CONFIG", raising=False)
+    usage = _Usage(used=40)
+    user = User("bob", "", "member", daily_token_limit=100)
+    client = TestClient(create_app(agent=FakeAgent([]), auth=_StubAuth(user, caps=["chat"]), usage=usage))
+    body = client.get("/chat/usage").json()
+    assert body["limit"] == 100 and body["remaining"] == 60
+
+
 def test_chat_usage_status_for_limited_user(monkeypatch):
     monkeypatch.setenv("TPK_DAILY_TOKEN_LIMIT", "50000")
     monkeypatch.delenv("TPK_CONFIG", raising=False)

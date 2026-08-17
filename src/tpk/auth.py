@@ -65,7 +65,7 @@ def expand_capabilities(caps) -> set[str]:
 _hasher = PasswordHasher()  # argon2id defaults
 
 _USER_COLUMNS = ["username", "password_hash", "role", "must_change_password",
-                 "disabled", "created_at", "updated_at"]
+                 "disabled", "daily_token_limit", "created_at", "updated_at"]
 _ROLE_COLUMNS = ["name", "entry_keys", "capabilities", "description",
                  "daily_token_limit", "updated_at"]
 _SESSION_COLUMNS = ["token_hash", "username", "expires_at", "created_at"]
@@ -78,6 +78,9 @@ class User:
     role: str
     must_change_password: bool = False
     disabled: bool = False
+    # Per-user daily token budget override (0 = inherit the role/global limit).
+    # Takes precedence over the role's daily_token_limit when > 0. See #62.
+    daily_token_limit: int = 0
 
 
 @dataclass
@@ -141,29 +144,31 @@ def upsert_user(client, user: User, prefix: str = "") -> None:
     client.insert(
         db.qualified("kg_users", prefix),
         [[user.username, user.password_hash, user.role,
-          user.must_change_password, user.disabled, _now(), _now()]],
+          user.must_change_password, user.disabled,
+          max(int(user.daily_token_limit), 0), _now(), _now()]],
         column_names=_USER_COLUMNS,
     )
 
 
 def get_user(client, username: str, prefix: str = "") -> User | None:
     rows = client.query(
-        f"SELECT username, password_hash, role, must_change_password, disabled"
+        f"SELECT username, password_hash, role, must_change_password, disabled, daily_token_limit"
         f" FROM {db.latest(db.qualified('kg_users', prefix))} WHERE username = %(u)s",
         parameters={"u": username},
     ).result_rows
     if not rows:
         return None
-    u, h, r, mc, dis = rows[0]
-    return User(u, h, r, bool(mc), bool(dis))
+    u, h, r, mc, dis, lim = rows[0]
+    return User(u, h, r, bool(mc), bool(dis), daily_token_limit=int(lim or 0))
 
 
 def list_users(client, prefix: str = "") -> list[User]:
     rows = client.query(
-        f"SELECT username, password_hash, role, must_change_password, disabled"
+        f"SELECT username, password_hash, role, must_change_password, disabled, daily_token_limit"
         f" FROM {db.latest(db.qualified('kg_users', prefix))} ORDER BY username"
     ).result_rows
-    return [User(u, h, r, bool(mc), bool(dis)) for u, h, r, mc, dis in rows]
+    return [User(u, h, r, bool(mc), bool(dis), daily_token_limit=int(lim or 0))
+            for u, h, r, mc, dis, lim in rows]
 
 
 def delete_user(client, username: str, prefix: str = "") -> None:

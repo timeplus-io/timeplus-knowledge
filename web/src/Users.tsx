@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "./api";
 import { CAP, CAPABILITY_OPTIONS, type Capability, expandCaps, hasCap } from "./capabilities";
 
-type ApiUser = { username: string; role: string; must_change_password: boolean; disabled: boolean };
+type ApiUser = { username: string; role: string; must_change_password: boolean;
+                 disabled: boolean; daily_token_limit: number };
 type ApiRole = { name: string; entry_keys: string[]; description: string;
                  capabilities: string[]; daily_token_limit: number };
 type Repo = { entry_key: string };
@@ -11,7 +12,8 @@ type RoleEdit = { entry_keys: string[]; description: string; capabilities: strin
 
 // Least-privilege: force an explicit role pick rather than defaulting new
 // users to admin. A new role starts chat-only.
-const EMPTY_USER = { username: "", password: "", role: "", must_change_password: true };
+const EMPTY_USER = { username: "", password: "", role: "", must_change_password: true,
+                     daily_token_limit: 0 };
 const EMPTY_ROLE = { name: "", entry_keys: [] as string[], description: "",
                      capabilities: [CAP.chat] as string[], daily_token_limit: 0 };
 
@@ -247,10 +249,10 @@ export default function Users({ capabilities, isAdmin }:
       <div className="tk-users-table-card">
         <table className="tk-users-table">
           <colgroup>
-            <col /><col /><col /><col />
+            <col /><col /><col /><col /><col />
           </colgroup>
           <thead>
-            <tr><th>Username</th><th>Role</th><th>Status</th><th>Actions</th></tr>
+            <tr><th>Username</th><th>Role</th><th>Status</th><th>Daily tokens</th><th>Actions</th></tr>
           </thead>
           <tbody>
             {users.map((u) => (
@@ -279,6 +281,25 @@ export default function Users({ capabilities, isAdmin }:
                   )}
                 </td>
                 <td>{u.disabled ? "disabled" : "active"}</td>
+                <td>
+                  {u.role === "admin" ? (
+                    <span className="tk-user-sub">unlimited</span>
+                  ) : canManage ? (
+                    <input
+                      key={`lim-${u.username}-${u.daily_token_limit}`}
+                      className="tk-inline-input" type="number" min={0} step={1000}
+                      defaultValue={u.daily_token_limit}
+                      title="Per-user daily token budget (0 = inherit the role/global limit)"
+                      onBlur={(e) => {
+                        const v = Math.max(0, parseInt(e.target.value, 10) || 0);
+                        if (v !== u.daily_token_limit) {
+                          act(() => call("/api/users/update", { username: u.username, daily_token_limit: v }));
+                        }
+                      }} />
+                  ) : (
+                    <span>{u.daily_token_limit || "inherit"}</span>
+                  )}
+                </td>
                 <td>
                   {!canManage ? (
                     <span className="tk-user-sub">view only</span>
@@ -482,6 +503,13 @@ export default function Users({ capabilities, isAdmin }:
                     {isAdmin && <option value="admin">admin</option>}
                     {roles.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
                   </select>
+                </div>
+                <div className="tk-form-field">
+                  <label htmlFor="usr-limit">Daily token budget (0 = inherit role/global)</label>
+                  <input id="usr-limit" className="tk-input" type="number" min={0} step={1000}
+                         value={newUser.daily_token_limit}
+                         onChange={(e) => setNewUser({ ...newUser,
+                           daily_token_limit: Math.max(0, parseInt(e.target.value, 10) || 0) })} />
                 </div>
                 {error && <div className="tk-manage-error">{error}</div>}
               </div>
