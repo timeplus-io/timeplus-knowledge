@@ -66,6 +66,7 @@ export the matching env var — whichever suits your deployment. Secrets are
 |---|---|---|---|
 | `TIMEPLUS_HOST` | `[db].host` | `localhost` | DB host |
 | `TIMEPLUS_USER` | `[db].user` | `default` | DB user |
+| `TIMEPLUS_DATABASE` | `[db].database` | `tpk` | Database all tpk streams live under |
 | `TPK_DB_BACKEND` | `[db].backend` | `timeplusd` | Stream-semantics mode (`timeplusd`\|`proton`) |
 | `TPK_STREAM_PREFIX` | `[db].stream_prefix` | `` | Namespace prefix for all streams |
 | `TPK_DB_WAIT_SECONDS` | `[db].wait_seconds` | `60` | `serve`: DB connect retry budget |
@@ -82,6 +83,22 @@ Secrets — **env-only**, never in the file: `TIMEPLUS_PASSWORD`,
 `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GITHUB_TOKEN` (plus the
 `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` / `*_MODEL` endpoint variables the LLM
 clients read directly).
+
+### The `tpk` database
+
+All tpk streams (`kg_nodes`, `kg_users`, `chat_audit_log`, …) live under a
+dedicated database — **`tpk`** by default, set via `TIMEPLUS_DATABASE` /
+`[db].database`. tpk creates it on startup (`CREATE DATABASE IF NOT EXISTS`) and
+qualifies every stream as `tpk.<name>`, so its objects don't clutter the server's
+`default` database and can be granted or dropped as a unit. This matters most
+when pointing tpk at a **shared** Timeplus Enterprise (the k8s app-only mode):
+the connecting user needs `CREATE DATABASE` (first run) plus read/write on `tpk`.
+
+**Upgrading an existing deployment:** streams created before this change live in
+`default` and are **not** moved automatically — after upgrading, tpk looks in
+`tpk` and finds an empty graph. Either re-ingest (`tpk ingest`), or carry data
+over with `tpk export` (old version) → `tpk import` (new version). Point
+`TIMEPLUS_DATABASE=default` to keep using the old location instead.
 
 ## Docker compose (quickest start)
 

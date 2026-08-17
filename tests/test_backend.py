@@ -14,8 +14,10 @@ from tpk import db
 
 def test_keyed_stream_ddl_timeplusd(monkeypatch):
     monkeypatch.setenv("TPK_DB_BACKEND", "timeplusd")
+    monkeypatch.delenv("TIMEPLUS_DATABASE", raising=False)
     ddl = db._keyed_stream("p_", "kg_users", ["username string", "role string"], pk="username")
-    assert "CREATE MUTABLE STREAM IF NOT EXISTS p_kg_users" in ddl
+    # streams live under the `tpk` database, qualified as <db>.<prefix><name> (#58)
+    assert "CREATE MUTABLE STREAM IF NOT EXISTS tpk.p_kg_users" in ddl
     assert "PRIMARY KEY (username)" in ddl
     assert "versioned_kv" not in ddl
     assert "deleted" not in ddl
@@ -23,11 +25,20 @@ def test_keyed_stream_ddl_timeplusd(monkeypatch):
 
 def test_keyed_stream_ddl_proton(monkeypatch):
     monkeypatch.setenv("TPK_DB_BACKEND", "proton")
+    monkeypatch.delenv("TIMEPLUS_DATABASE", raising=False)
     ddl = db._keyed_stream("p_", "kg_users", ["username string", "role string"], pk="username")
-    assert "CREATE STREAM IF NOT EXISTS p_kg_users" in ddl
+    assert "CREATE STREAM IF NOT EXISTS tpk.p_kg_users" in ddl
     assert "MUTABLE" not in ddl
     assert "deleted uint8 DEFAULT 0" in ddl
     assert "SETTINGS mode='versioned_kv'" in ddl
+
+
+def test_qualified_name(monkeypatch):
+    monkeypatch.delenv("TIMEPLUS_DATABASE", raising=False)
+    assert db.qualified("kg_nodes") == "tpk.kg_nodes"
+    assert db.qualified("kg_nodes", "p_") == "tpk.p_kg_nodes"
+    monkeypatch.setenv("TIMEPLUS_DATABASE", "kb")
+    assert db.qualified("kg_nodes", "p_") == "kb.p_kg_nodes"
 
 
 def test_latest_timeplusd(monkeypatch):

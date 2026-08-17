@@ -32,12 +32,12 @@ def _to_cfg(row) -> RepoConfig:
 
 
 def upsert_entry(client, cfg: RepoConfig, prefix: str = "") -> None:
-    client.insert(f"{prefix}kg_repos", [_row(cfg)], column_names=_COLUMNS)
+    client.insert(db.qualified("kg_repos", prefix), [_row(cfg)], column_names=_COLUMNS)
 
 
 def list_entries(client, prefix: str = "") -> list[RepoConfig]:
     rows = client.query(
-        f"SELECT {', '.join(_COLUMNS)} FROM {db.latest(f'{prefix}kg_repos')}"
+        f"SELECT {', '.join(_COLUMNS)} FROM {db.latest(db.qualified('kg_repos', prefix))}"
         " ORDER BY name, ref"
     ).result_rows
     return [_to_cfg(r) for r in rows]
@@ -45,7 +45,7 @@ def list_entries(client, prefix: str = "") -> list[RepoConfig]:
 
 def find_entry(client, name: str, ref: str, prefix: str = "") -> RepoConfig | None:
     rows = client.query(
-        f"SELECT {', '.join(_COLUMNS)} FROM {db.latest(f'{prefix}kg_repos')}"
+        f"SELECT {', '.join(_COLUMNS)} FROM {db.latest(db.qualified('kg_repos', prefix))}"
         " WHERE name = %(n)s AND ref = %(r)s",
         parameters={"n": name, "r": ref},
     ).result_rows
@@ -66,19 +66,19 @@ def delete_entry(
     cfg = find_entry(client, name, ref, prefix=prefix)
     if cfg is None:
         return False
-    db.delete(client, f"{prefix}kg_repos", "name = %(n)s AND ref = %(r)s",
+    db.delete(client, db.qualified("kg_repos", prefix), "name = %(n)s AND ref = %(r)s",
               {"n": name, "r": ref}, ("name", "ref"))
     if purge:
         key = entry_key(cfg)
-        db.delete(client, f"{prefix}kg_nodes", "repo = %(k)s", {"k": key}, ("id",))
-        db.delete(client, f"{prefix}kg_edges", "repo = %(k)s", {"k": key},
+        db.delete(client, db.qualified("kg_nodes", prefix), "repo = %(k)s", {"k": key}, ("id",))
+        db.delete(client, db.qualified("kg_edges", prefix), "repo = %(k)s", {"k": key},
                   ("src", "dst", "rel"))
     return True
 
 
 def enabled_keys(client, prefix: str = "") -> list[str]:
     rows = client.query(
-        f"SELECT name, ref FROM {db.latest(f'{prefix}kg_repos')} WHERE enabled"
+        f"SELECT name, ref FROM {db.latest(db.qualified('kg_repos', prefix))} WHERE enabled"
         " ORDER BY name, ref"
     ).result_rows
     return [f"{n}@{r}" if r else n for n, r in rows]

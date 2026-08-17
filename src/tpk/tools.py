@@ -141,7 +141,7 @@ class KnowledgeGraph:
             clauses.append("repo IN %(active_repos)s")
             params["active_repos"] = active or ["__none__"]
         rows = self._query_rows(
-            f"SELECT {', '.join(NODE_FIELDS)} FROM {db.latest(f'{self.prefix}kg_nodes')}"
+            f"SELECT {', '.join(NODE_FIELDS)} FROM {db.latest(db.qualified('kg_nodes', self.prefix))}"
             f" WHERE {' AND '.join(clauses)}",
             parameters=params,
         )
@@ -166,7 +166,7 @@ class KnowledgeGraph:
             clauses.append("repo IN %(active_repos)s")
             params["active_repos"] = active or ["__none__"]
         rows = self._query_rows(
-            f"SELECT {', '.join(EDGE_FIELDS)} FROM {db.latest(f'{self.prefix}kg_edges')}"
+            f"SELECT {', '.join(EDGE_FIELDS)} FROM {db.latest(db.qualified('kg_edges', self.prefix))}"
             f" WHERE {' AND '.join(clauses)}",
             parameters=params,
         )
@@ -206,7 +206,7 @@ class KnowledgeGraph:
 
         def _run(where_clauses, order):
             return self._query_rows(
-                f"SELECT {', '.join(NODE_FIELDS)} FROM {db.latest(f'{self.prefix}kg_nodes')}"
+                f"SELECT {', '.join(NODE_FIELDS)} FROM {db.latest(db.qualified('kg_nodes', self.prefix))}"
                 f" WHERE {' AND '.join(where_clauses)}"
                 f" ORDER BY {order} LIMIT %(limit)s",
                 parameters=params,
@@ -329,7 +329,7 @@ class KnowledgeGraph:
         clause = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self._query_rows(
             f"SELECT repo, community, count() AS node_count"
-            f" FROM {db.latest(f'{self.prefix}kg_nodes')}{clause}"
+            f" FROM {db.latest(db.qualified('kg_nodes', self.prefix))}{clause}"
             " GROUP BY repo, community ORDER BY node_count DESC",
             parameters=params,
         )

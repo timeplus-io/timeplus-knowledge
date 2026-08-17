@@ -96,6 +96,20 @@ def db_backend() -> str:
     return backend
 
 
+def database() -> str:
+    """The database all tpk streams live under (env > [db].database > 'tpk').
+    tpk qualifies every stream as `<database>.<prefix><name>` (see #58) so its
+    objects don't clutter the server's `default` database and can be granted /
+    dropped as a unit. Read module-level (like db_backend) so db.py helpers can
+    qualify names without threading it through every signature."""
+    name = setting("TIMEPLUS_DATABASE", "db", "database", "tpk")
+    if not name.replace("_", "").isalnum():
+        raise ValueError(
+            f"TIMEPLUS_DATABASE / [db].database must be alphanumeric/underscore, got {name!r}"
+        )
+    return name
+
+
 @dataclass(frozen=True)
 class RepoConfig:
     name: str

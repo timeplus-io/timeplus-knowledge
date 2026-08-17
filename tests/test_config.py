@@ -7,6 +7,7 @@ from tpk.config import (
     Settings,
     as_bool,
     checkout_root,
+    database,
     db_backend,
     load_llm,
     load_repos,
@@ -119,6 +120,21 @@ def test_db_backend_rejects_bad_value(config_file, monkeypatch):
     monkeypatch.setenv("TPK_DB_BACKEND", "sqlite")
     with pytest.raises(ValueError):
         db_backend()
+
+
+def test_database_precedence(config_file, monkeypatch):
+    monkeypatch.delenv("TIMEPLUS_DATABASE", raising=False)
+    assert database() == "tpk"                      # built-in default
+    config_file.write_text('[db]\ndatabase = "kb"\n')
+    assert database() == "kb"                        # file over default
+    monkeypatch.setenv("TIMEPLUS_DATABASE", "graph")
+    assert database() == "graph"                     # env over file
+
+
+def test_database_rejects_bad_value(config_file, monkeypatch):
+    monkeypatch.setenv("TIMEPLUS_DATABASE", "bad-name;drop")
+    with pytest.raises(ValueError):
+        database()
 
 
 def test_settings_reads_db_section_from_file(config_file, monkeypatch):

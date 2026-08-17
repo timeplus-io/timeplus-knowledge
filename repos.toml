@@ -37,8 +37,9 @@ token_budget = 16000
 [db]
 # host         = "localhost"     # env: TIMEPLUS_HOST
 # user         = "default"       # env: TIMEPLUS_USER
+# database     = "tpk"           # env: TIMEPLUS_DATABASE   (all tpk streams live here)
 # backend      = "timeplusd"     # env: TPK_DB_BACKEND      ("timeplusd" | "proton")
-# stream_prefix = ""             # env: TPK_STREAM_PREFIX   (namespaces all streams)
+# stream_prefix = ""             # env: TPK_STREAM_PREFIX   (namespaces streams within the database)
 # wait_seconds = 60              # env: TPK_DB_WAIT_SECONDS (serve: DB connect retry budget)
 
 [agent]
