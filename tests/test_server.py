@@ -158,6 +158,30 @@ def test_chat_no_usage_store_skips_enforcement(monkeypatch):
     assert client.post("/chat", json={"message": "q"}).status_code == 200
 
 
+def test_chat_usage_status_for_limited_user(monkeypatch):
+    monkeypatch.setenv("TPK_DAILY_TOKEN_LIMIT", "50000")
+    monkeypatch.delenv("TPK_CONFIG", raising=False)
+    usage = _Usage(used=1234)
+    auth = _StubAuth(User("bob", "", "member"), caps=["chat"])
+    client = TestClient(create_app(agent=FakeAgent([]), auth=auth, usage=usage))
+    body = client.get("/chat/usage").json()
+    assert body["limited"] is True
+    assert body["used"] == 1234 and body["limit"] == 50000
+    assert body["remaining"] == 48766 and "reset" in body
+
+
+def test_chat_usage_status_unlimited_for_admin_and_no_store(monkeypatch):
+    monkeypatch.setenv("TPK_DAILY_TOKEN_LIMIT", "50000")
+    # admin -> unlimited even with a store
+    admin = TestClient(create_app(agent=FakeAgent([]), auth=_StubAuth(User("root", "", "admin")),
+                                  usage=_Usage(used=9)))
+    assert admin.get("/chat/usage").json() == {"limited": False}
+    # non-admin but no usage store -> unlimited (unit path)
+    auth = _StubAuth(User("bob", "", "member"), caps=["chat"])
+    nostore = TestClient(create_app(agent=FakeAgent([]), auth=auth))
+    assert nostore.get("/chat/usage").json() == {"limited": False}
+
+
 def test_chat_model_endpoint(monkeypatch):
     monkeypatch.setenv("TPK_AGENT_PROVIDER", "anthropic")
     monkeypatch.setenv("TPK_AGENT_MODEL", "anthropic.claude-opus-4-8")

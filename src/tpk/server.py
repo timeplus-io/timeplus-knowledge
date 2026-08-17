@@ -161,6 +161,7 @@ def create_app(
     from tpk.auth import AuthLayer, User, create_auth_router
     from tpk.config import daily_token_limit
     from tpk.tools import ROLE_SCOPE
+    from tpk.usage import day_window, effective_daily_limit
 
     auth = auth or AuthLayer(stream_prefix)
     app = FastAPI(title="timeplus-knowledge")
@@ -221,6 +222,32 @@ def create_app(
         except Exception:
             return {"provider": None, "model": None}
 
+    @app.get("/chat/usage")
+    def chat_usage_status(user: User = Depends(auth.require_cap(auth_mod.CAP_CHAT))):
+        """This user's daily token budget for the UI (#62): how much is used,
+        how much is left, and when it resets. `limited: false` for admins,
+        unlimited roles, or when no usage store is active — the UI then shows
+        no budget indicator. Sync def -> FastAPI runs the DB reads in a
+        threadpool. Best-effort: any failure degrades to unlimited."""
+        if user.role == auth_mod.ROLE_ADMIN or usage is None:
+            return {"limited": False}
+        try:
+            role = auth_mod.get_role(auth._client(), user.role, prefix=stream_prefix)
+        except Exception:
+            role = None
+        limit = effective_daily_limit(role, daily_token_limit())
+        if limit <= 0:
+            return {"limited": False}
+        used = usage.used_today(user.username)
+        _, reset = day_window()
+        return {
+            "limited": True,
+            "used": used,
+            "limit": limit,
+            "remaining": max(0, limit - used),
+            "reset": reset.isoformat(),
+        }
+
     @app.post("/chat")
     async def chat(req: ChatRequest, user: User = Depends(auth.require_cap(auth_mod.CAP_CHAT))):
         messages = [(t.role, t.content) for t in req.history] + [("user", req.message)]
@@ -253,8 +280,7 @@ def create_app(
             scope = frozenset(role.entry_keys) if role else frozenset()
             # Effective daily token budget: the role's own limit, else the
             # global fallback (config). admin is never limited (branch skipped).
-            role_limit = role.daily_token_limit if role else 0
-            turn_limit = role_limit if role_limit > 0 else daily_token_limit()
+            turn_limit = effective_daily_limit(role, daily_token_limit())
 
             # Enforce the budget BEFORE running the agent (#62). Enforcement is
             # necessarily next-turn: a turn's cost is only known once it runs, so
@@ -263,8 +289,6 @@ def create_app(
             if usage is not None and turn_limit > 0:
                 used = await run_in_threadpool(lambda: usage.used_today(user.username))
                 if used >= turn_limit:
-                    from tpk.usage import day_window
-
                     _, reset = day_window()
                     raise HTTPException(
                         status_code=429,

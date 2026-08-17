@@ -190,6 +190,13 @@ function SourceCard({ n, source }: { n?: number; source: SourceEventPayload }) {
 // Chat
 // --------------------------------------------------------------------
 
+// Daily token budget for the current user (#62). `limited: false` for admins,
+// unlimited roles, or when no budget is enforced -> no indicator shown.
+type UsageInfo =
+  | { limited: true; used: number; limit: number; remaining: number; reset: string }
+  | { limited: false }
+  | null;
+
 export default function Chat({
   initialInput,
   onConsumeInitial,
@@ -204,6 +211,7 @@ export default function Chat({
   const [busy, setBusy] = useState(false);
   const [corpusTags, setCorpusTags] = useState<string[]>([]);
   const [agentModel, setAgentModel] = useState<string | null>(null);
+  const [usage, setUsage] = useState<UsageInfo>(null);
   // Citations live on the read_source trace rows (issue #40): clicking a row
   // opens that source fragment in the side panel (like the previous Sources
   // panel), rather than inline. `activeSource` is the one being shown, or null.
@@ -279,6 +287,16 @@ export default function Chat({
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // This user's daily token budget (#62): fetched on load and refreshed after
+  // each turn (a turn spends tokens). Silent on failure — just no indicator.
+  async function refreshUsage() {
+    try {
+      const resp = await apiFetch("/chat/usage");
+      if (resp.ok) setUsage(await resp.json());
+    } catch { /* leave the last-known usage in place */ }
+  }
+  useEffect(() => { void refreshUsage(); }, []);
 
   async function send(overrideMessage?: string) {
     const message = (overrideMessage ?? input).trim();
@@ -402,6 +420,11 @@ export default function Chat({
       finish("error");
     } finally {
       setBusy(false);
+      // The turn's token cost is recorded server-side as the stream ends; the
+      // append-only usage read lags slightly, so refresh now and once shortly
+      // after so the "used/left" figures reflect the turn just completed.
+      void refreshUsage();
+      setTimeout(() => void refreshUsage(), 1500);
     }
   }
 
@@ -526,6 +549,19 @@ export default function Chat({
               <span className="tk-model-tag">{agentModel}</span>
             </>
           )}
+          {usage?.limited && (
+            <>
+              <div className="tk-chat-topbar-label">daily tokens</div>
+              <span className="tk-model-tag"
+                    title={`Used ${usage.used.toLocaleString()} of ${usage.limit.toLocaleString()} · resets ${new Date(usage.reset).toLocaleString()}`}>
+                {usage.used.toLocaleString()} / {usage.limit.toLocaleString()}
+              </span>
+              <div className="tk-chat-topbar-label">
+                {usage.remaining.toLocaleString()} left &middot; resets{" "}
+                {new Date(usage.reset).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -545,6 +581,13 @@ export default function Chat({
           {agentModel && (
             <div className="tk-chat-empty-model">
               model <span className="tk-model-tag">{agentModel}</span>
+            </div>
+          )}
+          {usage?.limited && (
+            <div className="tk-chat-empty-model">
+              <span className="tk-model-tag">{usage.used.toLocaleString()} / {usage.limit.toLocaleString()}</span>
+              {" "}tokens used today &middot; {usage.remaining.toLocaleString()} left &middot; resets{" "}
+              {new Date(usage.reset).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
             </div>
           )}
           <div className="tk-suggested-grid">
