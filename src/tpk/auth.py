@@ -66,7 +66,8 @@ _hasher = PasswordHasher()  # argon2id defaults
 
 _USER_COLUMNS = ["username", "password_hash", "role", "must_change_password",
                  "disabled", "created_at", "updated_at"]
-_ROLE_COLUMNS = ["name", "entry_keys", "capabilities", "description", "updated_at"]
+_ROLE_COLUMNS = ["name", "entry_keys", "capabilities", "description",
+                 "daily_token_limit", "updated_at"]
 _SESSION_COLUMNS = ["token_hash", "username", "expires_at", "created_at"]
 
 
@@ -85,6 +86,9 @@ class Role:
     entry_keys: list[str] = field(default_factory=list)
     description: str = ""
     capabilities: list[str] = field(default_factory=lambda: list(DEFAULT_CAPABILITIES))
+    # Daily per-user token budget for members of this role (0 = unlimited). See
+    # #62; a global fallback (config.daily_token_limit) applies when this is 0.
+    daily_token_limit: int = 0
 
 
 def _parse_capabilities(raw: str) -> list[str]:
@@ -194,30 +198,32 @@ def upsert_role(client, role: Role, prefix: str = "") -> None:
     client.insert(
         db.qualified("kg_roles", prefix),
         [[role.name, json.dumps(role.entry_keys), json.dumps(role.capabilities),
-          role.description, _now()]],
+          role.description, max(int(role.daily_token_limit), 0), _now()]],
         column_names=_ROLE_COLUMNS,
     )
 
 
 def get_role(client, name: str, prefix: str = "") -> Role | None:
     rows = client.query(
-        f"SELECT name, entry_keys, capabilities, description FROM {db.latest(db.qualified('kg_roles', prefix))}"
-        f" WHERE name = %(n)s",
+        f"SELECT name, entry_keys, capabilities, description, daily_token_limit"
+        f" FROM {db.latest(db.qualified('kg_roles', prefix))} WHERE name = %(n)s",
         parameters={"n": name},
     ).result_rows
     if not rows:
         return None
-    n, keys, caps, desc = rows[0]
-    return Role(n, json.loads(keys) if keys else [], desc, _parse_capabilities(caps))
+    n, keys, caps, desc, limit = rows[0]
+    return Role(n, json.loads(keys) if keys else [], desc, _parse_capabilities(caps),
+                daily_token_limit=int(limit or 0))
 
 
 def list_roles(client, prefix: str = "") -> list[Role]:
     rows = client.query(
-        f"SELECT name, entry_keys, capabilities, description FROM {db.latest(db.qualified('kg_roles', prefix))}"
-        f" ORDER BY name"
+        f"SELECT name, entry_keys, capabilities, description, daily_token_limit"
+        f" FROM {db.latest(db.qualified('kg_roles', prefix))} ORDER BY name"
     ).result_rows
-    return [Role(n, json.loads(k) if k else [], d, _parse_capabilities(c))
-            for n, k, c, d in rows]
+    return [Role(n, json.loads(k) if k else [], d, _parse_capabilities(c),
+                 daily_token_limit=int(lim or 0))
+            for n, k, c, d, lim in rows]
 
 
 def delete_role(client, name: str, prefix: str = "") -> None:

@@ -86,9 +86,76 @@ def _parse_sse(body: str) -> list[dict]:
     return [json.loads(line[len("data: "):]) for line in body.splitlines() if line.startswith("data: ")]
 
 
+def _end_usage(total_tokens=0, text=""):
+    """An on_chat_model_end event whose output carries usage_metadata (#62)."""
+    class Msg:
+        content = text
+        usage_metadata = {"total_tokens": total_tokens}
+    return {"event": "on_chat_model_end", "data": {"output": Msg()}}
+
+
+class _Usage:
+    """In-memory usage store stub for enforcement/metering tests."""
+
+    def __init__(self, used=0):
+        self._used = used
+        self.recorded = []
+
+    def used_today(self, username, now=None):
+        return self._used
+
+    def record(self, username, tokens):
+        self.recorded.append((username, tokens))
+
+
 def test_healthz():
     client = TestClient(create_app(agent=FakeAgent([]), auth=_StubAuth()))
     assert client.get("/healthz").json() == {"status": "ok"}
+
+
+def test_chat_over_daily_budget_returns_429(monkeypatch):
+    # No per-role limit reachable in unit tests (stub._client raises), so the
+    # global fallback applies; used == limit -> blocked.
+    monkeypatch.setenv("TPK_DAILY_TOKEN_LIMIT", "1000")
+    monkeypatch.delenv("TPK_CONFIG", raising=False)
+    usage = _Usage(used=1000)
+    auth = _StubAuth(User("bob", "", "member"), caps=["chat"])
+    client = TestClient(create_app(agent=FakeAgent([_tok("hi")]), auth=auth, usage=usage))
+    resp = client.post("/chat", json={"message": "q"})
+    assert resp.status_code == 429
+    detail = resp.json()["detail"]
+    assert detail["limit"] == 1000 and detail["used"] == 1000
+    assert "reset" in detail and "budget" in detail["message"].lower()
+
+
+def test_chat_under_budget_proceeds_and_records_usage(monkeypatch):
+    monkeypatch.setenv("TPK_DAILY_TOKEN_LIMIT", "10000")
+    monkeypatch.delenv("TPK_CONFIG", raising=False)
+    usage = _Usage(used=500)
+    auth = _StubAuth(User("bob", "", "member"), caps=["chat"])
+    agent = FakeAgent([_tok("hi "), _end_usage(1234, "hi there")])
+    client = TestClient(create_app(agent=agent, auth=auth, usage=usage))
+    resp = client.post("/chat", json={"message": "q"})
+    assert resp.status_code == 200
+    # the turn's token cost is metered to the store
+    assert usage.recorded == [("bob", 1234)]
+
+
+def test_chat_admin_never_limited(monkeypatch):
+    monkeypatch.setenv("TPK_DAILY_TOKEN_LIMIT", "10")
+    usage = _Usage(used=10_000_000)  # way over, but admin is exempt
+    client = TestClient(create_app(agent=FakeAgent([_tok("hi")]),
+                                   auth=_StubAuth(User("root", "", "admin")), usage=usage))
+    resp = client.post("/chat", json={"message": "q"})
+    assert resp.status_code == 200
+
+
+def test_chat_no_usage_store_skips_enforcement(monkeypatch):
+    # Unit tests that don't inject a usage store must not enforce (or touch a DB).
+    monkeypatch.setenv("TPK_DAILY_TOKEN_LIMIT", "1")
+    auth = _StubAuth(User("bob", "", "member"), caps=["chat"])
+    client = TestClient(create_app(agent=FakeAgent([_tok("hi")]), auth=auth))
+    assert client.post("/chat", json={"message": "q"}).status_code == 200
 
 
 def test_chat_model_endpoint(monkeypatch):

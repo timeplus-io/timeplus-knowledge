@@ -84,6 +84,8 @@ class UpsertRole(BaseModel):
     # Omitted -> the chat-only default (friendly for API-only callers); an
     # explicit [] is honored as a zero-capability role.
     capabilities: list[str] | None = None
+    # Daily per-user token budget for this role's members (0 = unlimited, #62).
+    daily_token_limit: int = 0
 
 
 class DeleteRole(BaseModel):
@@ -388,7 +390,8 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
     @router.get("/roles")
     def api_list_roles(actor: User = Depends(auth.require_cap(auth_mod.CAP_USERS_VIEW))):
         return [{"name": r.name, "entry_keys": r.entry_keys,
-                 "capabilities": r.capabilities, "description": r.description}
+                 "capabilities": r.capabilities, "description": r.description,
+                 "daily_token_limit": r.daily_token_limit}
                 for r in auth_mod.list_roles(_client(), prefix=prefix)]
 
     @router.post("/roles")
@@ -404,6 +407,8 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
         unknown = [c for c in caps if c not in auth_mod.ALL_CAPABILITIES]
         if unknown:
             raise HTTPException(400, f"unknown capabilities: {', '.join(unknown)}")
+        if body.daily_token_limit < 0:
+            raise HTTPException(400, "daily_token_limit must be >= 0 (0 = unlimited)")
         client = _client()
         # Guard both the new values AND (when overwriting) the role's current
         # privileges -- else a non-admin manager could neuter a role more
@@ -414,7 +419,8 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
             _guard_grant(client, actor, existing.capabilities, existing.entry_keys)
         _guard_grant(client, actor, caps, body.entry_keys)
         auth_mod.upsert_role(client, auth_mod.Role(
-            body.name, body.entry_keys, body.description, caps), prefix=prefix)
+            body.name, body.entry_keys, body.description, caps,
+            daily_token_limit=body.daily_token_limit), prefix=prefix)
         return {"ok": True}
 
     @router.post("/roles/delete")

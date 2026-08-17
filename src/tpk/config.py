@@ -110,6 +110,14 @@ def database() -> str:
     return name
 
 
+def daily_token_limit() -> int:
+    """Global fallback daily per-user token budget for non-admin chat (#62):
+    env TPK_DAILY_TOKEN_LIMIT > [server].daily_token_limit > 0 (unlimited).
+    Applies to users whose role does not set its own `daily_token_limit`."""
+    val = setting("TPK_DAILY_TOKEN_LIMIT", "server", "daily_token_limit", 0, cast=int)
+    return max(int(val), 0)
+
+
 @dataclass(frozen=True)
 class RepoConfig:
     name: str

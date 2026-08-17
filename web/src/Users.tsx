@@ -3,15 +3,17 @@ import { apiFetch } from "./api";
 import { CAP, CAPABILITY_OPTIONS, type Capability, expandCaps, hasCap } from "./capabilities";
 
 type ApiUser = { username: string; role: string; must_change_password: boolean; disabled: boolean };
-type ApiRole = { name: string; entry_keys: string[]; description: string; capabilities: string[] };
+type ApiRole = { name: string; entry_keys: string[]; description: string;
+                 capabilities: string[]; daily_token_limit: number };
 type Repo = { entry_key: string };
-type RoleEdit = { entry_keys: string[]; description: string; capabilities: string[] };
+type RoleEdit = { entry_keys: string[]; description: string; capabilities: string[];
+                  daily_token_limit: number };
 
 // Least-privilege: force an explicit role pick rather than defaulting new
 // users to admin. A new role starts chat-only.
 const EMPTY_USER = { username: "", password: "", role: "", must_change_password: true };
 const EMPTY_ROLE = { name: "", entry_keys: [] as string[], description: "",
-                     capabilities: [CAP.chat] as string[] };
+                     capabilities: [CAP.chat] as string[], daily_token_limit: 0 };
 
 // Checking a `:manage` capability implies its `:view` sibling; unchecking is
 // free. Returns the next selected set.
@@ -88,7 +90,8 @@ export default function Users({ capabilities, isAdmin }:
       setEntryKeys([...new Set(repos.map((x) => x.entry_key))].sort());
       setRoleEdits(Object.fromEntries(
         r.map((role) => [role.name, { entry_keys: role.entry_keys,
-          description: role.description, capabilities: role.capabilities ?? [] }])
+          description: role.description, capabilities: role.capabilities ?? [],
+          daily_token_limit: role.daily_token_limit ?? 0 }])
       ));
       setError("");
     } catch (e) {
@@ -104,7 +107,7 @@ export default function Users({ capabilities, isAdmin }:
 
   function toggleEntryKey(name: string, key: string) {
     setRoleEdits((prev) => {
-      const cur = prev[name] ?? { entry_keys: [], description: "", capabilities: [] };
+      const cur = prev[name] ?? { entry_keys: [], description: "", capabilities: [], daily_token_limit: 0 };
       const has = cur.entry_keys.includes(key);
       return {
         ...prev,
@@ -115,8 +118,15 @@ export default function Users({ capabilities, isAdmin }:
 
   function toggleRoleCap(name: string, key: Capability) {
     setRoleEdits((prev) => {
-      const cur = prev[name] ?? { entry_keys: [], description: "", capabilities: [] };
+      const cur = prev[name] ?? { entry_keys: [], description: "", capabilities: [], daily_token_limit: 0 };
       return { ...prev, [name]: { ...cur, capabilities: toggleCap(cur.capabilities, key) } };
+    });
+  }
+
+  function setRoleLimit(name: string, value: number) {
+    setRoleEdits((prev) => {
+      const cur = prev[name] ?? { entry_keys: [], description: "", capabilities: [], daily_token_limit: 0 };
+      return { ...prev, [name]: { ...cur, daily_token_limit: Math.max(0, value || 0) } };
     });
   }
 
@@ -342,7 +352,8 @@ export default function Users({ capabilities, isAdmin }:
       <div className="tk-role-cards">
         {roles.map((r) => {
           const edit = roleEdits[r.name]
-            ?? { entry_keys: r.entry_keys, description: r.description, capabilities: r.capabilities ?? [] };
+            ?? { entry_keys: r.entry_keys, description: r.description,
+                 capabilities: r.capabilities ?? [], daily_token_limit: r.daily_token_limit ?? 0 };
           const count = memberCount(r.name);
           return (
             <div className="tk-role-card" key={r.name}>
@@ -355,7 +366,8 @@ export default function Users({ capabilities, isAdmin }:
                 {canManage && <button type="button" className="tk-btn tk-btn-secondary"
                         onClick={() => act(() => call("/api/roles",
                           { name: r.name, entry_keys: edit.entry_keys, description: edit.description,
-                            capabilities: expandCaps(edit.capabilities) }))}>
+                            capabilities: expandCaps(edit.capabilities),
+                            daily_token_limit: edit.daily_token_limit }))}>
                   Save
                 </button>}
                 {canManage && (confirmingRole === r.name ? (
@@ -397,6 +409,13 @@ export default function Users({ capabilities, isAdmin }:
                        onChange={(e) => setRoleEdits((prev) => ({
                          ...prev, [r.name]: { ...edit, description: e.target.value },
                        }))} />
+              </div>
+
+              <div className="tk-form-field">
+                <label htmlFor={`role-limit-${r.name}`}>Daily token budget per user (0 = unlimited)</label>
+                <input id={`role-limit-${r.name}`} className="tk-input" type="number" min={0} step={1000}
+                       value={edit.daily_token_limit} disabled={!canManage}
+                       onChange={(e) => setRoleLimit(r.name, parseInt(e.target.value, 10))} />
               </div>
             </div>
           );
@@ -521,6 +540,13 @@ export default function Users({ capabilities, isAdmin }:
                   <label htmlFor="role-desc">Description</label>
                   <input id="role-desc" className="tk-input" placeholder="description" value={newRole.description}
                          onChange={(e) => setNewRole({ ...newRole, description: e.target.value })} />
+                </div>
+                <div className="tk-form-field">
+                  <label htmlFor="role-limit">Daily token budget per user (0 = unlimited)</label>
+                  <input id="role-limit" className="tk-input" type="number" min={0} step={1000}
+                         value={newRole.daily_token_limit}
+                         onChange={(e) => setNewRole({ ...newRole,
+                           daily_token_limit: Math.max(0, parseInt(e.target.value, 10) || 0) })} />
                 </div>
                 <div className="tk-form-field">
                   <span className="tk-corpus-access-label">Capabilities</span>

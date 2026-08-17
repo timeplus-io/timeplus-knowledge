@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -76,6 +76,30 @@ def _chunk_thinking(chunk) -> str:
     return ""
 
 
+def _usage_tokens(msg) -> int:
+    """Total tokens for one model call, read from an `on_chat_model_end`
+    output message. Prefers LangChain's normalized `usage_metadata`, falling
+    back to raw `response_metadata` token_usage (OpenAI-style) so gateways that
+    only pass the raw shape still count. Returns 0 when usage is unavailable
+    (some gateways omit it) — the caller treats a 0-cost turn as free."""
+    if msg is None:
+        return 0
+    um = getattr(msg, "usage_metadata", None)
+    if isinstance(um, dict):
+        total = um.get("total_tokens")
+        if total is None:
+            total = (um.get("input_tokens") or 0) + (um.get("output_tokens") or 0)
+        return max(int(total or 0), 0)
+    rm = getattr(msg, "response_metadata", None) or {}
+    tu = rm.get("token_usage") or rm.get("usage") or {}
+    if isinstance(tu, dict):
+        total = tu.get("total_tokens")
+        if total is None:
+            total = (tu.get("prompt_tokens") or 0) + (tu.get("completion_tokens") or 0)
+        return max(int(total or 0), 0)
+    return 0
+
+
 def _build_kg_and_repos():
     """Production path: one shared `KnowledgeGraph` (+ the parsed repo
     config it needs) built up front in `create_app`, reused by both the
@@ -128,12 +152,14 @@ def _build_production_agent(kg, repos):
 
 
 def create_app(
-    agent=None, stream_prefix: str = "", auth=None, kg=None, audit_sink=None
+    agent=None, stream_prefix: str = "", auth=None, kg=None, audit_sink=None,
+    usage=None,
 ) -> FastAPI:
     import tpk.auth as auth_mod
     from tpk.agent import RECURSION_LIMIT
     from tpk.api import create_api_router
     from tpk.auth import AuthLayer, User, create_auth_router
+    from tpk.config import daily_token_limit
     from tpk.tools import ROLE_SCOPE
 
     auth = auth or AuthLayer(stream_prefix)
@@ -162,6 +188,15 @@ def create_app(
         # `kg` built over the test stream prefix -- so this branch never
         # runs there and never touches the network in unit tests.
         kg, repos_for_agent = _build_kg_and_repos()
+        # Per-user daily token budget (#62). Always-on in production (not gated
+        # by the audit toggle); a fresh client per read/write. Tests inject
+        # their own `usage` (or leave it None to disable enforcement).
+        if usage is None:
+            from tpk import db
+            from tpk.config import Settings
+            from tpk.usage import DbUsage
+
+            usage = DbUsage(stream_prefix, lambda: db.get_client(Settings.from_env()))
 
     state = {"agent": agent}
 
@@ -201,6 +236,7 @@ def create_app(
             audit_provider, audit_model = "", ""
 
         scope = None
+        turn_limit = 0  # effective daily token budget for this user (0 = unlimited)
         if user.role != auth_mod.ROLE_ADMIN:
             try:
                 # Off the event loop: against an unreachable-but-not-refusing
@@ -215,6 +251,33 @@ def create_app(
             # scope = tools see nothing, rather than falling through to
             # unrestricted (None) access.
             scope = frozenset(role.entry_keys) if role else frozenset()
+            # Effective daily token budget: the role's own limit, else the
+            # global fallback (config). admin is never limited (branch skipped).
+            role_limit = role.daily_token_limit if role else 0
+            turn_limit = role_limit if role_limit > 0 else daily_token_limit()
+
+            # Enforce the budget BEFORE running the agent (#62). Enforcement is
+            # necessarily next-turn: a turn's cost is only known once it runs, so
+            # the turn that crosses the line completes and the NEXT one is
+            # blocked. Reads fail open (usage.used_today swallows + returns 0).
+            if usage is not None and turn_limit > 0:
+                used = await run_in_threadpool(lambda: usage.used_today(user.username))
+                if used >= turn_limit:
+                    from tpk.usage import day_window
+
+                    _, reset = day_window()
+                    raise HTTPException(
+                        status_code=429,
+                        detail={
+                            "message": (
+                                f"Daily token budget reached ({used}/{turn_limit}). "
+                                f"Access resets at {reset.isoformat()}."
+                            ),
+                            "used": used,
+                            "limit": turn_limit,
+                            "reset": reset.isoformat(),
+                        },
+                    )
 
         async def stream():
             # Set inside stream(), not the handler body: the generator runs
@@ -229,6 +292,7 @@ def create_app(
             answer_text = ""
             audit_status = "ok"
             audit_error = ""
+            turn_tokens = 0  # summed across the turn's model calls (#62)
             try:
                 full: list[str] = []
                 final_text = ""
@@ -257,9 +321,13 @@ def create_app(
                             # The last model turn's message is the authoritative
                             # answer — token deltas can miss it entirely for
                             # models that stream on a reasoning channel (gpt-oss).
-                            end_text = _chunk_text(event.get("data", {}).get("output"))
+                            output = event.get("data", {}).get("output")
+                            end_text = _chunk_text(output)
                             if end_text:
                                 final_text = end_text
+                            # Sum token cost across every model call in the turn
+                            # (the tool loop makes several) for the daily budget.
+                            turn_tokens += _usage_tokens(output)
                         elif kind == "on_tool_start":
                             yield _sse(
                                 {
@@ -378,6 +446,14 @@ def create_app(
                         await run_in_threadpool(audit_sink, record)
                     except Exception:
                         logger.exception("chat audit failed; skipping")
+                # Daily-budget metering (#62): record this turn's token cost,
+                # off the event loop and best-effort. Written even on a partial
+                # (errored) turn — tokens spent still count against the budget.
+                if usage is not None and turn_tokens > 0:
+                    try:
+                        await run_in_threadpool(usage.record, user.username, turn_tokens)
+                    except Exception:
+                        logger.exception("usage record failed; skipping")
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 

@@ -311,7 +311,15 @@ export default function Chat({
         body: JSON.stringify({ message, history }),
       });
       if (!resp.ok || !resp.body) {
-        update((t) => ({ ...t, content: t.content + `\n\n[error] HTTP ${resp.status}` }));
+        // Daily token budget reached (#62): show the server's friendly message
+        // (with the reset time) rather than a bare HTTP code.
+        let msg = `\n\n[error] HTTP ${resp.status}`;
+        if (resp.status === 429) {
+          const detail = await resp.json().catch(() => null);
+          const m = detail?.detail?.message ?? detail?.message;
+          msg = m ? `\n\n${m}` : "\n\n[error] Daily usage limit reached.";
+        }
+        update((t) => ({ ...t, content: t.content + msg }));
         finish("error");
         return;
       }
