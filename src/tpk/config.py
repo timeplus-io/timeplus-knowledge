@@ -112,9 +112,10 @@ def database() -> str:
 
 def daily_token_limit() -> int:
     """Global fallback daily per-user token budget for non-admin chat (#62):
-    env TPK_DAILY_TOKEN_LIMIT > [server].daily_token_limit > 0 (unlimited).
-    Applies to users whose role does not set its own `daily_token_limit`."""
-    val = setting("TPK_DAILY_TOKEN_LIMIT", "server", "daily_token_limit", 0, cast=int)
+    env TPK_DAILY_TOKEN_LIMIT > [server].daily_token_limit > 500000. Applies to
+    users whose role/user override does not set its own `daily_token_limit`.
+    Set to 0 for unlimited-by-default."""
+    val = setting("TPK_DAILY_TOKEN_LIMIT", "server", "daily_token_limit", 500000, cast=int)
     return max(int(val), 0)
 
 

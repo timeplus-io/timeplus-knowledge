@@ -76,7 +76,7 @@ export the matching env var — whichever suits your deployment. Secrets are
 | `TPK_CHECKOUT_DIR` | `[server].checkout_dir` | `~/.tpk/checkouts` | GitHub checkout cache |
 | `TPK_SESSION_TTL` | `[server].session_ttl` | `86400` | Login session lifetime (seconds) |
 | `TPK_CHAT_AUDIT` | `[server].chat_audit` | `true` | Chat Q&A auditing (`false`/`0` disables) |
-| `TPK_DAILY_TOKEN_LIMIT` | `[server].daily_token_limit` | `0` | Per-user daily token budget for non-admins (`0` = unlimited; a role's own `daily_token_limit` wins) |
+| `TPK_DAILY_TOKEN_LIMIT` | `[server].daily_token_limit` | `500000` | Global fallback per-user daily token budget for non-admins (`0` = unlimited; a per-user or role `daily_token_limit` wins) |
 | `TPK_EXTRACTION_BACKEND` | `[llm].backend` | `auto` | Semantic-extraction backend (`auto`\|`claude`\|`openai`) |
 | `TPK_EXTRACTION_MODEL` | `[llm].model` | backend default | Semantic-extraction model |
 
