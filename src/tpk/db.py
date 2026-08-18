@@ -185,8 +185,8 @@ def ensure_schema(client, prefix: str = "") -> None:
     # Existing role rows keep an empty cell, which auth._parse_capabilities
     # reads as the chat-only migration default.
     _add_column_if_missing(client, qualified("kg_roles", prefix), "capabilities", "string")
-    # Daily per-user token budget per role (0 = unlimited); backfilled onto
-    # roles created before #62 as 0 (unlimited).
+    # Daily per-user token budget per role (0 = inherit the global fallback);
+    # backfilled onto roles created before #62 as 0 (inherit).
     _add_column_if_missing(client, qualified("kg_roles", prefix), "daily_token_limit", "uint32")
     client.command(_keyed_stream(prefix, "kg_sessions", [
         "token_hash string", "username string",

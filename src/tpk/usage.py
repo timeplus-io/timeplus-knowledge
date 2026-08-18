@@ -24,7 +24,9 @@ USAGE_COLUMNS = ["ts", "username", "tokens"]
 def effective_daily_limit(user_limit: int, role, global_default: int) -> int:
     """The daily token budget that applies to a user, by precedence (#62):
     the user's own override, else their role's limit, else the global fallback.
-    0 at every level means unlimited. `role` may be a Role or None (an
+    At the user and role levels, 0 means "inherit the next level down" (not
+    unlimited); only a 0 that reaches the global fallback is truly unlimited
+    (i.e. when TPK_DAILY_TOKEN_LIMIT is 0). `role` may be a Role or None (an
     unreadable/absent role falls through to the global)."""
     ul = int(user_limit or 0)
     if ul > 0:

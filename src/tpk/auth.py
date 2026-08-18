@@ -89,8 +89,9 @@ class Role:
     entry_keys: list[str] = field(default_factory=list)
     description: str = ""
     capabilities: list[str] = field(default_factory=lambda: list(DEFAULT_CAPABILITIES))
-    # Daily per-user token budget for members of this role (0 = unlimited). See
-    # #62; a global fallback (config.daily_token_limit) applies when this is 0.
+    # Daily per-user token budget for members of this role (0 = inherit the
+    # global fallback, config.daily_token_limit; NOT unlimited unless the global
+    # itself is 0). A per-user override still wins over this. See #62.
     daily_token_limit: int = 0
 
 

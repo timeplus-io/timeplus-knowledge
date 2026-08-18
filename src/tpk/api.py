@@ -87,7 +87,8 @@ class UpsertRole(BaseModel):
     # Omitted -> the chat-only default (friendly for API-only callers); an
     # explicit [] is honored as a zero-capability role.
     capabilities: list[str] | None = None
-    # Daily per-user token budget for this role's members (0 = unlimited, #62).
+    # Daily per-user token budget for this role's members (0 = inherit the
+    # global fallback, #62).
     daily_token_limit: int = 0
 
 
@@ -240,6 +241,17 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
         if actor.role != auth_mod.ROLE_ADMIN and target.role == auth_mod.ROLE_ADMIN:
             raise HTTPException(403, "cannot manage admin users")
 
+    def _guard_token_limit(actor, requested, current):
+        """A daily token budget is a cost-governance lever: only admins may
+        change one (#62/#24 bounded delegation). A non-admin users:manage
+        delegate may still manage users/roles as long as it leaves the budget
+        unchanged, but may not set or raise it — else a limited manager could
+        hand out unlimited/huge LLM spend through these endpoints."""
+        if requested is None:
+            return
+        if actor.role != auth_mod.ROLE_ADMIN and int(requested) != int(current or 0):
+            raise HTTPException(403, "only an admin can change the daily token budget")
+
     def _guard_grant(client, actor, caps, entry_keys):
         """Reject a grant (role capabilities/entry_keys) exceeding the actor's
         own. No-op for admins."""
@@ -347,6 +359,7 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
             raise HTTPException(409, "user already exists")
         if body.daily_token_limit < 0:
             raise HTTPException(400, "daily_token_limit must be >= 0 (0 = inherit)")
+        _guard_token_limit(actor, body.daily_token_limit, 0)
         _check_role_exists(client, body.role)
         _guard_role_assignment(client, actor, body.role)
         auth_mod.upsert_user(client, auth_mod.User(
@@ -370,6 +383,7 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
         disabled = body.disabled if body.disabled is not None else u.disabled
         if body.daily_token_limit is not None and body.daily_token_limit < 0:
             raise HTTPException(400, "daily_token_limit must be >= 0 (0 = inherit)")
+        _guard_token_limit(actor, body.daily_token_limit, u.daily_token_limit)
         token_limit = body.daily_token_limit if body.daily_token_limit is not None \
             else u.daily_token_limit
         password_hash, must_change = u.password_hash, u.must_change_password
@@ -420,13 +434,15 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
         if unknown:
             raise HTTPException(400, f"unknown capabilities: {', '.join(unknown)}")
         if body.daily_token_limit < 0:
-            raise HTTPException(400, "daily_token_limit must be >= 0 (0 = unlimited)")
+            raise HTTPException(400, "daily_token_limit must be >= 0 (0 = inherit)")
         client = _client()
         # Guard both the new values AND (when overwriting) the role's current
         # privileges -- else a non-admin manager could neuter a role more
         # privileged than their own grant, stripping its members (mirrors the
         # delete-path guard).
         existing = auth_mod.get_role(client, body.name, prefix=prefix)
+        _guard_token_limit(actor, body.daily_token_limit,
+                           existing.daily_token_limit if existing else 0)
         if existing is not None:
             _guard_grant(client, actor, existing.capabilities, existing.entry_keys)
         _guard_grant(client, actor, caps, body.entry_keys)

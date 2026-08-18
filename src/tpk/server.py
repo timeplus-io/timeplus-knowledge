@@ -225,10 +225,11 @@ def create_app(
     @app.get("/chat/usage")
     def chat_usage_status(user: User = Depends(auth.require_cap(auth_mod.CAP_CHAT))):
         """This user's daily token budget for the UI (#62): how much is used,
-        how much is left, and when it resets. `limited: false` for admins,
-        unlimited roles, or when no usage store is active — the UI then shows
-        no budget indicator. Sync def -> FastAPI runs the DB reads in a
-        threadpool. Best-effort: any failure degrades to unlimited."""
+        how much is left, and when it resets. `limited: false` for admins, when
+        the effective limit is 0 (unlimited), or when no usage store is active —
+        the UI then shows no budget indicator. Sync def -> FastAPI runs the DB
+        reads in a threadpool. Best-effort: a role-lookup failure falls back to
+        the global default limit, and the usage read fails open (0 used)."""
         if user.role == auth_mod.ROLE_ADMIN or usage is None:
             return {"limited": False}
         try:

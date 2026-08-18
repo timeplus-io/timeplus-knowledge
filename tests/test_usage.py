@@ -63,8 +63,14 @@ def test_effective_daily_limit_precedence():
     assert usage.effective_daily_limit(0, _Role(), 9999) == 5000
     # no user or role limit -> global fallback
     assert usage.effective_daily_limit(0, None, 9999) == 9999
-    # nothing set anywhere -> 0 (unlimited)
+    # a role limit of 0 means INHERIT (not unlimited): falls through to global
+    assert usage.effective_daily_limit(0, _Role0(), 9999) == 9999
+    # nothing set anywhere (global also 0) -> 0 (truly unlimited)
     assert usage.effective_daily_limit(0, None, 0) == 0
+
+
+class _Role0:
+    daily_token_limit = 0
 
 
 def test_db_usage_read_fails_open():

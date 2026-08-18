@@ -433,7 +433,7 @@ export default function Users({ capabilities, isAdmin }:
               </div>
 
               <div className="tk-form-field">
-                <label htmlFor={`role-limit-${r.name}`}>Daily token budget per user (0 = unlimited)</label>
+                <label htmlFor={`role-limit-${r.name}`}>Daily token budget per user (0 = inherit global)</label>
                 <input id={`role-limit-${r.name}`} className="tk-input" type="number" min={0} step={1000}
                        value={edit.daily_token_limit} disabled={!canManage}
                        onChange={(e) => setRoleLimit(r.name, parseInt(e.target.value, 10))} />
@@ -570,7 +570,7 @@ export default function Users({ capabilities, isAdmin }:
                          onChange={(e) => setNewRole({ ...newRole, description: e.target.value })} />
                 </div>
                 <div className="tk-form-field">
-                  <label htmlFor="role-limit">Daily token budget per user (0 = unlimited)</label>
+                  <label htmlFor="role-limit">Daily token budget per user (0 = inherit global)</label>
                   <input id="role-limit" className="tk-input" type="number" min={0} step={1000}
                          value={newRole.daily_token_limit}
                          onChange={(e) => setNewRole({ ...newRole,
