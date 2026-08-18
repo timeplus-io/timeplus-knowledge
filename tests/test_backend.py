@@ -164,3 +164,35 @@ def test_backend_session_lifecycle(backend_tp):
     auth.delete_session(client, token, prefix=prefix)
     _eventually(lambda: True if auth.get_session(client, token, prefix=prefix) is None else None)
     assert auth.get_session(client, token, prefix=prefix) is None
+
+
+def test_backend_role_daily_token_limit_roundtrip(backend_tp):
+    from tpk import auth
+    client, prefix, backend = backend_tp
+
+    auth.upsert_role(client, auth.Role("member", ["r1@v1"], "desc", ["chat"],
+                                       daily_token_limit=12345), prefix=prefix)
+    got = _eventually(lambda: auth.get_role(client, "member", prefix=prefix))
+    assert got is not None and got.daily_token_limit == 12345
+    # a role that doesn't set a limit reads back as 0 (unlimited)
+    auth.upsert_role(client, auth.Role("open", [], "", ["chat"]), prefix=prefix)
+    got2 = _eventually(lambda: auth.get_role(client, "open", prefix=prefix))
+    assert got2 is not None and got2.daily_token_limit == 0
+
+
+def test_backend_chat_usage_daily_count(backend_tp):
+    from tpk import usage
+    client, prefix, backend = backend_tp
+
+    usage.record_usage(client, "bob", 1000, prefix=prefix)
+    usage.record_usage(client, "bob", 500, prefix=prefix)
+    usage.record_usage(client, "alice", 999, prefix=prefix)
+    got = None
+    for _ in range(20):
+        got = usage.tokens_used_today(client, "bob", prefix=prefix)
+        if got == 1500:
+            break
+        time.sleep(0.3)
+    assert got == 1500
+    # scoping is per-user
+    assert usage.tokens_used_today(client, "alice", prefix=prefix) == 999

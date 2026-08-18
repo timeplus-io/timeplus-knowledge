@@ -46,6 +46,9 @@ services:
       TPK_AGENT_MODEL: ${TPK_AGENT_MODEL:-}
       TPK_AGENT_REASONING_EFFORT: ${TPK_AGENT_REASONING_EFFORT:-}
       TPK_CHAT_AUDIT: ${TPK_CHAT_AUDIT:-}
+      # Global fallback daily token budget for non-admin chat (0 = unlimited);
+      # a role's own daily_token_limit (Users -> Roles) overrides it.
+      TPK_DAILY_TOKEN_LIMIT: ${TPK_DAILY_TOKEN_LIMIT:-}
       # Semantic-extraction (graphify) backend. `auto` is ambiguous when both
       # API keys are set (picks claude), so set this to openai|claude to choose.
       # The model comes from OPENAI_MODEL / ANTHROPIC_MODEL (graphify reads them).

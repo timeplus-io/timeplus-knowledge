@@ -215,6 +215,23 @@ def test_manager_cannot_grant_corpus_beyond_own(c, manager):
     assert r.status_code == 403
 
 
+def test_manager_cannot_set_token_budget(c, client, prefix, manager):
+    # A non-admin manager may create/manage users and roles, but not set or
+    # change a daily token budget (admin-only cost lever, #62).
+    r = c.post("/api/roles", json={"name": "sub-budget", "entry_keys": ["alpha@v1"],
+                                   "capabilities": [CAP_CHAT], "daily_token_limit": 999999},
+               headers=_hdr(manager))
+    assert r.status_code == 403
+    r = c.post("/api/users", json={"username": "richuser", "password": "password-2",
+                                   "role": "manager", "daily_token_limit": 999999},
+               headers=_hdr(manager))
+    assert r.status_code == 403
+    # ...but managing without touching the budget (limit 0 = inherit) is fine.
+    assert c.post("/api/roles", json={"name": "sub-ok", "entry_keys": ["alpha@v1"],
+                                      "capabilities": [CAP_CHAT]},
+                  headers=_hdr(manager)).status_code == 200
+
+
 def test_manager_cannot_assign_admin_role(c, client, prefix, manager):
     r = c.post("/api/users", json={"username": "eviladmin", "password": "password-2",
                                    "role": auth.ROLE_ADMIN}, headers=_hdr(manager))

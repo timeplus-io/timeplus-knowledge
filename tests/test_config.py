@@ -137,6 +137,19 @@ def test_database_rejects_bad_value(config_file, monkeypatch):
         database()
 
 
+def test_daily_token_limit_precedence(config_file, monkeypatch):
+    from tpk.config import daily_token_limit
+
+    monkeypatch.delenv("TPK_DAILY_TOKEN_LIMIT", raising=False)
+    assert daily_token_limit() == 500000                # built-in default budget
+    config_file.write_text("[server]\ndaily_token_limit = 50000\n")
+    assert daily_token_limit() == 50000                 # file over default
+    monkeypatch.setenv("TPK_DAILY_TOKEN_LIMIT", "1000")
+    assert daily_token_limit() == 1000                  # env over file
+    monkeypatch.setenv("TPK_DAILY_TOKEN_LIMIT", "0")
+    assert daily_token_limit() == 0                      # explicit 0 = unlimited
+
+
 def test_settings_reads_db_section_from_file(config_file, monkeypatch):
     for var in ("TIMEPLUS_HOST", "TIMEPLUS_USER", "TPK_STREAM_PREFIX", "TPK_DB_BACKEND"):
         monkeypatch.delenv(var, raising=False)

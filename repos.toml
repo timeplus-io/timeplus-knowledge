@@ -51,6 +51,7 @@ token_budget = 16000
 # checkout_dir = "~/.tpk/checkouts"  # env: TPK_CHECKOUT_DIR (github checkout cache)
 # session_ttl  = 86400               # env: TPK_SESSION_TTL  (login session lifetime, seconds)
 # chat_audit   = true                # env: TPK_CHAT_AUDIT   (false/0 disables chat auditing)
+# daily_token_limit = 500000         # env: TPK_DAILY_TOKEN_LIMIT (global fallback per-user/day, non-admin; 0 = unlimited; a per-user/role limit wins)
 
 [repos.proton-enterprise]
 github = "timeplus-io/proton-enterprise"

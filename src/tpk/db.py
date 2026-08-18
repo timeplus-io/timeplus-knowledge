@@ -169,17 +169,25 @@ def ensure_schema(client, prefix: str = "") -> None:
     client.command(_keyed_stream(prefix, "kg_users", [
         "username string", "password_hash string", "role string",
         "must_change_password bool", "disabled bool",
+        "daily_token_limit uint32",
         "created_at datetime64(3, 'UTC')", "updated_at datetime64(3, 'UTC')",
     ], pk="username"))
+    # Per-user daily token budget override (0 = inherit role/global), #62;
+    # backfilled onto users created before it as 0.
+    _add_column_if_missing(client, qualified("kg_users", prefix), "daily_token_limit", "uint32")
     client.command(_keyed_stream(prefix, "kg_roles", [
         "name string", "entry_keys string", "capabilities string",
-        "description string", "updated_at datetime64(3, 'UTC')",
+        "description string", "daily_token_limit uint32",
+        "updated_at datetime64(3, 'UTC')",
     ], pk="name"))
     # Backfill for deployments whose kg_roles predates the capabilities
     # column (CREATE ... IF NOT EXISTS won't add it to an existing stream).
     # Existing role rows keep an empty cell, which auth._parse_capabilities
     # reads as the chat-only migration default.
     _add_column_if_missing(client, qualified("kg_roles", prefix), "capabilities", "string")
+    # Daily per-user token budget per role (0 = inherit the global fallback);
+    # backfilled onto roles created before #62 as 0 (inherit).
+    _add_column_if_missing(client, qualified("kg_roles", prefix), "daily_token_limit", "uint32")
     client.command(_keyed_stream(prefix, "kg_sessions", [
         "token_hash string", "username string",
         "expires_at datetime64(3, 'UTC')", "created_at datetime64(3, 'UTC')",
@@ -208,6 +216,16 @@ def ensure_schema(client, prefix: str = "") -> None:
           error string
         )
     """)
+    # Append-only per-turn token usage, for daily-budget enforcement (#62).
+    # Written independent of TPK_CHAT_AUDIT so a token budget can't be silently
+    # disabled by turning auditing off.
+    client.command(f"""
+        CREATE STREAM IF NOT EXISTS {qualified('chat_usage', prefix)} (
+          ts datetime64(3, 'UTC'),
+          username string,
+          tokens uint32
+        )
+    """)
 
 
 def drop_schema(client, prefix: str) -> None:
@@ -215,6 +233,6 @@ def drop_schema(client, prefix: str) -> None:
         raise ValueError("refusing to drop unprefixed (production) streams")
     for name in (
         "kg_nodes", "kg_edges", "kg_ingest_log", "kg_repos",
-        "kg_users", "kg_roles", "kg_sessions", "chat_audit_log",
+        "kg_users", "kg_roles", "kg_sessions", "chat_audit_log", "chat_usage",
     ):
         client.command(f"DROP STREAM IF EXISTS {qualified(name, prefix)}")
