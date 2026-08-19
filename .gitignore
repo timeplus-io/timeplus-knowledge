@@ -8,3 +8,9 @@ web/node_modules/
 web/dist/
 web/*.tsbuildinfo
 .playwright-mcp/
+
+# k8s secret with real values — keep secret.example.yaml tracked, never this
+deploy/k8s/secret.yaml
+
+# Live deployment manifest with environment-specific values (host, user, LB, etc.)
+deploy/k8s/app-only-timeplus.yaml
