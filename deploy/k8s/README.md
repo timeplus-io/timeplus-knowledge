@@ -254,7 +254,12 @@ spec:
   make sure only one ingester writes at a time.
 - **Resources.** The `requests`/`limits` are modest starting points. timeplusd
   memory use grows with the corpus — raise the DB limits for the full Timeplus
-  corpus (hundreds of thousands of nodes).
+  corpus (hundreds of thousands of nodes). The **app** pod also builds each repo's
+  graph in memory during `tpk ingest`, so large repos need real headroom: ingesting
+  `proton-enterprise` (code-only) is OOM-killed (exit 137) at the default `1Gi` app
+  limit. Raise the `tpk-app` container's memory `limits` to **≥8Gi** before ingesting
+  the full corpus — an OOM leaves that repo absent from the graph with no error row
+  (the run log is written only on completion), so it silently fails to index.
 - **Storage sizing.** Data PVCs default to 10–20Gi and the checkout cache to
   5–10Gi. Git checkouts of the pinned corpus repos and the ingested graph can
   exceed these for large corpora; size up before ingesting.
