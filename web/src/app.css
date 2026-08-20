@@ -759,14 +759,17 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
   font: 12px/1.5 ui-monospace, Menlo, monospace; width: 180px; flex: none;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.tk-job-bar-track { flex: 1; height: 6px; background: var(--gray-700); border-radius: 9999px; overflow: hidden; }
+.tk-job-bar-track { flex: 0 0 80px; height: 6px; background: var(--gray-700); border-radius: 9999px; overflow: hidden; }
 .tk-job-bar-fill { display: block; width: 40%; height: 100%; background: var(--pink-500); animation: tk-job-bar-sweep 1.4s ease-in-out infinite; }
 @keyframes tk-job-bar-sweep {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(350%); }
 }
-.tk-job-status-running { color: var(--pink-400); font-weight: 600; font-size: 12px; width: 90px; flex: none; text-align: right; }
+.tk-job-status-running { color: var(--pink-400); font-weight: 600; font-size: 12px; flex: 1; min-width: 0; text-align: left; }
 .tk-job-detail { font-size: 12px; color: var(--gray-500); padding-left: 190px; }
+.tk-job-stalled { color: var(--red-500); font-weight: 600; }
+.tk-job-counts { color: var(--gray-500); font-weight: 400; }
+.tk-job-elapsed { color: var(--gray-500); font-weight: 400; }
 
 .tk-jobs-history { border-top: 1px solid var(--gray-700); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto; }
 .tk-job-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }

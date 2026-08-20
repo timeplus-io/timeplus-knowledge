@@ -11,6 +11,9 @@ type Repo = {
 type Job = {
   id: string; entry_key: string; status: string; nodes: number; edges: number;
   error: string | null; submitted_at: string; finished_at: string | null;
+  phase?: string | null;
+  message?: string;
+  updated_at?: string | null;
 };
 
 const EMPTY_FORM = { name: "", github: "", ref: "", path: "", visibility: "internal",
@@ -47,6 +50,23 @@ function formatRelative(iso: string): string {
   return `${days}d ago`;
 }
 
+const PHASE_LABEL: Record<string, string> = {
+  fetch: "fetching…", extract: "extracting…", parse: "parsing…", upsert: "saving…",
+};
+const STALL_MS = 60_000;
+
+function phaseLabel(phase?: string | null): string {
+  return (phase && PHASE_LABEL[phase]) || "running…";
+}
+function isStalled(updatedAt: string | null | undefined, now: number): boolean {
+  if (!updatedAt) return false;               // queued / not yet reported
+  return now - new Date(updatedAt).getTime() > STALL_MS;
+}
+function elapsedLabel(sinceIso: string, now: number): string {
+  const s = Math.max(0, Math.round((now - new Date(sinceIso).getTime()) / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
+}
+
 export default function Manage({ capabilities }: { capabilities: string[] }) {
   // corpus:manage gates every mutation; with only corpus:view the screen is
   // read-only.
@@ -59,6 +79,11 @@ export default function Manage({ capabilities }: { capabilities: string[] }) {
   const [purge, setPurge] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   function openAdd() { setForm({ ...EMPTY_FORM }); setError(""); setAddOpen(true); }
   function closeAdd() { setAddOpen(false); setError(""); }
@@ -257,7 +282,17 @@ export default function Manage({ capabilities }: { capabilities: string[] }) {
                     {j.status === "running" ? (
                       <>
                         <div className="tk-job-bar-track"><span className="tk-job-bar-fill" /></div>
-                        <div className="tk-job-status-running">running…</div>
+                        <div className="tk-job-status-running">
+                          {isStalled(j.updated_at, now) ? (
+                            <span className="tk-job-stalled">stalled?</span>
+                          ) : (
+                            phaseLabel(j.phase)
+                          )}
+                          {(j.nodes > 0 || j.edges > 0) && (
+                            <span className="tk-job-counts"> · {j.nodes} nodes · {j.edges} edges</span>
+                          )}
+                          <span className="tk-job-elapsed"> · {elapsedLabel(j.submitted_at, now)}</span>
+                        </div>
                       </>
                     ) : (
                       <div className="tk-job-status-running">queued…</div>
