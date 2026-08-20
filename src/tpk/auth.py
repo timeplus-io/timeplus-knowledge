@@ -29,12 +29,14 @@ CAP_CORPUS_VIEW = "corpus:view"
 CAP_CORPUS_MANAGE = "corpus:manage"
 CAP_USERS_VIEW = "users:view"
 CAP_USERS_MANAGE = "users:manage"
+CAP_SOURCE_VIEW = "source:view"
 
 # Order is the canonical UI/display order.
 ALL_CAPABILITIES = [
     CAP_CHAT, CAP_EXPLORE,
     CAP_CORPUS_VIEW, CAP_CORPUS_MANAGE,
     CAP_USERS_VIEW, CAP_USERS_MANAGE,
+    CAP_SOURCE_VIEW,
 ]
 _CAP_SET = frozenset(ALL_CAPABILITIES)
 # `:manage` grants its `:view` sibling for free.

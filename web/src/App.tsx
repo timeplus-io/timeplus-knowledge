@@ -143,7 +143,8 @@ export default function App() {
           final-review regression this fixes: App.tsx used to unmount Chat
           on every navigation. */}
       <div className={view === "chat" ? "tk-chat-slot" : "tk-chat-slot tk-hidden"}>
-        <Chat initialInput={chatPrefill} onConsumeInitial={() => setChatPrefill(undefined)} />
+        <Chat initialInput={chatPrefill} onConsumeInitial={() => setChatPrefill(undefined)}
+              canViewSource={hasCap(me.capabilities, CAP.sourceView)} />
       </div>
       {view === "explorer" ? (
         <Explorer onAsk={askAboutEntity} />

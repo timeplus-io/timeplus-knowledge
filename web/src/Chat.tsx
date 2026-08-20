@@ -147,6 +147,9 @@ function LightbulbIcon() {
 // citation while the answer is still streaming.
 // --------------------------------------------------------------------
 
+// Only rendered for users with source:view — the parent gates the whole
+// Sources panel on `canViewSource`, and the server withholds source events
+// from users without it, so this card never needs its own restricted state.
 function SourceCard({ n, source }: { n?: number; source: SourceEventPayload }) {
   const [preview, setPreview] = useState<SourceResponse | "loading" | "error">("loading");
 
@@ -200,11 +203,13 @@ type UsageInfo =
 export default function Chat({
   initialInput,
   onConsumeInitial,
+  canViewSource = false,
 }: {
   // Task 5 (Explorer "Ask about this") will pass an initial question in and
   // get notified once Chat has consumed it into its input box.
   initialInput?: string;
   onConsumeInitial?: () => void;
+  canViewSource?: boolean;
 } = {}) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
@@ -443,6 +448,11 @@ export default function Chat({
   }
 
   function renderTrace(turn: Turn, idx: number) {
+    // Without source:view the reasoning trace (thinking + tool calls) is
+    // withheld entirely — restricted roles see only the answer. The server
+    // already omits these events from the stream (#66 follow-up); this is the
+    // matching client guard so a future stream change can't surface them.
+    if (!canViewSource) return null;
     if (turn.trace.length === 0) return null;
     const streaming = turn.status === "streaming";
     const elapsedMs = turn.elapsedMs ?? Date.now() - turn.startedAt;
@@ -673,7 +683,7 @@ export default function Chat({
               <div ref={bottomRef} />
             </div>
           </div>
-          {activeSource && (
+          {canViewSource && activeSource && (
             <aside className="tk-sources">
               <div className="tk-sources-header">
                 <span className="tk-sources-title">Source</span>

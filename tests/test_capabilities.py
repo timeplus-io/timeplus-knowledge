@@ -10,8 +10,8 @@ from conftest import requires_timeplus
 from tpk import auth
 from tpk.auth import (
     ALL_CAPABILITIES, CAP_CHAT, CAP_CORPUS_MANAGE, CAP_CORPUS_VIEW,
-    CAP_EXPLORE, CAP_USERS_MANAGE, CAP_USERS_VIEW, Role, User,
-    effective_capabilities, expand_capabilities,
+    CAP_EXPLORE, CAP_SOURCE_VIEW, CAP_USERS_MANAGE, CAP_USERS_VIEW,
+    DEFAULT_CAPABILITIES, Role, User, effective_capabilities, expand_capabilities,
 )
 from tpk.server import create_app
 
@@ -45,6 +45,18 @@ def test_effective_capabilities_admin_and_scoped():
     assert effective_capabilities(scoped, role) == {CAP_CORPUS_MANAGE, CAP_CORPUS_VIEW}
     # Missing role fails closed to no capabilities.
     assert effective_capabilities(scoped, None) == set()
+
+
+def test_source_view_capability_registered_and_default_deny():
+    assert CAP_SOURCE_VIEW == "source:view"
+    assert CAP_SOURCE_VIEW in ALL_CAPABILITIES
+    # Default-deny: brand-new roles must not silently hold it.
+    assert CAP_SOURCE_VIEW not in DEFAULT_CAPABILITIES
+    # It is a bare grant (no :manage sibling), so expand is identity.
+    assert expand_capabilities([CAP_SOURCE_VIEW]) == {CAP_SOURCE_VIEW}
+    # Admin holds every capability, including this one.
+    admin = User("a", "", auth.ROLE_ADMIN)
+    assert CAP_SOURCE_VIEW in effective_capabilities(admin, None)
 
 
 # -- integration fixtures --------------------------------------------------

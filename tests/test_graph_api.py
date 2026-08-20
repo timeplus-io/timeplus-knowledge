@@ -118,7 +118,7 @@ def scoped_hdr(kg_app):
     (and anything else) is out of scope for it."""
     c, client, prefix = kg_app
     auth.upsert_role(client, auth.Role("alpha-only", ["alpha@v1"],
-                                       capabilities=[auth.CAP_EXPLORE]), prefix=prefix)
+                                       capabilities=[auth.CAP_EXPLORE, auth.CAP_SOURCE_VIEW]), prefix=prefix)
     auth.upsert_user(client, auth.User("scoped", auth.hash_password("password-1"), "alpha-only"), prefix=prefix)
     _eventually(lambda: c.post("/auth/login", json={"username": "scoped", "password": "password-1"}).status_code == 200)
     token = c.post("/auth/login", json={"username": "scoped", "password": "password-1"}).json()["token"]
@@ -263,3 +263,23 @@ def test_non_admin_source_out_of_scope_404(kg_app, scoped_hdr):
         "repo": "beta@v1", "file_path": "b.py", "line_start": 1, "line_end": 3,
     }, headers=scoped_hdr)
     assert r.status_code == 404
+
+
+def test_source_requires_source_view_cap(kg_app):
+    """`/source` now requires source:view; a role with explore-only can still
+    search/entity/neighbors but is refused the raw source body."""
+    c, client, prefix = kg_app
+    auth.upsert_role(client, auth.Role("explore-only", ["r1"],
+                                       capabilities=[auth.CAP_EXPLORE]), prefix=prefix)
+    auth.upsert_user(client, auth.User("exp", auth.hash_password("password-1"),
+                                       "explore-only"), prefix=prefix)
+    _eventually(lambda: c.post("/auth/login",
+                json={"username": "exp", "password": "password-1"}).status_code == 200)
+    token = c.post("/auth/login", json={"username": "exp", "password": "password-1"}).json()["token"]
+    hdr = {"Authorization": f"Bearer {token}"}
+    # search still works with explore alone...
+    assert c.get("/api/graph/search", params={"q": "AlphaWidget"}, headers=hdr).status_code == 200
+    # ...but the source body is gated behind source:view.
+    assert c.get("/api/graph/source", params={
+        "repo": "r1", "file_path": "w.py", "line_start": 1, "line_end": 2,
+    }, headers=hdr).status_code == 403

@@ -9,6 +9,7 @@ export const CAP = {
   corpusManage: "corpus:manage",
   usersView: "users:view",
   usersManage: "users:manage",
+  sourceView: "source:view",
 } as const;
 
 export type Capability = (typeof CAP)[keyof typeof CAP];
@@ -21,6 +22,7 @@ export const CAPABILITY_OPTIONS: { key: Capability; label: string; implies?: Cap
   { key: CAP.corpusManage, label: "Corpus — manage", implies: CAP.corpusView },
   { key: CAP.usersView, label: "Users — view" },
   { key: CAP.usersManage, label: "Users — manage", implies: CAP.usersView },
+  { key: CAP.sourceView, label: "View source (thinking trace & citation code)" },
 ];
 
 const MANAGE_IMPLIES_VIEW: Record<string, Capability> = {

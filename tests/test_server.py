@@ -552,3 +552,92 @@ def test_chat_sets_and_resets_role_scope():
     resp = client.post("/chat", json={"message": "hi"})
     assert resp.status_code == 200
     assert ROLE_SCOPE.get() is None
+
+
+# -- thinking suppression without source:view capability (Task 3) --
+
+
+def _think_agent():
+    # One thinking delta, then an answer token.
+    return FakeAgent([_think("secret internal reasoning"), _tok("the answer")])
+
+
+def _nonadmin_auth_with_role(monkeypatch, caps):
+    from tpk import auth as auth_mod
+    role = auth_mod.Role("r", [], capabilities=list(caps))
+    monkeypatch.setattr(auth_mod, "get_role", lambda *a, **k: role)
+    a = _StubAuth(User("u", "", "r"))          # non-admin user
+    a._client = lambda: None                    # reach patched get_role, don't raise
+    return a
+
+
+def test_chat_suppresses_thinking_without_source_view(monkeypatch):
+    from tpk.auth import CAP_CHAT
+    auth = _nonadmin_auth_with_role(monkeypatch, [CAP_CHAT])  # no source:view
+    client = TestClient(create_app(agent=_think_agent(), auth=auth))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+    assert not any(e["type"] == "thinking" for e in events)
+    # The answer is still delivered — via the done event, not token deltas
+    # (token narration is withheld too; see the answer-only test below).
+    done = next(e for e in events if e["type"] == "done")
+    assert done["text"] == "the answer"
+
+
+def test_chat_emits_thinking_with_source_view(monkeypatch):
+    from tpk.auth import CAP_CHAT, CAP_SOURCE_VIEW
+    auth = _nonadmin_auth_with_role(monkeypatch, [CAP_CHAT, CAP_SOURCE_VIEW])
+    client = TestClient(create_app(agent=_think_agent(), auth=auth))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+    assert [e["text"] for e in events if e["type"] == "thinking"] == ["secret internal reasoning"]
+
+
+def test_chat_admin_still_emits_thinking():
+    # Default _StubAuth user is admin -> holds every capability.
+    client = TestClient(create_app(agent=_think_agent(), auth=_StubAuth()))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+    assert any(e["type"] == "thinking" for e in events)
+
+
+def _source_agent():
+    # A read_source tool call (server derives a `source` citation from it),
+    # then an answer token.
+    args = {"repo": "docs@main", "file_path": "a.md", "line_start": 1, "line_end": 5}
+    return FakeAgent([_tool("read_source", args), _tool_end("read_source", args), _tok("the answer")])
+
+
+def test_chat_withholds_source_and_tool_events_without_source_view(monkeypatch):
+    """Without source:view the API stream is answer-only — no thinking, tool,
+    tool_result, source, or even token (narration) events, and the done event's
+    sources list is empty. Client-side hiding is not enough; the reasoning and
+    references must not cross the wire. The answer arrives via the done event."""
+    from tpk.auth import CAP_CHAT
+    auth = _nonadmin_auth_with_role(monkeypatch, [CAP_CHAT])  # no source:view
+    client = TestClient(create_app(agent=_source_agent(), auth=auth))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+    types = {e["type"] for e in events}
+    assert types <= {"done"}, f"restricted stream leaked event types: {types - {'done'}}"
+    done = next(e for e in events if e["type"] == "done")
+    assert done["sources"] == []
+    # The answer is still delivered — just via the done event, not token deltas.
+    assert done["text"] == "the answer"
+
+
+def test_chat_includes_source_and_tool_events_with_source_view(monkeypatch):
+    from tpk.auth import CAP_CHAT, CAP_SOURCE_VIEW
+    auth = _nonadmin_auth_with_role(monkeypatch, [CAP_CHAT, CAP_SOURCE_VIEW])
+    client = TestClient(create_app(agent=_source_agent(), auth=auth))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+    types = {e["type"] for e in events}
+    assert "tool" in types and "source" in types
+    done = next(e for e in events if e["type"] == "done")
+    assert len(done["sources"]) == 1
+
+
+def test_chat_admin_gets_source_and_tool_events():
+    # Default _StubAuth user is admin -> holds every capability.
+    client = TestClient(create_app(agent=_source_agent(), auth=_StubAuth()))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+    types = {e["type"] for e in events}
+    assert "tool" in types and "source" in types
+    done = next(e for e in events if e["type"] == "done")
+    assert len(done["sources"]) == 1
