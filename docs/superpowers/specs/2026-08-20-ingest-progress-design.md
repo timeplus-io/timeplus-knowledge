@@ -132,9 +132,10 @@ For active (running) jobs, replace the bare `running…` with:
 - **Elapsed** since `submitted_at`, updated by a local 1s ticker (independent of
   the 5s data poll) so the timer looks alive between polls.
 - **Stalled hint** when `updated_at` is older than a threshold (`STALL_MS =
-  30_000`) — a distinct visual (e.g. a muted "stalled?" tag) so a hung job is
-  visibly different from an active one. Jobs with no `updated_at` yet (just
-  queued) are not "stalled".
+  60_000` — a single LLM call on a large file can legitimately take tens of
+  seconds during semantic extraction, so 60s avoids false flags) — a distinct
+  visual (e.g. a muted "stalled?" tag) so a hung job is visibly different from
+  an active one. Jobs with no `updated_at` yet (just queued) are not "stalled".
 - Keep the **indeterminate** bar.
 
 The finished line (`ok · N nodes · M edges` / `failed · …`) is unchanged.
