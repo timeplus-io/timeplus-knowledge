@@ -2,6 +2,7 @@
 
 import subprocess
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +21,17 @@ class IngestResult:
     nodes: int
     edges: int
     status: str  # "ok" | "failed"
+
+
+@dataclass(frozen=True)
+class IngestProgress:
+    phase: str            # "fetch" | "extract" | "parse" | "upsert" | "done"
+    message: str = ""
+    nodes: int = 0
+    edges: int = 0
+
+
+ProgressFn = Callable[[IngestProgress], None]
 
 
 def upsert_graph(
@@ -75,14 +87,22 @@ def ingest_repo(
     model: str | None = None,
     token_budget: int = 0,
     stream: bool = False,
+    on_progress: ProgressFn | None = None,
 ) -> IngestResult:
     run_id = uuid.uuid4().hex[:12]
     run_started_at = datetime.now(timezone.utc)
     key = entry_key(repo_cfg)
     repo_path = repo_cfg.path
+
+    def _report(phase: str, message: str = "", nodes: int = 0, edges: int = 0) -> None:
+        if on_progress is not None:
+            on_progress(IngestProgress(phase, message, nodes, edges))
+
     try:
         if repo_cfg.github:
+            _report("fetch")
             repo_path = fetch_github_repo(repo_cfg)
+        _report("extract")
         graph_json = run_graphify(
             repo_path,
             # `key` (name@ref) can contain '/' for branch/tag-style refs
@@ -95,13 +115,17 @@ def ingest_repo(
             model=model,
             token_budget=token_budget,
             stream=stream,
+            on_line=lambda line: _report("extract", message=line),
         )
+        _report("parse")
         nodes, edges = parse_graph_json(graph_json, key, repo_cfg.visibility)
+        _report("upsert", nodes=len(nodes), edges=len(edges))
         # `repos` is a set literal of {key, repo_cfg.name}: when a repo carries
         # a ref, this is two distinct values, and the bare-name member cleans
         # up any legacy rows written before entry keys existed.
         upsert_graph(client, prefix, nodes, edges, run_started_at, repos={key, repo_cfg.name})
         result = IngestResult(key, run_id, len(nodes), len(edges), "ok")
+        _report("done", nodes=len(nodes), edges=len(edges))
     except Exception as exc:  # per-repo isolation: never propagate, never touch prior rows
         print(f"[tpk] ingest failed for {key}: {exc}")
         result = IngestResult(key, run_id, 0, 0, "failed")
