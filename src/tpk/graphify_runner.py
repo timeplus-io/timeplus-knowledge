@@ -84,6 +84,8 @@ graphify 0.9.38 actually emits and documents, not a guess.
 import json
 import os
 import subprocess
+from collections import deque
+from collections.abc import Callable
 from pathlib import Path
 
 from tpk.model import Edge, Node, node_id
@@ -159,6 +161,7 @@ def run_graphify(
     model: str | None = None,
     token_budget: int = 0,
     stream: bool = False,
+    on_line: Callable[[str], None] | None = None,
 ) -> Path:
     """Run `graphify extract` on repo_path and return the path to graph.json.
 
@@ -185,13 +188,21 @@ def run_graphify(
             cmd += ["--token-budget", str(token_budget)]
     cmd += ["--out", str(out_dir)]
     child_env = _child_env_with_placeholder_key()
+    # Force graphify (a Python CLI) to line-flush stdout so the tee below is a
+    # live heartbeat over a pipe, not a single end-of-run batch.
+    child_env["PYTHONUNBUFFERED"] = "1"
+    recent: deque[str] = deque(maxlen=50)
     try:
-        # stream=True inherits stdout/stderr so graphify's own progress
-        # output is visible live (used by `tpk ingest --verbose`).
-        proc = subprocess.run(
+        # Merge stderr into stdout so graphify's progress (on either stream) is
+        # captured in order. Read line-by-line: each line is forwarded to
+        # `on_line` (the extract-phase heartbeat) and, when stream=True, echoed
+        # to the terminal (preserving `tpk ingest --verbose`).
+        proc = subprocess.Popen(
             cmd,
-            capture_output=not stream,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
+            bufsize=1,
             env=child_env,
         )
     except FileNotFoundError as exc:
@@ -199,8 +210,17 @@ def run_graphify(
             "graphify executable not found on PATH; ensure the `graphifyy` package "
             "(providing the `graphify` CLI) is installed in this environment"
         ) from exc
+    assert proc.stdout is not None
+    for raw in proc.stdout:
+        line = raw.rstrip("\n")
+        recent.append(line)
+        if on_line is not None:
+            on_line(line)
+        if stream:
+            print(line)
+    proc.wait()
     if proc.returncode != 0:
-        detail = "see output above" if stream else (proc.stderr or "")[-2000:]
+        detail = ("\n".join(recent))[-2000:] or "(no output captured)"
         raise GraphifyError(f"graphify failed on {repo_path}: {detail}")
     graph_json = out_dir / "graphify-out" / "graph.json"
     if not graph_json.exists():

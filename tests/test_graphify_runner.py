@@ -143,33 +143,60 @@ def test_file_kind_nodes_in_same_file_get_distinct_ids(tmp_path: Path):
     assert len(qualified_names) == 2
 
 
-def test_run_graphify_missing_binary_raises_graphify_error(tmp_path: Path, monkeypatch):
-    def fake_run(*args, **kwargs):
-        raise FileNotFoundError("[Errno 2] No such file or directory: 'graphify'")
-
-    monkeypatch.setattr(graphify_runner.subprocess, "run", fake_run)
-    with pytest.raises(GraphifyError, match="graphify executable not found"):
-        run_graphify(tmp_path / "repo", tmp_path / "out")
-
-
-class _FakeProc:
-    returncode = 0
-    stderr = ""
-
-
-def _capture_graphify(monkeypatch, calls):
-    """Fake subprocess.run that records argv and fabricates graph.json."""
-    import tpk.graphify_runner as gr
-
-    def fake_run(cmd, capture_output, text, env=None):
-        calls.append({"cmd": cmd, "env": env, "capture_output": capture_output})
+class _FakePopen:
+    """Stand-in for subprocess.Popen: yields canned stdout lines, fabricates
+    graph.json under --out, and reports returncode."""
+    def __init__(self, cmd, stdout=None, stderr=None, text=None, env=None, bufsize=None):
+        self.cmd = cmd
+        self.env = env
+        self.returncode = 0
         out = Path(cmd[cmd.index("--out") + 1])
         gj = out / "graphify-out" / "graph.json"
         gj.parent.mkdir(parents=True, exist_ok=True)
         gj.write_text('{"nodes": [], "links": []}')
-        return _FakeProc()
+        self.stdout = iter(["extracting app.py\n", "extracting util.py\n"])
+    def wait(self):
+        return self.returncode
 
-    monkeypatch.setattr(gr.subprocess, "run", fake_run)
+
+def _capture_graphify(monkeypatch, calls, popen_cls=_FakePopen):
+    """Fake subprocess.Popen that records argv/env and fabricates graph.json."""
+    import tpk.graphify_runner as gr
+
+    def fake_popen(cmd, **kwargs):
+        calls.append({"cmd": cmd, "env": kwargs.get("env")})
+        return popen_cls(cmd, **kwargs)
+
+    monkeypatch.setattr(gr.subprocess, "Popen", fake_popen)
+
+
+def test_run_graphify_missing_binary_raises_graphify_error(tmp_path: Path, monkeypatch):
+    def fake_popen(*args, **kwargs):
+        raise FileNotFoundError("[Errno 2] No such file or directory: 'graphify'")
+    monkeypatch.setattr(graphify_runner.subprocess, "Popen", fake_popen)
+    with pytest.raises(GraphifyError, match="graphify executable not found"):
+        run_graphify(tmp_path / "repo", tmp_path / "out")
+
+
+def test_run_graphify_forwards_stdout_lines_and_sets_unbuffered(monkeypatch, tmp_path: Path):
+    calls: list = []
+    _capture_graphify(monkeypatch, calls)
+    seen: list[str] = []
+    run_graphify(tmp_path, tmp_path / "out", on_line=seen.append)
+    assert seen == ["extracting app.py", "extracting util.py"]  # newline-stripped, in order
+    assert calls[0]["env"]["PYTHONUNBUFFERED"] == "1"
+
+
+def test_run_graphify_nonzero_exit_raises_with_output_tail(monkeypatch, tmp_path: Path):
+    class _FailPopen(_FakePopen):
+        def __init__(self, cmd, **kw):
+            super().__init__(cmd, **kw)
+            self.returncode = 1
+            self.stdout = iter(["boom line 1\n", "boom line 2\n"])
+    calls: list = []
+    _capture_graphify(monkeypatch, calls, popen_cls=_FailPopen)
+    with pytest.raises(GraphifyError, match="boom line 2"):
+        run_graphify(tmp_path, tmp_path / "out")
 
 
 def test_run_graphify_code_only_argv(monkeypatch, tmp_path: Path):
@@ -263,19 +290,18 @@ def test_run_graphify_stream_mode(monkeypatch, tmp_path: Path):
     calls: list = []
     _capture_graphify(monkeypatch, calls)
     run_graphify(tmp_path, tmp_path / "o1", stream=True)
-    assert calls[0]["capture_output"] is False
+    # With Popen, stream=True changes the behavior of on_line echoing to stdout
 
-    # streamed failure: stderr is not captured; error must not crash on None
+    # Handle failure case with Popen
+    class _FailPopen(_FakePopen):
+        def __init__(self, cmd, **kw):
+            super().__init__(cmd, **kw)
+            self.returncode = 1
+
     import tpk.graphify_runner as gr
-
-    class _FailProc:
-        returncode = 1
-        stderr = None
-
-    monkeypatch.setattr(
-        gr.subprocess, "run", lambda cmd, capture_output, text, env=None: _FailProc()
-    )
-    with pytest.raises(GraphifyError, match="see output above"):
+    calls = []
+    _capture_graphify(monkeypatch, calls, popen_cls=_FailPopen)
+    with pytest.raises(GraphifyError, match="graphify failed"):
         run_graphify(tmp_path, tmp_path / "o2", stream=True)
 
 
