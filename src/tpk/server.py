@@ -264,6 +264,7 @@ def create_app(
             audit_provider, audit_model = "", ""
 
         scope = None
+        can_view_source = (user.role == auth_mod.ROLE_ADMIN)
         turn_limit = 0  # effective daily token budget for this user (0 = unlimited)
         if user.role != auth_mod.ROLE_ADMIN:
             try:
@@ -279,6 +280,8 @@ def create_app(
             # scope = tools see nothing, rather than falling through to
             # unrestricted (None) access.
             scope = frozenset(role.entry_keys) if role else frozenset()
+            caps = auth_mod.expand_capabilities(role.capabilities) if role else set()
+            can_view_source = auth_mod.CAP_SOURCE_VIEW in caps
             # Effective daily token budget by precedence: the user's own
             # override, else the role's limit, else the global fallback. admin
             # is never limited (this branch is skipped for admins).
@@ -337,7 +340,7 @@ def create_app(
                             # with tool calls in event order — the UI groups
                             # consecutive deltas into a thinking step.
                             thinking = _chunk_thinking(chunk)
-                            if thinking:
+                            if thinking and can_view_source:
                                 yield _sse({"type": "thinking", "text": thinking})
                             text = _chunk_text(chunk)
                             if text:

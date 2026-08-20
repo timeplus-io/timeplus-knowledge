@@ -552,3 +552,45 @@ def test_chat_sets_and_resets_role_scope():
     resp = client.post("/chat", json={"message": "hi"})
     assert resp.status_code == 200
     assert ROLE_SCOPE.get() is None
+
+
+# -- thinking suppression without source:view capability (Task 3) --
+
+
+def _think_agent():
+    # One thinking delta, then an answer token.
+    return FakeAgent([_think("secret internal reasoning"), _tok("the answer")])
+
+
+def _nonadmin_auth_with_role(monkeypatch, caps):
+    from tpk import auth as auth_mod
+    role = auth_mod.Role("r", [], capabilities=list(caps))
+    monkeypatch.setattr(auth_mod, "get_role", lambda *a, **k: role)
+    a = _StubAuth(User("u", "", "r"))          # non-admin user
+    a._client = lambda: None                    # reach patched get_role, don't raise
+    return a
+
+
+def test_chat_suppresses_thinking_without_source_view(monkeypatch):
+    from tpk.auth import CAP_CHAT
+    auth = _nonadmin_auth_with_role(monkeypatch, [CAP_CHAT])  # no source:view
+    client = TestClient(create_app(agent=_think_agent(), auth=auth))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+    assert not any(e["type"] == "thinking" for e in events)
+    # The answer itself still streams.
+    assert any(e["type"] == "token" for e in events)
+
+
+def test_chat_emits_thinking_with_source_view(monkeypatch):
+    from tpk.auth import CAP_CHAT, CAP_SOURCE_VIEW
+    auth = _nonadmin_auth_with_role(monkeypatch, [CAP_CHAT, CAP_SOURCE_VIEW])
+    client = TestClient(create_app(agent=_think_agent(), auth=auth))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+    assert [e["text"] for e in events if e["type"] == "thinking"] == ["secret internal reasoning"]
+
+
+def test_chat_admin_still_emits_thinking():
+    # Default _StubAuth user is admin -> holds every capability.
+    client = TestClient(create_app(agent=_think_agent(), auth=_StubAuth()))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+    assert any(e["type"] == "thinking" for e in events)
