@@ -264,7 +264,7 @@ def create_app(
             audit_provider, audit_model = "", ""
 
         scope = None
-        can_view_source = (user.role == auth_mod.ROLE_ADMIN)
+        role = None
         turn_limit = 0  # effective daily token budget for this user (0 = unlimited)
         if user.role != auth_mod.ROLE_ADMIN:
             try:
@@ -280,8 +280,6 @@ def create_app(
             # scope = tools see nothing, rather than falling through to
             # unrestricted (None) access.
             scope = frozenset(role.entry_keys) if role else frozenset()
-            caps = auth_mod.expand_capabilities(role.capabilities) if role else set()
-            can_view_source = auth_mod.CAP_SOURCE_VIEW in caps
             # Effective daily token budget by precedence: the user's own
             # override, else the role's limit, else the global fallback. admin
             # is never limited (this branch is skipped for admins).
@@ -307,6 +305,12 @@ def create_app(
                             "reset": reset.isoformat(),
                         },
                     )
+
+        # Whether this user may see the reasoning trace + source references.
+        # Single source of truth: `effective_capabilities` already encodes
+        # admin -> all, missing/unreadable role -> none (fail closed), else the
+        # view-expanded role caps — the same helper the API/UI gates use.
+        can_view_source = auth_mod.CAP_SOURCE_VIEW in auth_mod.effective_capabilities(user, role)
 
         async def stream():
             # Set inside stream(), not the handler body: the generator runs
@@ -345,7 +349,16 @@ def create_app(
                             text = _chunk_text(chunk)
                             if text:
                                 full.append(text)
-                                yield _sse({"type": "token", "text": text})
+                                # Token deltas interleave the model's between-tool
+                                # narration (reasoning) with answer text and can't
+                                # be told apart mid-stream. For users without
+                                # source:view the stream is answer-only: withhold
+                                # token deltas entirely and deliver the answer in
+                                # the `done` event (built from `full`/final_text),
+                                # so no narration crosses the wire or lingers in
+                                # the client buffer to surface on an error.
+                                if can_view_source:
+                                    yield _sse({"type": "token", "text": text})
                         elif kind == "on_chat_model_end":
                             # The last model turn's message is the authoritative
                             # answer — token deltas can miss it entirely for

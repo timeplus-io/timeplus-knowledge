@@ -147,20 +147,20 @@ function LightbulbIcon() {
 // citation while the answer is still streaming.
 // --------------------------------------------------------------------
 
-function SourceCard({ n, source, canViewSource }: { n?: number; source: SourceEventPayload; canViewSource: boolean }) {
-  const [preview, setPreview] = useState<SourceResponse | "loading" | "error" | "restricted">(
-    canViewSource ? "loading" : "restricted",
-  );
+// Only rendered for users with source:view — the parent gates the whole
+// Sources panel on `canViewSource`, and the server withholds source events
+// from users without it, so this card never needs its own restricted state.
+function SourceCard({ n, source }: { n?: number; source: SourceEventPayload }) {
+  const [preview, setPreview] = useState<SourceResponse | "loading" | "error">("loading");
 
   useEffect(() => {
-    if (!canViewSource) { setPreview("restricted"); return; }
     let cancelled = false;
     setPreview("loading");
     readSource(source.repo, source.file_path, source.line_start, source.line_end)
       .then((r) => { if (!cancelled) setPreview(r); })
       .catch(() => { if (!cancelled) setPreview("error"); });
     return () => { cancelled = true; };
-  }, [canViewSource, source.repo, source.file_path, source.line_start, source.line_end]);
+  }, [source.repo, source.file_path, source.line_start, source.line_end]);
 
   return (
     <div className="tk-source-card">
@@ -170,8 +170,6 @@ function SourceCard({ n, source, canViewSource }: { n?: number; source: SourceEv
       </div>
       {preview === "loading" ? (
         <div className="tk-source-preview-status">Loading preview…</div>
-      ) : preview === "restricted" ? (
-        <div className="tk-source-preview-status">Source preview restricted for your role</div>
       ) : preview === "error" ? (
         <div className="tk-source-preview-status">Preview unavailable</div>
       ) : (
@@ -699,7 +697,7 @@ export default function Chat({
                 </button>
               </div>
               <div className="tk-sources-body">
-                <SourceCard n={activeSource.n} source={activeSource} canViewSource={canViewSource} />
+                <SourceCard n={activeSource.n} source={activeSource} />
               </div>
             </aside>
           )}

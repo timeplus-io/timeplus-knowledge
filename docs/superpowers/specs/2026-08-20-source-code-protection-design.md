@@ -111,9 +111,14 @@ stream. Gating at emission is the actual boundary.
 
 ### Enforcement point 3 — citation fragment (`graph_api.py`)
 
-`GET /api/graph/source` is the only endpoint returning raw `lines`. Require the
-new capability in addition to `CAP_EXPLORE`. Concretely, its dependency becomes
-`require_cap(CAP_SOURCE_VIEW)`. Without the cap the endpoint returns 403; the
+`GET /api/graph/source` is the only endpoint returning raw `lines`. Its
+dependency becomes `require_cap(CAP_SOURCE_VIEW)` — `source:view` **replaces**
+`CAP_EXPLORE` here rather than being added to it. This is deliberate: `/source`
+backs the **chat citation preview** (`SourceCard`), not just the Explorer, so a
+chat user granted `source:view` but not `explore` must still reach it;
+requiring `explore` as well would break citation previews for exactly that role.
+`source:view` is the source-specific grant, so gating `/source` on it alone is
+the correct condition. Without the cap the endpoint returns 403; the
 `search`/`entity`/`neighbors` endpoints keep `CAP_EXPLORE` and are unaffected.
 
 Admin keeps working automatically: `require_cap` checks `effective_caps`

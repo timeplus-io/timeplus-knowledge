@@ -577,8 +577,10 @@ def test_chat_suppresses_thinking_without_source_view(monkeypatch):
     client = TestClient(create_app(agent=_think_agent(), auth=auth))
     events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
     assert not any(e["type"] == "thinking" for e in events)
-    # The answer itself still streams.
-    assert any(e["type"] == "token" for e in events)
+    # The answer is still delivered — via the done event, not token deltas
+    # (token narration is withheld too; see the answer-only test below).
+    done = next(e for e in events if e["type"] == "done")
+    assert done["text"] == "the answer"
 
 
 def test_chat_emits_thinking_with_source_view(monkeypatch):
@@ -604,21 +606,20 @@ def _source_agent():
 
 
 def test_chat_withholds_source_and_tool_events_without_source_view(monkeypatch):
-    """Without source:view the API stream carries only the answer — no tool,
-    tool_result, or source events, and the done event's sources list is empty.
-    Client-side hiding is not enough; the reference must not cross the wire."""
+    """Without source:view the API stream is answer-only — no thinking, tool,
+    tool_result, source, or even token (narration) events, and the done event's
+    sources list is empty. Client-side hiding is not enough; the reasoning and
+    references must not cross the wire. The answer arrives via the done event."""
     from tpk.auth import CAP_CHAT
     auth = _nonadmin_auth_with_role(monkeypatch, [CAP_CHAT])  # no source:view
     client = TestClient(create_app(agent=_source_agent(), auth=auth))
     events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
     types = {e["type"] for e in events}
-    assert "source" not in types
-    assert "tool" not in types
-    assert "tool_result" not in types
+    assert types <= {"done"}, f"restricted stream leaked event types: {types - {'done'}}"
     done = next(e for e in events if e["type"] == "done")
     assert done["sources"] == []
-    # The answer itself still streams.
-    assert any(e["type"] == "token" for e in events)
+    # The answer is still delivered — just via the done event, not token deltas.
+    assert done["text"] == "the answer"
 
 
 def test_chat_includes_source_and_tool_events_with_source_view(monkeypatch):
