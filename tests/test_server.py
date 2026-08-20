@@ -594,3 +594,49 @@ def test_chat_admin_still_emits_thinking():
     client = TestClient(create_app(agent=_think_agent(), auth=_StubAuth()))
     events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
     assert any(e["type"] == "thinking" for e in events)
+
+
+def _source_agent():
+    # A read_source tool call (server derives a `source` citation from it),
+    # then an answer token.
+    args = {"repo": "docs@main", "file_path": "a.md", "line_start": 1, "line_end": 5}
+    return FakeAgent([_tool("read_source", args), _tool_end("read_source", args), _tok("the answer")])
+
+
+def test_chat_withholds_source_and_tool_events_without_source_view(monkeypatch):
+    """Without source:view the API stream carries only the answer — no tool,
+    tool_result, or source events, and the done event's sources list is empty.
+    Client-side hiding is not enough; the reference must not cross the wire."""
+    from tpk.auth import CAP_CHAT
+    auth = _nonadmin_auth_with_role(monkeypatch, [CAP_CHAT])  # no source:view
+    client = TestClient(create_app(agent=_source_agent(), auth=auth))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+    types = {e["type"] for e in events}
+    assert "source" not in types
+    assert "tool" not in types
+    assert "tool_result" not in types
+    done = next(e for e in events if e["type"] == "done")
+    assert done["sources"] == []
+    # The answer itself still streams.
+    assert any(e["type"] == "token" for e in events)
+
+
+def test_chat_includes_source_and_tool_events_with_source_view(monkeypatch):
+    from tpk.auth import CAP_CHAT, CAP_SOURCE_VIEW
+    auth = _nonadmin_auth_with_role(monkeypatch, [CAP_CHAT, CAP_SOURCE_VIEW])
+    client = TestClient(create_app(agent=_source_agent(), auth=auth))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+    types = {e["type"] for e in events}
+    assert "tool" in types and "source" in types
+    done = next(e for e in events if e["type"] == "done")
+    assert len(done["sources"]) == 1
+
+
+def test_chat_admin_gets_source_and_tool_events():
+    # Default _StubAuth user is admin -> holds every capability.
+    client = TestClient(create_app(agent=_source_agent(), auth=_StubAuth()))
+    events = _parse_sse(client.post("/chat", json={"message": "hi"}).text)
+    types = {e["type"] for e in events}
+    assert "tool" in types and "source" in types
+    done = next(e for e in events if e["type"] == "done")
+    assert len(done["sources"]) == 1

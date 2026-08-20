@@ -358,13 +358,19 @@ def create_app(
                             # (the tool loop makes several) for the daily budget.
                             turn_tokens += _usage_tokens(output)
                         elif kind == "on_tool_start":
-                            yield _sse(
-                                {
-                                    "type": "tool",
-                                    "name": event.get("name", ""),
-                                    "input": event.get("data", {}).get("input", {}),
-                                }
-                            )
+                            # Trace/source events are withheld from users without
+                            # source:view — the API stream carries only the answer
+                            # (token/done/error). Reference metadata (tool names,
+                            # file paths, line ranges) must not cross the wire, not
+                            # just be hidden client-side.
+                            if can_view_source:
+                                yield _sse(
+                                    {
+                                        "type": "tool",
+                                        "name": event.get("name", ""),
+                                        "input": event.get("data", {}).get("input", {}),
+                                    }
+                                )
                         elif kind == "on_tool_end":
                             name = event.get("name", "")
                             args = event.get("data", {}).get("input") or {}
@@ -392,9 +398,12 @@ def create_app(
                                     if isinstance(items, list):
                                         audit_entry["count"] = len(items)
                                         audit_entry["unit"] = "matches"
-                                        yield _sse({"type": "tool_result", "name": name,
-                                                    "input": args, "count": len(items),
-                                                    "unit": "matches"})
+                                        # audit count is recorded above regardless;
+                                        # only the client event is cap-gated.
+                                        if can_view_source:
+                                            yield _sse({"type": "tool_result", "name": name,
+                                                        "input": args, "count": len(items),
+                                                        "unit": "matches"})
                                 except Exception:
                                     logger.exception("failed to emit search tool_result; skipping")
                             # Surface cited sources for the read_source rows.
@@ -419,8 +428,12 @@ def create_app(
                                             "line_end": line_end,
                                             "kind": "file",
                                         }
+                                        # `sources` is accumulated for the audit
+                                        # record below regardless; the client event
+                                        # (the clickable citation) is cap-gated.
                                         sources.append(source)
-                                        yield _sse(source)
+                                        if can_view_source:
+                                            yield _sse(source)
                             except Exception:
                                 logger.exception(
                                     "failed to process on_tool_end source event; skipping"
@@ -431,7 +444,10 @@ def create_app(
                         "or rephrase."
                     )
                     answer_text = done_text
-                    yield _sse({"type": "done", "text": done_text, "sources": sources})
+                    # Withhold the citation list from users without source:view —
+                    # the done event carries the answer only.
+                    yield _sse({"type": "done", "text": done_text,
+                                "sources": sources if can_view_source else []})
                 except Exception as exc:  # stream errors must reach the client
                     # Log the full exception server-side; the client only gets
                     # the exception's class name, never the raw message, which

@@ -450,6 +450,11 @@ export default function Chat({
   }
 
   function renderTrace(turn: Turn, idx: number) {
+    // Without source:view the reasoning trace (thinking + tool calls) is
+    // withheld entirely — restricted roles see only the answer. The server
+    // already omits these events from the stream (#66 follow-up); this is the
+    // matching client guard so a future stream change can't surface them.
+    if (!canViewSource) return null;
     if (turn.trace.length === 0) return null;
     const streaming = turn.status === "streaming";
     const elapsedMs = turn.elapsedMs ?? Date.now() - turn.startedAt;
@@ -680,7 +685,7 @@ export default function Chat({
               <div ref={bottomRef} />
             </div>
           </div>
-          {activeSource && (
+          {canViewSource && activeSource && (
             <aside className="tk-sources">
               <div className="tk-sources-header">
                 <span className="tk-sources-title">Source</span>

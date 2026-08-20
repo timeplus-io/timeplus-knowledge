@@ -58,9 +58,16 @@ citation-fragment bodies.
 - Added to `web/src/capabilities.ts` (`CAP`, `CAPABILITY_OPTIONS`) so it renders
   in the role editor.
 
-Reference rows (`file:line` in the Sources trace) remain visible to every chat
-user; only the body is gated. Showing a path + line range is a pointer, not
-source content.
+> **Amended after review of the running build.** The original design kept the
+> `file:line` reference rows visible to all chat users and gated only the body.
+> In practice a restricted user still saw the reasoning trace and clickable
+> citations, and — critically — the reference metadata was only hidden in the
+> UI, still crossing the wire in the SSE stream. Decision revised to
+> **answer-only** for users without `source:view`: the `/chat` stream carries
+> only the answer (`token`/`done`/`error`), and the reasoning trace + all
+> source/citation references are withheld **server-side** (not just hidden in
+> the client). The server still records the full trace/sources to the audit
+> log. See "Enforcement point 2" below.
 
 ### Enforcement point 1 — answer (prompt)
 
@@ -82,11 +89,25 @@ can_view_source = (user.role == ROLE_ADMIN) or (CAP_SOURCE_VIEW in caps)
 ```
 
 where `caps` is the expanded capability set for the role. When
-`can_view_source` is false, **drop the `thinking` events** — i.e. skip the
-`yield _sse({"type": "thinking", ...})` at `server.py:341`. All other events
-(`token`, `tool`, `tool_result`, `source`, `done`) stream unchanged. A role
-without the cap simply sees no thinking panel, identical to models that expose
-no reasoning today.
+`can_view_source` is false, the stream is **answer-only**: withhold every
+non-answer event so the reasoning trace and all source references never cross
+the wire. Concretely, gate these `yield _sse(...)` calls on `can_view_source`:
+
+- `thinking` — the extended-thinking deltas.
+- `tool` (`on_tool_start`) and `tool_result` — tool names/inputs (a
+  `read_source` input *is* a file/line reference).
+- `source` — the clickable citation reference.
+- `done` — send `"sources": []` instead of the accumulated list.
+
+Only `token`, `done` (answer text), and `error` reach a restricted user. The
+audit accumulators (`tool_calls`, `sources`) are still built and written to the
+audit log — only the client stream is gated, not the server-side record.
+
+Why server-side and not just client hiding: the client re-labels the model's
+between-tool narration (`token` text before a `tool` event) as a "thinking"
+step, so hiding only `kind==="thinking"` rows still showed a trace; and any
+client-only gate leaves the references visible to anyone reading the raw SSE
+stream. Gating at emission is the actual boundary.
 
 ### Enforcement point 3 — citation fragment (`graph_api.py`)
 
@@ -103,14 +124,15 @@ admin with no special-casing.
 ### Frontend (`web/src/`)
 
 The app already fetches `capabilities` from `/auth/me` and gates UI with
-`hasCap`. Thread the flag `hasCap(caps, CAP.sourceView)` into `Chat.tsx`:
+`hasCap`. Thread the flag `hasCap(caps, CAP.sourceView)` into `Chat.tsx` as
+`canViewSource`. These are defense-in-depth — the server now withholds the
+events, so they matter only if a future stream change regresses:
 
-- **Thinking steps:** when absent, don't render `ThinkingStep` rows. (Belt and
-  suspenders — the server already withholds the events; the client guard keeps
-  the UI consistent if an event slips through.)
-- **`SourceCard`:** when absent, skip the mount-time `readSource` preview fetch
-  and disable `openSource` — the row still shows `file_path` + line range, but
-  no body preview and no click-to-open fragment.
+- **Reasoning trace:** `renderTrace` returns `null` when `canViewSource` is
+  false — no thinking steps, no tool-call rows.
+- **Sources panel:** the citation side-panel (`activeSource`) is not rendered
+  when `canViewSource` is false. `SourceCard` also keeps its own guard, skipping
+  the `readSource` fetch and showing a restricted note.
 - **Role editor (`Users.tsx`):** `CAPABILITY_OPTIONS` gains `source:view` so
   admins can grant it.
 
@@ -143,7 +165,8 @@ and shown with it.
 
 - Any change to `read_source` tool access or what the model reads into context.
 - Aggregate output budgets, streaming caps, redaction, per-repo strictness.
-- Reworking how citations are represented (reference rows stay as-is).
+- Reworking how citations are represented for privileged users (unchanged);
+  restricted users simply receive no citation events.
 
 ## Touched files
 
