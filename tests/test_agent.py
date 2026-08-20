@@ -47,6 +47,13 @@ def test_system_prompt_contains_corpus_and_citation_rules():
     assert "neighbors" in p and "path_between" in p
 
 
+def test_system_prompt_forbids_dumping_complete_source():
+    p = system_prompt(REPOS)
+    # The model may explain and quote minimally, but must not reproduce whole files.
+    assert "never reproduce complete" in p
+    assert "decline" in p
+
+
 def test_recursion_limit_constant():
     assert RECURSION_LIMIT == 40
 

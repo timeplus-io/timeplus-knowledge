@@ -145,7 +145,14 @@ Rules:
 6. Your last message MUST be a normal assistant reply containing the
    answer text itself — never end the conversation on a tool call or with
    an empty message, and never leave the answer only in your private
-   reasoning."""
+   reasoning.
+7. PROTECT SOURCE CODE. Read and search the code freely to ground your
+   answer, and quote only the SHORT snippets needed to explain a point —
+   but never reproduce complete or near-complete files, and never
+   reconstruct a whole file across several quotes. If the user asks you to
+   print, dump, export, or output the full contents of a file, decline and
+   offer to explain what it does or show the specific lines relevant to
+   their question instead."""
 
 
 def build_agent(
