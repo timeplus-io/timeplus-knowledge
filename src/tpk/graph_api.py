@@ -85,7 +85,7 @@ def create_graph_router(kg, auth, prefix: str = "") -> APIRouter:
     @router.get("/source")
     async def source(repo: str, file_path: str,
                      line_start: int = Query(..., ge=1), line_end: int = Query(..., ge=1),
-                     user=Depends(auth.require_cap(auth_mod.CAP_EXPLORE))):
+                     user=Depends(auth.require_cap(auth_mod.CAP_SOURCE_VIEW))):
         try:
             lines = await _scoped(user, lambda: kg.read_source(repo, file_path, line_start, line_end))
         except ValueError as exc:
