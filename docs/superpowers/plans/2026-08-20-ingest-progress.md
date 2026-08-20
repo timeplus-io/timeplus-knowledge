@@ -17,7 +17,7 @@
 - No `processed`/`total` fields anywhere (honest-indeterminate). No job persistence (in-memory as today).
 - Heartbeat source is graphify's own stdout (tee), not a timer. Set `PYTHONUNBUFFERED=1` in graphify's child env.
 - Stall threshold in the UI is `STALL_MS = 60_000`.
-- New backend tests must be DB-free (stub-based) except the JobManager/API test, which follows the existing `requires_timeplus` pattern in `tests/test_api.py`.
+- All new backend tests are DB-free (stub-based) — including the JobManager test, which drives `JobManager` directly with `db.get_client`/`load_llm`/`ingest_repo` stubbed rather than going through the `requires_timeplus` HTTP+auth path.
 - Every task ends with a passing test run (or build) and a commit.
 
 ---
@@ -342,52 +342,78 @@ git commit -m "feat(ingest): IngestProgress callback threaded through ingest_rep
 
 **Files:**
 - Modify: `src/tpk/api.py` (`JobManager.submit` rec, `JobManager._run` sink)
-- Test: `tests/test_api.py` (add one test using the existing `requires_timeplus` scaffolding)
+- Test: Create `tests/test_jobmanager.py` (DB-free — tests `JobManager` directly, no `requires_timeplus`)
 
 **Interfaces:**
 - Consumes: `ingest_repo(..., on_progress=...)` (Task 2).
-- Produces: job records (and `/api/jobs`, `/api/jobs/{id}`) carry `phase` (str|None), `message` (str), `updated_at` (ISO str|None), with live `nodes`/`edges`.
+- Produces: job records carry `phase` (str|None), `message` (str), `updated_at` (ISO str|None), with live `nodes`/`edges`. `snapshot()`/`get()` return the whole rec unchanged, so `/api/jobs` and `/api/jobs/{id}` expose the fields with no endpoint change.
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `tests/test_api.py`. A custom `_client`-style setup whose stubbed `ingest_repo` invokes `on_progress`, so the finished rec exposes the new fields:
+The `/api/jobs` HTTP path is `requires_timeplus` (auth/sessions need a DB) and a local timeplusd may be unavailable, so test the `JobManager` directly — its worker thread runs `_run`, which we make DB-free by stubbing `db.get_client`, `load_llm`, and `ingest_repo`. Create `tests/test_jobmanager.py`:
 
 ```python
-def test_jobs_expose_progress_fields(tp, monkeypatch, admin_hdr):
-    client, prefix = tp
-    import tpk.api as api_mod
-    from tpk.config import entry_key
-    from tpk.ingest import IngestProgress, IngestResult
+import time
 
-    def fake_ingest(client_, cfg, prefix="", backend=None, model=None,
-                    token_budget=0, stream=False, out_root=None, on_progress=None, **kw):
+from tpk.config import RepoConfig
+from tpk.ingest import IngestProgress, IngestResult
+
+
+def _wait_done(mgr, job_id, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        rec = mgr.get(job_id)
+        if rec and rec["status"] in ("ok", "failed"):
+            return rec
+        time.sleep(0.02)
+    return mgr.get(job_id)
+
+
+def test_jobmanager_records_progress_fields(monkeypatch):
+    import tpk.api as api_mod
+    from tpk.api import JobManager
+
+    # DB-free: the worker's db/llm calls are stubbed; ingest is faked to drive
+    # the progress sink and return a success result.
+    monkeypatch.setattr(api_mod.db, "get_client", lambda *a, **k: object())
+    monkeypatch.setattr(
+        api_mod, "load_llm",
+        lambda *a, **k: type("L", (), {"backend": "auto", "model": None, "token_budget": 0})(),
+    )
+
+    def fake_ingest(client, cfg, prefix="", backend=None, model=None,
+                    token_budget=0, on_progress=None, **kw):
+        from tpk.config import entry_key
         if on_progress:
             on_progress(IngestProgress("extract", message="extracting x.py"))
             on_progress(IngestProgress("done", nodes=3, edges=2))
         return IngestResult(entry_key(cfg), "j", 3, 2, "ok")
 
     monkeypatch.setattr(api_mod, "ingest_repo", fake_ingest)
-    c = TestClient(create_app(agent=_NoAgent(), stream_prefix=prefix))
-    # add + ingest a corpus entry (mirrors the add/reindex flow used elsewhere)
-    c.post("/api/repos", json={"name": "docs", "github": "org/docs", "ref": "v1",
-                               "visibility": "internal", "ingest": True}, headers=admin_hdr)
 
-    def _job_done():
-        jobs = c.get("/api/jobs", headers=admin_hdr).json()
-        return jobs and jobs[0]["status"] in ("ok", "failed")
-    _eventually(_job_done)
+    mgr = JobManager(prefix="")
+    cfg = RepoConfig(name="docs", github="org/docs", ref="v1", visibility="internal", enabled=True)
+    job_id = mgr.submit(cfg)
 
-    job = c.get("/api/jobs", headers=admin_hdr).json()[0]
-    assert "phase" in job and "updated_at" in job and "message" in job
-    assert job["updated_at"] is not None          # a progress event bumped it
-    assert job["phase"] == "done"                 # last reported phase
-    assert job["nodes"] == 3 and job["edges"] == 2
+    # A freshly-submitted job carries the new keys immediately (queued).
+    rec0 = mgr.get(job_id)
+    assert rec0["phase"] is None and rec0["updated_at"] is None and rec0["message"] == ""
+
+    rec = _wait_done(mgr, job_id)
+    assert rec["status"] == "ok"
+    assert rec["phase"] == "done"                 # last reported phase
+    assert rec["updated_at"] is not None          # a progress event bumped it
+    assert rec["message"] == "extracting x.py"
+    assert rec["nodes"] == 3 and rec["edges"] == 2
+    # snapshot() (what /api/jobs returns) exposes the same rec.
+    snap = next(j for j in mgr.snapshot() if j["id"] == job_id)
+    assert snap["phase"] == "done" and "updated_at" in snap
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `TIMEPLUS_HOST=localhost TIMEPLUS_USER=default TIMEPLUS_PASSWORD= TIMEPLUS_DATABASE=default .venv/bin/python -m pytest tests/test_api.py::test_jobs_expose_progress_fields -q`
-Expected: FAIL — the job rec has no `phase`/`updated_at`/`message` keys. (Requires a local timeplusd; see the ledger's test-env note.)
+Run: `.venv/bin/python -m pytest tests/test_jobmanager.py -q`
+Expected: FAIL — the rec has no `phase`/`updated_at`/`message` keys (`KeyError`), and `ingest_repo` isn't yet called with `on_progress`.
 
 - [ ] **Step 3: Implement in `src/tpk/api.py`**
 
@@ -429,13 +455,13 @@ Add `from tpk.ingest import IngestProgress` only if referenced for typing — th
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TIMEPLUS_HOST=localhost TIMEPLUS_USER=default TIMEPLUS_PASSWORD= TIMEPLUS_DATABASE=default .venv/bin/python -m pytest tests/test_api.py -q`
-Expected: PASS (new test plus the existing api tests).
+Run: `.venv/bin/python -m pytest tests/test_jobmanager.py -q`
+Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/tpk/api.py tests/test_api.py
+git add src/tpk/api.py tests/test_jobmanager.py
 git commit -m "feat(api): expose ingest job phase/message/updated_at + live counts (#64)"
 ```
 
@@ -655,10 +681,8 @@ git commit -m "feat(cli): advancing per-phase ingest progress line (#64)"
 
 - [ ] **Step 1: Backend suites for this change**
 
-Run: `.venv/bin/python -m pytest tests/test_graphify_runner.py tests/test_ingest_progress.py tests/test_cli.py -q`
+Run: `.venv/bin/python -m pytest tests/test_graphify_runner.py tests/test_ingest_progress.py tests/test_jobmanager.py tests/test_cli.py -q`
 Expected: PASS (all DB-free).
-If a local timeplusd is available, also run the DB-backed job test:
-`TIMEPLUS_HOST=localhost TIMEPLUS_USER=default TIMEPLUS_PASSWORD= TIMEPLUS_DATABASE=default .venv/bin/python -m pytest tests/test_api.py tests/test_ingest.py -q`
 
 - [ ] **Step 2: Frontend build**
 
