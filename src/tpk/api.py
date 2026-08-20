@@ -149,8 +149,9 @@ class JobManager:
         job_id = uuid.uuid4().hex[:12]
         rec = {
             "id": job_id, "entry_key": entry_key(cfg), "status": "queued",
-            "nodes": 0, "edges": 0, "error": None,
+            "phase": None, "message": "", "nodes": 0, "edges": 0, "error": None,
             "submitted_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": None,
             "finished_at": None,
         }
         with self._jobs_lock:
@@ -177,10 +178,23 @@ class JobManager:
                 client = db.get_client(Settings.from_env())
                 llm = load_llm(REPOS_TOML) if REPOS_TOML.exists() else None
                 backend = None if (llm is None or llm.backend == "auto") else llm.backend
+
+                def _on_progress(p, _rec=rec):
+                    with self._jobs_lock:
+                        _rec["phase"] = p.phase
+                        if p.message:
+                            _rec["message"] = p.message
+                        if p.nodes:
+                            _rec["nodes"] = p.nodes
+                        if p.edges:
+                            _rec["edges"] = p.edges
+                        _rec["updated_at"] = datetime.now(timezone.utc).isoformat()
+
                 result = ingest_repo(
                     client, cfg, prefix=self.prefix, backend=backend,
                     model=(llm.model or None) if llm else None,
                     token_budget=llm.token_budget if llm else 0,
+                    on_progress=_on_progress,
                 )
                 with self._jobs_lock:
                     rec["nodes"], rec["edges"] = result.nodes, result.edges
