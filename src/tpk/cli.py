@@ -1,5 +1,7 @@
 """tpk command-line interface."""
 
+import sys
+import time
 from pathlib import Path
 
 import typer
@@ -7,6 +9,44 @@ import typer
 from tpk import corpus, db
 from tpk.config import Settings, config_path, entry_key, load_llm, setting
 from tpk.ingest import IngestResult, ingest_repo
+
+_PHASE_LABEL = {
+    "fetch": "fetching…",
+    "extract": "extracting…",
+    "parse": "parsing…",
+    "upsert": "saving…",
+    "done": "done",
+}
+
+
+def _fmt_elapsed(seconds: float) -> str:
+    """Format elapsed seconds as human-readable string (e.g., '1m30s')."""
+    s = int(seconds)
+    return f"{s}s" if s < 60 else f"{s // 60}m{s % 60:02d}s"
+
+
+def _progress_line(
+    i: int, n: int, key: str, phase: str, elapsed_s: float, message: str = ""
+) -> str:
+    """Format a progress line for ingest (unit-testable pure function).
+
+    Args:
+        i: Current entry index (1-based)
+        n: Total entries
+        key: Corpus entry key (e.g., 'docs@main')
+        phase: Ingest phase (e.g., 'extract', 'parse')
+        elapsed_s: Elapsed seconds
+        message: Optional last graphify message
+
+    Returns:
+        Formatted progress string, truncated to 200 chars if needed.
+    """
+    label = _PHASE_LABEL.get(phase, phase)
+    parts = [f"[{i}/{n}] {key}", label, _fmt_elapsed(elapsed_s)]
+    if message:
+        parts.append(message)
+    line = " · ".join(parts)
+    return line[:197] + "…" if len(line) > 200 else line
 
 app = typer.Typer(help="Timeplus knowledge graph toolkit")
 
@@ -39,6 +79,24 @@ def ingest(
             raise typer.BadParameter(f"no corpus entry matches {repo!r}")
     for i, cfg in enumerate(entries, 1):
         typer.echo(f"[{i}/{len(entries)}] {entry_key(cfg)}: extracting ({cfg.extraction})...")
+        started = time.monotonic()
+        tty = sys.stdout.isatty()
+        last_emit = [0.0]
+
+        def _on_progress(p, _i=i, _cfg=cfg, _started=started, _last=last_emit):
+            if verbose:
+                return  # graphify's own output is already streaming
+            elapsed = time.monotonic() - _started
+            line = _progress_line(
+                _i, len(entries), entry_key(_cfg), p.phase, elapsed, p.message
+            )
+            if tty:
+                sys.stdout.write("\r\033[K" + line)
+                sys.stdout.flush()
+            elif elapsed - _last[0] >= 5 or p.phase in ("parse", "upsert", "done"):
+                _last[0] = elapsed
+                typer.echo(line)
+
         result = ingest_repo(
             client,
             cfg,
@@ -47,7 +105,11 @@ def ingest(
             model=model,
             token_budget=llm.token_budget,
             stream=verbose,
+            on_progress=_on_progress,
         )
+        if tty and not verbose:
+            sys.stdout.write("\r\033[K")  # clear the refreshing line
+            sys.stdout.flush()
         typer.echo(f"{result.repo}: {result.status} ({result.nodes} nodes, {result.edges} edges)")
 
 

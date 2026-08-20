@@ -1,14 +1,29 @@
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from conftest import requires_timeplus
 from tpk import cli as cli_mod
-from tpk.cli import app
-
-pytestmark = requires_timeplus
+from tpk.cli import app, _progress_line
 
 
+# Pure unit tests (no database required)
+def test_progress_line_format():
+    line = _progress_line(1, 4, "docs@main", "extract", 90, "extracting x.py")
+    assert line.startswith("[1/4] docs@main")
+    assert "extracting…" in line  # phase label, not the raw phase key
+    assert "1m30s" in line  # elapsed formatting
+    assert "extracting x.py" in line  # last graphify message
+
+
+def test_progress_line_truncates_long_message():
+    line = _progress_line(1, 1, "r", "extract", 1, "x" * 500)
+    assert len(line) <= 200  # bounded so it fits one terminal line
+
+
+# Integration tests (require Timeplus)
+@requires_timeplus
 def test_ingest_unknown_repo_raises_bad_parameter(tp, tmp_path: Path, monkeypatch):
     # The CLI now reads its targets from the corpus store, so this needs a
     # real client (the store must be queryable) rather than a bare stub.
@@ -27,6 +42,7 @@ def test_ingest_unknown_repo_raises_bad_parameter(tp, tmp_path: Path, monkeypatc
     assert "no corpus entry matches" in result.output.lower()
 
 
+@requires_timeplus
 def test_ingest_reads_corpus_store_and_matches_name_or_key(tp, monkeypatch, tmp_path):
     import typer
     from typer.testing import CliRunner
