@@ -4,6 +4,27 @@ Knowledge graph + agent tooling for answering questions about Timeplus —
 code, design, architecture, and devops. See
 `docs/superpowers/specs/2026-08-10-timeplus-knowledge-agent-design.md`.
 
+## Quick start
+
+The fastest way to try it — OSS proton, the chat agent, and the web UI in a
+single container (fully open-source, no separate database, no build):
+
+    docker run -d --name tpk -p 8000:8000 \
+      -e OPENAI_API_KEY=sk-... \
+      timeplus/tpk:latest
+
+    docker exec tpk tpk ingest        # build the knowledge graph
+    open http://localhost:8000        # chat + web UI — log in as admin / changeme
+
+Use `-e ANTHROPIC_API_KEY=...` instead for Claude; the same key powers both chat
+and semantic ingest. `tpk ingest` fetches the repos from the image's baked
+config (`deploy/docker/repos.container.toml`) — private repos need
+`-e GITHUB_TOKEN=...`. You'll be prompted to change the seed `admin` password on
+first login.
+
+For the production shape (separate Enterprise timeplusd + app), compose files,
+configuration, roles, and everything else, read on.
+
 ## Setup
 
 `make` lists every dev command (setup, db, tests, ingest, MCP, chat agent /
