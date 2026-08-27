@@ -16,8 +16,9 @@ single container (fully open-source, no separate database, no build):
     docker exec tpk tpk ingest        # build the knowledge graph
     open http://localhost:8000        # chat + web UI — log in as admin / changeme
 
-Use `-e ANTHROPIC_API_KEY=...` instead for Claude; the same key powers both chat
-and semantic ingest. `tpk ingest` fetches the repos from the image's baked
+The image is multi-arch (`linux/amd64` + `linux/arm64`), so it runs natively on
+Apple Silicon. Use `-e ANTHROPIC_API_KEY=...` instead for Claude; the same key
+powers both chat and semantic ingest. `tpk ingest` fetches the repos from the image's baked
 config (`deploy/docker/repos.container.toml`) — private repos need
 `-e GITHUB_TOKEN=...`. You'll be prompted to change the seed `admin` password on
 first login.
