@@ -17,6 +17,8 @@ so they're alternatives, not layers.
 The images are the ones published by [`.github/workflows/docker-publish.yml`](../../.github/workflows/docker-publish.yml):
 `timeplus/tpk-app` (app-only) and `timeplus/tpk` (all-in-one). Pin `:latest` to a
 released tag (e.g. `timeplus/tpk-app:1.2.3`) for reproducible rollouts.
+Both are multi-arch (`linux/amd64` + `linux/arm64`), so they schedule onto
+x86 and ARM (e.g. Graviton) nodes alike without a `nodeSelector`.
 
 ## Prerequisites
 

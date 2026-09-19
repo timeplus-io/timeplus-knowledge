@@ -97,11 +97,20 @@ down-allinone: ## Stop the all-in-one stack (named data volumes are kept)
 
 APP_IMAGE ?= timeplus/tpk-app:dev
 
-docker-build-allinone: ## Build the all-in-one image (timeplusd + tpk)
-	docker build -f deploy/docker/Dockerfile --target allinone -t $(IMAGE) .
+# Local builds target the host arch. Set PLATFORMS for a cross/multi-arch build
+# via buildx, e.g.
+#   make docker-build-app PLATFORMS=linux/arm64
+#   make docker-build PLATFORMS=linux/amd64,linux/arm64 DOCKER_BUILD_FLAGS=--push
+# (a multi-platform build can't be loaded into the local daemon; add --push).
+PLATFORMS ?=
+DOCKER_BUILD_FLAGS ?=
+DOCKER_BUILD = docker $(if $(PLATFORMS),buildx build --platform $(PLATFORMS),build) $(DOCKER_BUILD_FLAGS)
 
-docker-build-app: ## Build the tpk app-only image (pure-Python; no timeplusd)
-	docker build -f deploy/docker/Dockerfile --target app -t $(APP_IMAGE) .
+docker-build-allinone: ## Build the all-in-one image (proton + tpk); PLATFORMS=... for multi-arch
+	$(DOCKER_BUILD) -f deploy/docker/Dockerfile --target allinone -t $(IMAGE) .
+
+docker-build-app: ## Build the tpk app-only image (pure-Python; no timeplusd); PLATFORMS=... for multi-arch
+	$(DOCKER_BUILD) -f deploy/docker/Dockerfile --target app -t $(APP_IMAGE) .
 
 docker-build: docker-build-allinone docker-build-app ## Build both deployable images
 
