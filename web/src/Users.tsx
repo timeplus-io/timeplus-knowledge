@@ -330,6 +330,10 @@ export default function Users({ capabilities, isAdmin }:
                         Reset password
                       </button>
                     )}
+                    <button type="button" className="tk-btn tk-btn-secondary"
+                            onClick={() => act(() => call("/api/tokens/revoke-all", { username: u.username }))}>
+                      Revoke API tokens
+                    </button>
                     {u.role !== "admin" && (
                       <>
                         <button type="button" className="tk-btn tk-btn-secondary"
