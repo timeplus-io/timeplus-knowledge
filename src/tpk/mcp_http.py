@@ -58,6 +58,8 @@ class McpAuth:
             rec = auth_mod.resolve_api_token(client, token, prefix=self.prefix)
             user = auth_mod.get_user(client, rec.username, prefix=self.prefix) if rec else None
         except Exception:
+            # Keep the cause: to an operator a bare 503 on /mcp is undiagnosable.
+            log.exception("mcp auth store unavailable")
             raise HTTPException(503, "auth store unavailable")
         if user is None or user.disabled:
             raise HTTPException(401, "invalid or expired token")
@@ -74,6 +76,10 @@ class McpAuth:
         try:
             user, token_id = await run_in_threadpool(self._authenticate, authorization)
         except HTTPException as e:
+            # /mcp is the only network-reachable credential check, so every
+            # rejection leaves a trace -- otherwise token probing is invisible.
+            # The token itself is never logged, in whole or in part.
+            log.warning("mcp auth denied status=%s detail=%s", e.status_code, e.detail)
             headers = {"WWW-Authenticate": "Bearer"} if e.status_code == 401 else None
             return await JSONResponse({"detail": e.detail}, status_code=e.status_code,
                                       headers=headers)(scope, receive, send)
@@ -103,6 +109,9 @@ def make_guard(auth, prefix: str = ""):
             try:
                 scope = auth_mod.resolve_scope(auth._client(), user, prefix=prefix)
             except Exception:
+                # An empty scope looks exactly like "your role has no entries"
+                # to the caller, so the outage must be visible server-side.
+                log.exception("scope resolution failed; failing closed user=%s", user.username)
                 scope = None if user.role == auth_mod.ROLE_ADMIN else frozenset()
             token = ROLE_SCOPE.set(scope) if scope is not None else None
             try:

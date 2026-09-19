@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import datetime, timezone
 
 import pytest
@@ -162,7 +163,20 @@ def test_revoked_token_401(env):
                        lambda r: r.status_code == 401).status_code == 401
 
 
-def test_store_down_503(tp, tmp_path):
+def test_denial_is_logged_without_the_token(env, caplog):
+    # /mcp is network-reachable: a rejected credential must leave a trace, and
+    # that trace must never carry the token itself.
+    c, _, _, _ = env
+    secret = "tpk_probe_secret_value"
+    with caplog.at_level(logging.WARNING, logger="tpk.mcp"):
+        assert _rpc(c, secret, "tools/list").status_code == 401
+    denials = [r for r in caplog.records if r.name == "tpk.mcp" and r.levelno >= logging.WARNING]
+    assert denials, "a 401 denial left no log trace"
+    assert "401" in " ".join(r.getMessage() for r in denials)
+    assert secret not in caplog.text and "Bearer" not in caplog.text
+
+
+def test_store_down_503(tp, tmp_path, caplog):
     client, prefix = tp
     kg = _seed(tp, tmp_path)
 
@@ -172,7 +186,13 @@ def test_store_down_503(tp, tmp_path):
 
     app = create_app(agent=_NoAgent(), stream_prefix=prefix, kg=kg, auth=DownAuth(prefix))
     with TestClient(app) as c:
-        assert _rpc(c, "tpk_anything", "tools/list").status_code == 503
+        with caplog.at_level(logging.WARNING, logger="tpk.mcp"):
+            assert _rpc(c, "tpk_anything", "tools/list").status_code == 503
+    records = [r for r in caplog.records if r.name == "tpk.mcp"]
+    # The underlying store failure is diagnosable, and the 503 itself is traced.
+    assert any(r.exc_info for r in records), "the store exception was swallowed"
+    assert "store down" in caplog.text and "503" in caplog.text
+    assert "tpk_anything" not in caplog.text
 
 
 def test_disabled_by_config(tp, tmp_path, monkeypatch):
