@@ -55,6 +55,7 @@ export default function Users({ capabilities, isAdmin }:
   const [showAddUser, setShowAddUser] = useState(false);
   const [newUser, setNewUser] = useState({ ...EMPTY_USER });
   const [confirmingUser, setConfirmingUser] = useState<string | null>(null);
+  const [revokingTokensUser, setRevokingTokensUser] = useState<string | null>(null);
   const [resettingUser, setResettingUser] = useState<string | null>(null);
   const [resetPassword, setResetPassword] = useState("");
 
@@ -330,10 +331,26 @@ export default function Users({ capabilities, isAdmin }:
                         Reset password
                       </button>
                     )}
-                    <button type="button" className="tk-btn tk-btn-secondary"
-                            onClick={() => act(() => call("/api/tokens/revoke-all", { username: u.username }))}>
-                      Revoke API tokens
-                    </button>
+                    {revokingTokensUser === u.username ? (
+                      <span className="tk-users-confirm">
+                        <button type="button" className="tk-btn tk-btn-danger"
+                                onClick={() => {
+                                  setRevokingTokensUser(null);
+                                  act(() => call("/api/tokens/revoke-all", { username: u.username }));
+                                }}>
+                          Confirm revoke tokens
+                        </button>
+                        <button type="button" className="tk-btn tk-btn-secondary"
+                                onClick={() => setRevokingTokensUser(null)}>
+                          Cancel
+                        </button>
+                      </span>
+                    ) : (
+                      <button type="button" className="tk-btn tk-btn-secondary"
+                              onClick={() => setRevokingTokensUser(u.username)}>
+                        Revoke API tokens
+                      </button>
+                    )}
                     {u.role !== "admin" && (
                       <>
                         <button type="button" className="tk-btn tk-btn-secondary"
