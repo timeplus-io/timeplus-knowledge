@@ -12,17 +12,16 @@ def create_graph_router(kg, auth, prefix: str = "") -> APIRouter:
     router = APIRouter(prefix="/api/graph")
 
     async def _scoped(user, fn):
-        """Resolve the caller's role scope (fail-closed to an empty scope
-        when the role is missing/unreadable) and run the blocking KG call
-        under it, off the event loop -- mirrors server.py's /chat handler."""
-        scope = None
-        if user.role != auth_mod.ROLE_ADMIN:
+        """Resolve the caller's role scope (fail-closed, see
+        auth.resolve_scope) and run the blocking KG call under it, off the
+        event loop -- mirrors server.py's /chat handler."""
+        def _scope():
             try:
-                role = await run_in_threadpool(
-                    lambda: auth_mod.get_role(auth._client(), user.role, prefix=prefix))
-            except Exception:
-                role = None
-            scope = frozenset(role.entry_keys) if role else frozenset()
+                return auth_mod.resolve_scope(auth._client(), user, prefix=prefix)
+            except Exception:  # auth._client() itself failed
+                return None if user.role == auth_mod.ROLE_ADMIN else frozenset()
+
+        scope = await run_in_threadpool(_scope)
         token = ROLE_SCOPE.set(scope) if scope is not None else None
         try:
             return await run_in_threadpool(fn)

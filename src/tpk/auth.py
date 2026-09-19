@@ -438,6 +438,20 @@ def effective_capabilities(user: User, role: Role | None) -> set[str]:
     return expand_capabilities(role.capabilities)
 
 
+def resolve_scope(client, user: User, prefix: str = "") -> frozenset[str] | None:
+    """The corpus scope to apply to a user's graph queries: None for admin
+    (unrestricted), else the role's exact `name@ref` entry keys. Fails closed
+    to the EMPTY scope when the role is missing or unreadable. Shared by the
+    Explorer API (graph_api) and the remote MCP guard (mcp_http)."""
+    if user.role == ROLE_ADMIN:
+        return None
+    try:
+        role = get_role(client, user.role, prefix=prefix)
+    except Exception:
+        role = None
+    return frozenset(role.entry_keys) if role else frozenset()
+
+
 # Precomputed at import time so an unknown-username login still pays the
 # same argon2 cost as a known-user/wrong-password login -- otherwise the
 # `user is None` short-circuit is a timing oracle for username enumeration

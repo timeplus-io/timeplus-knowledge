@@ -59,6 +59,34 @@ def test_source_view_capability_registered_and_default_deny():
     assert CAP_SOURCE_VIEW in effective_capabilities(admin, None)
 
 
+def test_resolve_scope_admin_is_unscoped():
+    from tpk import auth
+    assert auth.resolve_scope(object(), auth.User("root", "h", auth.ROLE_ADMIN)) is None
+
+
+def test_resolve_scope_fails_closed_when_role_unreadable():
+    from tpk import auth
+
+    class Boom:
+        def query(self, *a, **k):
+            raise RuntimeError("store down")
+
+    assert auth.resolve_scope(Boom(), auth.User("u", "h", "support")) == frozenset()
+
+
+def test_resolve_scope_uses_role_entry_keys(monkeypatch):
+    from tpk import auth
+    monkeypatch.setattr(auth, "get_role",
+                        lambda client, name, prefix="": auth.Role(name, ["alpha@v1", "beta@v2"]))
+    assert auth.resolve_scope(object(), auth.User("u", "h", "support")) == frozenset({"alpha@v1", "beta@v2"})
+
+
+def test_resolve_scope_missing_role_is_empty(monkeypatch):
+    from tpk import auth
+    monkeypatch.setattr(auth, "get_role", lambda client, name, prefix="": None)
+    assert auth.resolve_scope(object(), auth.User("u", "h", "gone")) == frozenset()
+
+
 # -- integration fixtures --------------------------------------------------
 
 pytestmark = requires_timeplus
