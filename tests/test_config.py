@@ -190,6 +190,7 @@ def test_settings_from_env_defaults(monkeypatch):
     monkeypatch.delenv("TIMEPLUS_HOST", raising=False)
     monkeypatch.delenv("TIMEPLUS_USER", raising=False)
     monkeypatch.delenv("TIMEPLUS_PASSWORD", raising=False)
+    monkeypatch.delenv("TIMEPLUS_PORT", raising=False)
     monkeypatch.delenv("TPK_STREAM_PREFIX", raising=False)
     monkeypatch.delenv("TPK_CONFIG", raising=False)
     s = Settings.from_env()
@@ -206,6 +207,13 @@ def test_settings_from_env_reads_vars(monkeypatch):
     monkeypatch.setenv("TIMEPLUS_PASSWORD", "secret")
     s = Settings.from_env()
     assert (s.host, s.user, s.password) == ("tp.example.com", "eng", "secret")
+
+
+def test_settings_from_env_reads_port(monkeypatch):
+    monkeypatch.setenv("TIMEPLUS_PORT", "18123")
+    assert Settings.from_env().port == 18123
+    monkeypatch.delenv("TIMEPLUS_PORT", raising=False)
+    assert Settings.from_env().port == 8123
 
 
 def test_load_repos(tmp_path: Path):

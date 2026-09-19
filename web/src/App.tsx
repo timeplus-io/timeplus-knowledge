@@ -5,6 +5,7 @@ import Explorer from "./Explorer";
 import Login from "./Login";
 import Manage from "./Manage";
 import Shell, { type View } from "./Shell";
+import Tokens from "./Tokens";
 import Users from "./Users";
 import ChangePassword from "./ChangePassword";
 import { CAP, type Capability, hasCap } from "./capabilities";
@@ -16,10 +17,11 @@ type Me = { username: string; role: string; capabilities: string[] };
 const VIEW_CAP: Record<View, Capability> = {
   chat: CAP.chat,
   explorer: CAP.explore,
+  tokens: CAP.explore,
   manage: CAP.corpusView,
   users: CAP.usersView,
 };
-const NAV_ORDER: View[] = ["chat", "explorer", "manage", "users"];
+const NAV_ORDER: View[] = ["chat", "explorer", "tokens", "manage", "users"];
 
 function landingView(caps: string[]): View {
   return NAV_ORDER.find((v) => hasCap(caps, VIEW_CAP[v])) ?? "chat";
@@ -148,6 +150,8 @@ export default function App() {
       </div>
       {view === "explorer" ? (
         <Explorer onAsk={askAboutEntity} />
+      ) : view === "tokens" ? (
+        <Tokens />
       ) : view === "manage" ? (
         <Manage capabilities={me.capabilities} />
       ) : view === "users" ? (

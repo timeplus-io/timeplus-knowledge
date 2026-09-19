@@ -6,6 +6,7 @@ ROLE_ADMIN` short-circuits to full access everywhere.
 
 import hashlib
 import json
+import logging
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -14,6 +15,8 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError
 
 from tpk import db
+
+log = logging.getLogger(__name__)
 
 ROLE_ADMIN = "admin"
 SEED_USERNAME = "admin"
@@ -191,6 +194,11 @@ def admin_count(client, prefix: str = "") -> int:
 def seed_admin(client, prefix: str = "") -> bool:
     if list_users(client, prefix=prefix):
         return False
+    # The seeded admin is a NEW account that happens to reuse a username, so
+    # any credential still keyed to `admin` (e.g. left by the break-glass
+    # reset, which clears kg_users) must not authenticate as it.
+    delete_user_api_tokens(client, SEED_USERNAME, prefix=prefix)
+    delete_user_sessions(client, SEED_USERNAME, prefix=prefix)
     upsert_user(
         client,
         User(SEED_USERNAME, hash_password(SEED_PASSWORD), ROLE_ADMIN,
@@ -296,6 +304,170 @@ def delete_user_sessions(client, username: str, prefix: str = "",
     db.delete(client, db.qualified("kg_sessions", prefix), where, params, ("token_hash",))
 
 
+# -- API tokens (remote MCP, #74) -------------------------------------------
+# Long-lived per-user credentials, valid ONLY at /mcp (the REST API stays
+# session-only). Stored like sessions: sha256 of the plaintext as the key,
+# the plaintext returned exactly once at creation.
+
+API_TOKEN_PREFIX = "tpk_"
+MAX_API_TOKENS_PER_USER = 20
+API_TOKEN_EXPIRY_DAYS = (30, 90, 365)
+_TOUCH_INTERVAL = timedelta(minutes=5)
+# "never" sentinel for expires_at / last_used_at (no nullable columns).
+_NEVER = datetime(1970, 1, 1, tzinfo=timezone.utc)
+_API_TOKEN_COLUMNS = ["token_hash", "token_id", "username", "name", "hint",
+                      "created_at", "expires_at", "last_used_at"]
+# Last use is tracked in its own keyed stream: the credential row is never
+# rewritten after creation, so a throttled touch can't undo a revoke that
+# landed between its read and its write (its kg_api_tokens.last_used_at cell
+# keeps the creation-time sentinel). A usage row alone authenticates nothing.
+_API_TOKEN_USAGE_COLUMNS = ["token_hash", "last_used_at"]
+
+
+class ApiTokenLimitError(Exception):
+    """The user already holds MAX_API_TOKENS_PER_USER live tokens."""
+
+
+@dataclass
+class ApiToken:
+    token_id: str
+    username: str
+    name: str
+    hint: str
+    created_at: datetime
+    expires_at: datetime | None = None
+    last_used_at: datetime | None = None
+
+
+def _from_db(dt: datetime) -> datetime | None:
+    dt = dt.replace(tzinfo=timezone.utc)
+    return None if dt.year == 1970 else dt
+
+
+def _api_token_rows(client, where: str, params: dict, prefix: str):
+    return client.query(
+        f"SELECT {', '.join(_API_TOKEN_COLUMNS)} FROM "
+        f"{db.latest(db.qualified('kg_api_tokens', prefix))} WHERE {where}"
+        f" ORDER BY created_at",
+        parameters=params,
+    ).result_rows
+
+
+def _row_to_api_token(row) -> ApiToken:
+    _hash, token_id, username, name, hint, created_at, expires_at, last_used_at = row
+    return ApiToken(token_id, username, name, hint,
+                    created_at.replace(tzinfo=timezone.utc),
+                    _from_db(expires_at), _from_db(last_used_at))
+
+
+def _live(t: ApiToken) -> bool:
+    return t.expires_at is None or t.expires_at >= _now()
+
+
+def _last_used(client, hashes: list[str], prefix: str) -> dict[str, datetime]:
+    """token_hash -> last use, for the hashes that have been used at all."""
+    if not hashes:
+        return {}
+    rows = client.query(
+        f"SELECT token_hash, last_used_at FROM "
+        f"{db.latest(db.qualified('kg_api_token_usage', prefix))}"
+        f" WHERE token_hash IN %(h)s",
+        parameters={"h": hashes},
+    ).result_rows
+    used = ((h, _from_db(t)) for h, t in rows)
+    return {h: t for h, t in used if t is not None}
+
+
+def _forget_usage(client, hashes: list[str], prefix: str) -> None:
+    """Drop usage rows for revoked/expired tokens. Best effort: a leftover row
+    grants nothing, so it must never fail the revoke that precedes it."""
+    if not hashes:
+        return
+    try:
+        db.delete(client, db.qualified("kg_api_token_usage", prefix),
+                  "token_hash IN %(h)s", {"h": hashes}, ("token_hash",))
+    except Exception:
+        log.warning("could not clear API token usage rows", exc_info=True)
+
+
+def list_api_tokens(client, username: str, prefix: str = "") -> list[ApiToken]:
+    rows = _api_token_rows(client, "username = %(u)s", {"u": username}, prefix)
+    live = [(row[0], _row_to_api_token(row)) for row in rows]  # (token_hash, token)
+    live = [(h, t) for h, t in live if _live(t)]
+    used = _last_used(client, [h for h, _ in live], prefix)
+    for h, t in live:
+        # Fall back to the row's own cell for tokens last used before the
+        # usage stream existed (the column is no longer written).
+        t.last_used_at = used.get(h, t.last_used_at)
+    return [t for _, t in live]
+
+
+def create_api_token(client, username: str, name: str,
+                     expires_days: int | None = None,
+                     prefix: str = "") -> tuple[str, ApiToken]:
+    name = (name or "").strip()
+    if not 1 <= len(name) <= 64:
+        raise ValueError("token name must be 1-64 characters")
+    if expires_days is not None and expires_days not in API_TOKEN_EXPIRY_DAYS:
+        raise ValueError("expires_days must be one of 30, 90, 365")
+    if len(list_api_tokens(client, username, prefix=prefix)) >= MAX_API_TOKENS_PER_USER:
+        raise ApiTokenLimitError(f"at most {MAX_API_TOKENS_PER_USER} API tokens per user")
+    token = API_TOKEN_PREFIX + secrets.token_urlsafe(32)
+    now = _now()
+    expires_at = now + timedelta(days=expires_days) if expires_days else None
+    rec = ApiToken(secrets.token_hex(6), username, name, token[-4:], now, expires_at, None)
+    client.insert(
+        db.qualified("kg_api_tokens", prefix),
+        [[_token_hash(token), rec.token_id, username, name, rec.hint,
+          now, expires_at or _NEVER, _NEVER]],
+        column_names=_API_TOKEN_COLUMNS,
+    )
+    return token, rec
+
+
+def resolve_api_token(client, token: str, prefix: str = "") -> ApiToken | None:
+    if not token.startswith(API_TOKEN_PREFIX):
+        return None
+    h = _token_hash(token)
+    rows = _api_token_rows(client, "token_hash = %(h)s", {"h": h}, prefix)
+    if not rows:
+        return None
+    rec = _row_to_api_token(rows[0])
+    if not _live(rec):
+        db.delete(client, db.qualified("kg_api_tokens", prefix),
+                  "token_hash = %(h)s", {"h": h}, ("token_hash",))
+        _forget_usage(client, [h], prefix)
+        return None
+    now = _now()
+    rec.last_used_at = _last_used(client, [h], prefix).get(h, rec.last_used_at)
+    # Throttled: a busy agent must not rewrite the usage row on every call.
+    # The credential row itself is never touched here -- see the module notes
+    # on _API_TOKEN_USAGE_COLUMNS.
+    if rec.last_used_at is None or now - rec.last_used_at > _TOUCH_INTERVAL:
+        client.insert(db.qualified("kg_api_token_usage", prefix), [[h, now]],
+                      column_names=_API_TOKEN_USAGE_COLUMNS)
+        rec.last_used_at = now
+    return rec
+
+
+def revoke_api_token(client, username: str, token_id: str, prefix: str = "") -> bool:
+    params = {"u": username, "i": token_id}
+    where = "username = %(u)s AND token_id = %(i)s"
+    rows = _api_token_rows(client, where, params, prefix)
+    if not rows:
+        return False
+    db.delete(client, db.qualified("kg_api_tokens", prefix), where, params, ("token_hash",))
+    _forget_usage(client, [r[0] for r in rows], prefix)
+    return True
+
+
+def delete_user_api_tokens(client, username: str, prefix: str = "") -> None:
+    rows = _api_token_rows(client, "username = %(u)s", {"u": username}, prefix)
+    db.delete(client, db.qualified("kg_api_tokens", prefix),
+              "username = %(u)s", {"u": username}, ("token_hash",))
+    _forget_usage(client, [r[0] for r in rows], prefix)
+
+
 # -- HTTP layer ------------------------------------------------------------
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -317,6 +489,20 @@ def effective_capabilities(user: User, role: Role | None) -> set[str]:
     if role is None:
         return set()
     return expand_capabilities(role.capabilities)
+
+
+def resolve_scope(client, user: User, prefix: str = "") -> frozenset[str] | None:
+    """The corpus scope to apply to a user's graph queries: None for admin
+    (unrestricted), else the role's exact `name@ref` entry keys. Fails closed
+    to the EMPTY scope when the role is missing or unreadable. Shared by the
+    Explorer API (graph_api) and the remote MCP guard (mcp_http)."""
+    if user.role == ROLE_ADMIN:
+        return None
+    try:
+        role = get_role(client, user.role, prefix=prefix)
+    except Exception:
+        role = None
+    return frozenset(role.entry_keys) if role else frozenset()
 
 
 # Precomputed at import time so an unknown-username login still pays the

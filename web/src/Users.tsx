@@ -55,6 +55,7 @@ export default function Users({ capabilities, isAdmin }:
   const [showAddUser, setShowAddUser] = useState(false);
   const [newUser, setNewUser] = useState({ ...EMPTY_USER });
   const [confirmingUser, setConfirmingUser] = useState<string | null>(null);
+  const [revokingTokensUser, setRevokingTokensUser] = useState<string | null>(null);
   const [resettingUser, setResettingUser] = useState<string | null>(null);
   const [resetPassword, setResetPassword] = useState("");
 
@@ -329,6 +330,30 @@ export default function Users({ capabilities, isAdmin }:
                               onClick={() => { setResettingUser(u.username); setResetPassword(""); }}>
                         Reset password
                       </button>
+                    )}
+                    {/* Only an admin may act on an admin, so a non-admin
+                        manager never gets a button that 403s. */}
+                    {(u.role !== "admin" || isAdmin) && (
+                      revokingTokensUser === u.username ? (
+                        <span className="tk-users-confirm">
+                          <button type="button" className="tk-btn tk-btn-danger"
+                                  onClick={() => {
+                                    setRevokingTokensUser(null);
+                                    act(() => call("/api/tokens/revoke-all", { username: u.username }));
+                                  }}>
+                            Confirm revoke tokens
+                          </button>
+                          <button type="button" className="tk-btn tk-btn-secondary"
+                                  onClick={() => setRevokingTokensUser(null)}>
+                            Cancel
+                          </button>
+                        </span>
+                      ) : (
+                        <button type="button" className="tk-btn tk-btn-secondary"
+                                onClick={() => setRevokingTokensUser(u.username)}>
+                          Revoke API tokens
+                        </button>
+                      )
                     )}
                     {u.role !== "admin" && (
                       <>

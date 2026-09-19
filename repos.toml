@@ -37,6 +37,7 @@ token_budget = 16000
 [db]
 # host         = "localhost"     # env: TIMEPLUS_HOST
 # user         = "default"       # env: TIMEPLUS_USER
+# port         = 8123            # env: TIMEPLUS_PORT       (DB HTTP port)
 # database     = "tpk"           # env: TIMEPLUS_DATABASE   (all tpk streams live here)
 # backend      = "timeplusd"     # env: TPK_DB_BACKEND      ("timeplusd" | "proton")
 # stream_prefix = ""             # env: TPK_STREAM_PREFIX   (namespaces streams within the database)
@@ -52,6 +53,8 @@ token_budget = 16000
 # session_ttl  = 86400               # env: TPK_SESSION_TTL  (login session lifetime, seconds)
 # chat_audit   = true                # env: TPK_CHAT_AUDIT   (false/0 disables chat auditing)
 # daily_token_limit = 500000         # env: TPK_DAILY_TOKEN_LIMIT (global fallback per-user/day, non-admin; 0 = unlimited; a per-user/role limit wins)
+# mcp_http     = true                # env: TPK_MCP_HTTP_ENABLED   (false/0 disables the remote MCP endpoint /mcp)
+# mcp_allowed_hosts = ""             # env: TPK_MCP_ALLOWED_HOSTS  (comma-separated Host allow-list; empty = no check)
 
 [repos.proton-enterprise]
 github = "timeplus-io/proton-enterprise"

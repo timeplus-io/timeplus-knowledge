@@ -5,13 +5,14 @@ import { CAP, type Capability, hasCap } from "./capabilities";
 // label) and a collapsed 56px icon rail with hover tooltips. Every
 // authenticated view renders inside the `.tk-content` slot; the Login gate
 // stays outside (App.tsx renders it on the centered `.shell`).
-export type View = "chat" | "explorer" | "manage" | "users";
+export type View = "chat" | "explorer" | "manage" | "users" | "tokens";
 
 type Me = { username: string; role: string; capabilities: string[] };
 
 const NAV_ITEMS: { key: View; label: string; cap: Capability }[] = [
   { key: "chat", label: "Chat", cap: CAP.chat },
   { key: "explorer", label: "Explorer", cap: CAP.explore },
+  { key: "tokens", label: "API tokens", cap: CAP.explore },
   { key: "manage", label: "Manage", cap: CAP.corpusView },
   { key: "users", label: "Users", cap: CAP.usersView },
 ];
@@ -27,6 +28,12 @@ const NAV_ICON: Record<View, ReactNode> = {
       <circle cx="18" cy="8" r="2.6" />
       <circle cx="12" cy="18" r="2.6" />
       <path d="M8.4 7 15.5 8m-8 3.1 3.4 4.6m5.7-5.3-3 4.9" />
+    </>
+  ),
+  tokens: (
+    <>
+      <circle cx="8" cy="15" r="4" />
+      <path d="M10.8 12.2 20 3m-3.5 3.5 2.5 2.5M14 9l2 2" />
     </>
   ),
   manage: (

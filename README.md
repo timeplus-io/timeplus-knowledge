@@ -88,6 +88,7 @@ export the matching env var — whichever suits your deployment. Secrets are
 |---|---|---|---|
 | `TIMEPLUS_HOST` | `[db].host` | `localhost` | DB host |
 | `TIMEPLUS_USER` | `[db].user` | `default` | DB user |
+| `TIMEPLUS_PORT` | `[db].port` | `8123` | DB HTTP port |
 | `TIMEPLUS_DATABASE` | `[db].database` | `tpk` | Database all tpk streams live under |
 | `TPK_DB_BACKEND` | `[db].backend` | `timeplusd` | Stream-semantics mode (`timeplusd`\|`proton`) |
 | `TPK_STREAM_PREFIX` | `[db].stream_prefix` | `` | Namespace prefix for all streams |
@@ -99,6 +100,8 @@ export the matching env var — whichever suits your deployment. Secrets are
 | `TPK_SESSION_TTL` | `[server].session_ttl` | `86400` | Login session lifetime (seconds) |
 | `TPK_CHAT_AUDIT` | `[server].chat_audit` | `true` | Chat Q&A auditing (`false`/`0` disables) |
 | `TPK_DAILY_TOKEN_LIMIT` | `[server].daily_token_limit` | `500000` | Global fallback per-user daily token budget for non-admins (`0` = unlimited; a per-user or role `daily_token_limit` wins) |
+| `TPK_MCP_HTTP_ENABLED` | `[server].mcp_http` | `true` | Remote MCP endpoint `/mcp` (`false`/`0` disables it) |
+| `TPK_MCP_ALLOWED_HOSTS` | `[server].mcp_allowed_hosts` | `` | Comma-separated `Host` allow-list for `/mcp` (empty = no check) |
 | `TPK_EXTRACTION_BACKEND` | `[llm].backend` | `auto` | Semantic-extraction backend (`auto`\|`claude`\|`openai`) |
 | `TPK_EXTRACTION_MODEL` | `[llm].model` | backend default | Semantic-extraction model |
 
@@ -525,9 +528,9 @@ serialization (the engine encodes/decodes; no extra dependency):
 The bundle covers the expensive/portable streams — `kg_nodes`, `kg_edges`,
 `kg_repos`, `kg_ingest_log` — plus a `manifest.json` (format, per-stream
 columns + row counts, `created_at`). **Auth streams
-(`kg_users`/`kg_roles`/`kg_sessions`) are deliberately excluded** — they are
-environment-specific and secret-bearing; seed the admin normally on the new
-deployment.
+(`kg_users`/`kg_roles`/`kg_sessions`/`kg_api_tokens`/`kg_api_token_usage`) are
+deliberately excluded** — they are environment-specific and secret-bearing;
+seed the admin normally on the new deployment.
 
 `import` runs `ensure_schema` first, so a fresh environment gets the streams
 (with the current columns) before loading. `kg_nodes`/`kg_edges`/`kg_repos`
@@ -557,7 +560,10 @@ an expired/invalid token).
 bearer `token` (send as `Authorization: Bearer <token>` on every subsequent
 call), the user's `role`, and `must_change_password`. Sessions live in
 `kg_users`/`kg_roles`/`kg_sessions` (mutable streams, same store as the
-graph) and expire after `TPK_SESSION_TTL` seconds (default `86400` = 24h;
+graph; personal API tokens for `/mcp` live alongside them in
+`kg_api_tokens`, with last-use timestamps in `kg_api_token_usage` — both
+session and API tokens are stored as sha256 hashes only, never in clear) and
+expire after `TPK_SESSION_TTL` seconds (default `86400` = 24h;
 expired sessions are deleted lazily on next access, not by a background
 sweep). `POST /auth/logout` deletes the current session; `GET /auth/me`
 returns the caller's identity.
@@ -602,11 +608,15 @@ table — with `403` when the caller lacks it, `401` unauthenticated):
 |--------------------------|-----------------|------------------------------------------------------------|-------|
 | `GET /api/users`         | `users:view`    | —                                                            | List users: `username`, `role`, `must_change_password`, `disabled` (no password hashes) |
 | `POST /api/users`        | `users:manage`  | `{username, password, role, must_change_password}`          | Create a user; `role` must be `admin` or an existing role name |
-| `POST /api/users/update` | `users:manage`  | `{username, role?, password?, must_change_password?, disabled?}` | Partial update; setting `password` forces a reset (`must_change_password` defaults to `true` unless given) and revokes the user's other sessions |
-| `POST /api/users/delete` | `users:manage`  | `{username}`                                                 | Delete a user and their sessions |
+| `POST /api/users/update` | `users:manage`  | `{username, role?, password?, must_change_password?, disabled?}` | Partial update; setting `password` forces a reset (`must_change_password` defaults to `true` unless given) and revokes the user's other sessions; `disabled: true` also revokes their API tokens |
+| `POST /api/users/delete` | `users:manage`  | `{username}`                                                 | Delete a user, their sessions and their API tokens |
 | `GET /api/roles`         | `users:view`    | —                                                            | List roles: `name`, `entry_keys`, `capabilities`, `description` |
 | `POST /api/roles`        | `users:manage`  | `{name, entry_keys, capabilities?, description}`             | Create/update a role; `entry_keys` must be non-empty strings; unknown capabilities and `name = "admin"` are rejected |
 | `POST /api/roles/delete` | `users:manage`  | `{name}`                                                      | Delete a role; `409` if any user still has it assigned |
+| `GET /api/tokens`        | `explore`       | `?username=` (optional)                                      | List the caller's API tokens (metadata only, never the token); another user's needs `users:manage` |
+| `POST /api/tokens`       | `explore`       | `{name, expires_days?}`                                      | Mint an API token for the caller; the plaintext is returned once. `expires_days` is `30`, `90` or `365` (omit = never) |
+| `POST /api/tokens/revoke` | `explore`      | `{token_id, username?}`                                      | Revoke one token; `username` (another user's) needs `users:manage` |
+| `POST /api/tokens/revoke-all` | `users:manage` | `{username}`                                            | Revoke every API token of that user |
 
 The corpus routes under `/api/repos` and `/api/jobs` are gated the same way
 (`corpus:view` to read, `corpus:manage` to mutate). The last enabled
@@ -621,8 +631,14 @@ guard only stops you from doing this through `/api`; if every admin row is
 gone or disabled another way (e.g. direct SQL, a bug), there's no in-app
 recovery path. Reset the whole auth store and let `tpk serve` re-seed it:
 
-    echo "DELETE FROM kg_users WHERE 1=1" | \
-      curl "http://${TIMEPLUS_HOST}:8123/" -u "${TIMEPLUS_USER:-tpk}:${TIMEPLUS_PASSWORD}" --data-binary @-
+    for s in kg_users kg_sessions kg_api_tokens kg_api_token_usage; do
+      echo "DELETE FROM $s WHERE 1=1" | \
+        curl "http://${TIMEPLUS_HOST}:8123/" -u "${TIMEPLUS_USER:-tpk}:${TIMEPLUS_PASSWORD}" --data-binary @-
+    done
+
+Wipe the credential streams too, not just `kg_users`: sessions and API tokens
+are keyed to a *username*, so any row left behind would authenticate as the
+re-seeded `admin`.
 
 Restart the server afterward (`docker compose restart agent`, or `tpk
 serve`) — seeding only runs against an empty `kg_users` table, so the next
@@ -631,6 +647,35 @@ This also deletes every non-admin user; recreate them (and any roles you
 still need — `kg_roles` is untouched by this) after logging back in.
 
 ## Use from Claude Code (MCP)
+
+### Remote (HTTP) — a deployed tpk
+
+`tpk serve` exposes the same six tools over MCP streamable HTTP at `/mcp`.
+Your agent authenticates with a personal API token and acts **as you**: same
+corpus scope, same permissions (`explore` to connect, `source:view` for
+`read_source`). Changes an admin makes to your role apply on the next call.
+
+1. In the web UI open **API tokens → New token**, name it, pick an expiry,
+   and copy the token (shown once).
+2. Register it:
+
+       claude mcp add --transport http timeplus-knowledge https://<host>/mcp \
+         --header "Authorization: Bearer tpk_…"
+
+3. `claude mcp list` should show `timeplus-knowledge ✔ Connected`.
+
+Tokens are valid only at `/mcp` (not the REST API). Revoke them on the same
+page; disabling or deleting a user revokes theirs. Admins can revoke a
+user's tokens from **Users**. Disable the endpoint with
+`TPK_MCP_HTTP_ENABLED=0`; restrict accepted `Host` headers with
+`TPK_MCP_ALLOWED_HOSTS`: each entry matches the exact `Host` header value
+(`host` or `host:port`, with `host:*` as a port wildcard), and enabling the
+allow-list also turns on the SDK's `Origin` check with an empty allow-list, so
+any request carrying an `Origin` header is rejected. Denied `/mcp` requests
+(bad, missing, revoked or expired token, no `explore`, etc.) are logged at
+WARNING on the `tpk.mcp` logger — tokens themselves are never logged.
+
+### Local (stdio)
 
     claude mcp add timeplus-knowledge -- uv --directory /Users/gangtao/Code/timeplus/timeplus-knowledge run python -m tpk.mcp_server
 
@@ -648,6 +693,8 @@ Built on the `mcp` SDK 2.0 (`FastMCP`); verify registration with
 `claude mcp list` and exercise the tools by asking Claude Code a question
 that should trigger `search_entities` (e.g. "using the timeplus-knowledge
 tools, what does the docs repo say about Quickstart?").
+
+stdio MCP is local and unrestricted: no login, no role scope.
 
 ## Tests
 
