@@ -100,6 +100,8 @@ export the matching env var — whichever suits your deployment. Secrets are
 | `TPK_SESSION_TTL` | `[server].session_ttl` | `86400` | Login session lifetime (seconds) |
 | `TPK_CHAT_AUDIT` | `[server].chat_audit` | `true` | Chat Q&A auditing (`false`/`0` disables) |
 | `TPK_DAILY_TOKEN_LIMIT` | `[server].daily_token_limit` | `500000` | Global fallback per-user daily token budget for non-admins (`0` = unlimited; a per-user or role `daily_token_limit` wins) |
+| `TPK_MCP_HTTP_ENABLED` | `[server].mcp_http` | `true` | Remote MCP endpoint `/mcp` (`false`/`0` disables it) |
+| `TPK_MCP_ALLOWED_HOSTS` | `[server].mcp_allowed_hosts` | `` | Comma-separated `Host` allow-list for `/mcp` (empty = no check) |
 | `TPK_EXTRACTION_BACKEND` | `[llm].backend` | `auto` | Semantic-extraction backend (`auto`\|`claude`\|`openai`) |
 | `TPK_EXTRACTION_MODEL` | `[llm].model` | backend default | Semantic-extraction model |
 
@@ -633,6 +635,32 @@ still need — `kg_roles` is untouched by this) after logging back in.
 
 ## Use from Claude Code (MCP)
 
+### Remote (HTTP) — a deployed tpk
+
+`tpk serve` exposes the same six tools over MCP streamable HTTP at `/mcp`.
+Your agent authenticates with a personal API token and acts **as you**: same
+corpus scope, same permissions (`explore` to connect, `source:view` for
+`read_source`). Changes an admin makes to your role apply on the next call.
+
+1. In the web UI open **API tokens → New token**, name it, pick an expiry,
+   and copy the token (shown once).
+2. Register it:
+
+       claude mcp add --transport http timeplus-knowledge https://<host>/mcp \
+         --header "Authorization: Bearer tpk_…"
+
+3. `claude mcp list` should show `timeplus-knowledge ✔ Connected`.
+
+Tokens are valid only at `/mcp` (not the REST API). Revoke them on the same
+page; disabling or deleting a user revokes theirs. Admins can revoke a
+user's tokens from **Users**. Disable the endpoint with
+`TPK_MCP_HTTP_ENABLED=0`; restrict accepted `Host` headers with
+`TPK_MCP_ALLOWED_HOSTS`. Denied `/mcp` requests (bad/missing/revoked token,
+disallowed host, etc.) are logged at WARNING on the `tpk.mcp` logger — tokens
+themselves are never logged.
+
+### Local (stdio)
+
     claude mcp add timeplus-knowledge -- uv --directory /Users/gangtao/Code/timeplus/timeplus-knowledge run python -m tpk.mcp_server
 
 If you're running from a worktree or a separate clone rather than the main
@@ -649,6 +677,8 @@ Built on the `mcp` SDK 2.0 (`FastMCP`); verify registration with
 `claude mcp list` and exercise the tools by asking Claude Code a question
 that should trigger `search_entities` (e.g. "using the timeplus-knowledge
 tools, what does the docs repo say about Quickstart?").
+
+stdio MCP is local and unrestricted: no login, no role scope.
 
 ## Tests
 

@@ -175,6 +175,32 @@ spec:
 The chat endpoint streams over SSE — if you terminate TLS at the ingress, make
 sure response buffering is disabled (e.g. nginx `proxy_buffering off`).
 
+## Connect a coding agent (MCP)
+
+`/mcp` (streamable HTTP, authenticated with a per-user API token) is served
+by the same app container on the same port/Service as the web UI in all
+three modes (`tpk-allinone` or `tpk-app`, port 8000) — no manifest change
+needed. TLS terminates wherever it already does for the UI (in the app-only
+reference deployment: NLB + ACM, no ALB/Ingress controller); if you do front
+tpk with a path-based Ingress, make sure its rules don't exclude `/mcp` (the
+example Ingress above uses `path: /` with `pathType: Prefix`, which already
+covers it — `grep -rn "path" deploy/k8s/*.yaml` confirms every manifest here
+uses that same unrestricted `/` prefix, on probes and the example Ingress
+alike, so nothing path-filters `/mcp`).
+
+1. In the web UI open **API tokens → New token**, name it, pick an expiry,
+   and copy the token (shown once).
+2. Register it:
+
+       claude mcp add --transport http timeplus-knowledge https://<your-host>/mcp \
+         --header "Authorization: Bearer tpk_…"
+
+3. `claude mcp list` should show `timeplus-knowledge ✔ Connected`.
+
+Denied `/mcp` requests are logged at WARNING on the `tpk.mcp` logger (tokens
+are never logged). See the repo README's "Use from Claude Code (MCP)" section
+for the full token lifecycle (revoke, expiry, admin revoke-on-disable).
+
 ## Configuration
 
 Every non-secret setting is settable by environment variable (and has a
