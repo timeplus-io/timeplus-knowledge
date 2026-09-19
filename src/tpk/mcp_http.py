@@ -71,7 +71,12 @@ class McpAuth:
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
-            return await self.app(scope, receive, send)
+            # Only HTTP carries the bearer check below, so nothing else may
+            # reach the transport: a websocket gets a policy close, anything
+            # else is dropped rather than passed through unauthenticated.
+            if scope["type"] == "websocket":
+                await send({"type": "websocket.close", "code": 1008})
+            return
         authorization = dict(scope["headers"]).get(b"authorization", b"").decode("latin-1")
         try:
             user, token_id = await run_in_threadpool(self._authenticate, authorization)
@@ -113,12 +118,23 @@ def make_guard(auth, prefix: str = ""):
                 # to the caller, so the outage must be visible server-side.
                 log.exception("scope resolution failed; failing closed user=%s", user.username)
                 scope = None if user.role == auth_mod.ROLE_ADMIN else frozenset()
-            token = ROLE_SCOPE.set(scope) if scope is not None else None
+            # Always set it, including the admin's None: "unscoped" is an
+            # explicit decision here, not an unset ContextVar we happen to
+            # inherit from whatever ran on this worker thread before.
+            token = ROLE_SCOPE.set(scope)
             try:
                 return fn()
+            except (PermissionError, ValueError):
+                # User-facing by design (missing capability, unknown repo,
+                # file not found): the caller needs to read these.
+                raise
+            except Exception:
+                # Anything else carries driver/SQL/host detail that a remote
+                # caller must not see -- log it, return a bare failure.
+                log.exception("mcp tool failed user=%s tool=%s", user.username, tool)
+                raise RuntimeError("internal error")
             finally:
-                if token is not None:
-                    ROLE_SCOPE.reset(token)
+                ROLE_SCOPE.reset(token)
 
         return await run_in_threadpool(work)
 

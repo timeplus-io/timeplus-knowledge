@@ -69,9 +69,17 @@ export default function Tokens() {
   }
 
   async function copy(label: string, text: string) {
-    await navigator.clipboard.writeText(text);
-    setCopied(label);
-    setTimeout(() => setCopied(""), 1500);
+    // navigator.clipboard is undefined on a plain-http origin, and writeText
+    // rejects when the permission is denied — either way the token is still
+    // on screen, so say so instead of failing silently.
+    try {
+      if (!navigator.clipboard) throw new Error("clipboard unavailable");
+      await navigator.clipboard.writeText(text);
+      setCopied(label);
+      setTimeout(() => setCopied(""), 1500);
+    } catch {
+      setError("Copy failed — select the text and copy it manually.");
+    }
   }
 
   // Dismissing the panel drops the only copy of the plaintext.

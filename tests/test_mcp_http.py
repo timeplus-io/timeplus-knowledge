@@ -54,8 +54,11 @@ def env(tp, tmp_path):
     auth.upsert_role(client, auth.Role("alpha-only", ["alpha@v1"], capabilities=[auth.CAP_EXPLORE]), prefix=prefix)
     auth.upsert_role(client, auth.Role("beta-src", ["beta@v1"],
                                        capabilities=[auth.CAP_EXPLORE, auth.CAP_SOURCE_VIEW]), prefix=prefix)
+    auth.upsert_role(client, auth.Role("alpha-src", ["alpha@v1"],
+                                       capabilities=[auth.CAP_EXPLORE, auth.CAP_SOURCE_VIEW]), prefix=prefix)
     auth.upsert_role(client, auth.Role("chatter", ["alpha@v1"], capabilities=[auth.CAP_CHAT]), prefix=prefix)
-    users = {"root": auth.ROLE_ADMIN, "scoped": "alpha-only", "betasrc": "beta-src", "carl": "chatter"}
+    users = {"root": auth.ROLE_ADMIN, "scoped": "alpha-only", "betasrc": "beta-src",
+             "alphasrc": "alpha-src", "carl": "chatter"}
     tokens = {}
     for name, role in users.items():
         auth.upsert_user(client, auth.User(name, auth.hash_password("password-1"), role), prefix=prefix)
@@ -142,6 +145,32 @@ def test_read_source_needs_source_view_and_scope(env):
     # `scoped` lacks source:view -> tool error, no source
     is_err, out = _call(c, tokens["scoped"], "read_source", args)
     assert is_err and "source:view" in out and "b1" not in out
+    # `alphasrc` HAS source:view but beta is outside its role scope: the
+    # capability alone must not open a repo the corpus scope excludes.
+    is_err, out = _call(c, tokens["alphasrc"], "read_source", args)
+    assert is_err and "b1" not in out
+
+
+def test_tool_failure_does_not_leak_internals(tp, tmp_path, caplog):
+    client, prefix = tp
+
+    class BoomKG:
+        def search_entities(self, *a, **k):
+            raise RuntimeError("secret-host:8123 SELECT * FROM kg_nodes")
+
+    auth.upsert_user(client, auth.User("root", auth.hash_password("password-1"),
+                                       auth.ROLE_ADMIN), prefix=prefix)
+    token, _ = auth.create_api_token(client, "root", "t", prefix=prefix)
+    _eventually(lambda: auth.resolve_api_token(client, token, prefix=prefix))
+    _eventually(lambda: auth.get_user(client, "root", prefix=prefix))
+    app = create_app(agent=_NoAgent(), stream_prefix=prefix, kg=BoomKG())
+    with TestClient(app) as c:
+        with caplog.at_level(logging.ERROR, logger="tpk.mcp"):
+            is_err, out = _call(c, token, "search_entities", {"query": "Widget"})
+    assert is_err and "internal error" in out
+    assert "secret-host" not in out and "kg_nodes" not in out
+    # The operator still gets the real cause server-side.
+    assert "secret-host" in caplog.text
 
 
 def test_role_change_applies_on_next_call(env):
