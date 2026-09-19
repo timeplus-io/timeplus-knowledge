@@ -1,5 +1,6 @@
 """FastAPI server: SSE /chat over the knowledge agent + static web UI."""
 
+import contextlib
 import json
 import logging
 import threading
@@ -164,7 +165,20 @@ def create_app(
     from tpk.usage import day_window, effective_daily_limit
 
     auth = auth or AuthLayer(stream_prefix)
-    app = FastAPI(title="timeplus-knowledge")
+    # The remote-MCP transport (#74) needs its session manager running for
+    # the app's lifetime. The server is only known further down (it needs
+    # `kg`), so the lifespan reads it from this holder.
+    mcp_state = {"server": None}
+
+    @contextlib.asynccontextmanager
+    async def _lifespan(_app):
+        if mcp_state["server"] is None:
+            yield
+            return
+        async with mcp_state["server"].session_manager.run():
+            yield
+
+    app = FastAPI(title="timeplus-knowledge", lifespan=_lifespan)
     app.include_router(create_auth_router(auth))
     app.include_router(create_api_router(prefix=stream_prefix, auth=auth))
 
@@ -519,6 +533,13 @@ def create_app(
         from tpk.graph_api import create_graph_router
 
         app.include_router(create_graph_router(kg, auth, prefix=stream_prefix))
+
+        from tpk import mcp_http
+
+        if mcp_http.enabled():
+            mcp_route, mcp_state["server"] = mcp_http.create_mcp_route(
+                kg, auth, prefix=stream_prefix)
+            app.router.routes.append(mcp_route)
 
     if WEB_DIST.is_dir():
         app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="ui")
