@@ -192,6 +192,15 @@ def ensure_schema(client, prefix: str = "") -> None:
         "token_hash string", "username string",
         "expires_at datetime64(3, 'UTC')", "created_at datetime64(3, 'UTC')",
     ], pk="token_hash"))
+    # Long-lived per-user API tokens for the remote MCP endpoint (#74). No
+    # nullable columns in this schema: expires_at / last_used_at use the epoch
+    # (1970-01-01) as the "never" sentinel -- see auth._NEVER.
+    client.command(_keyed_stream(prefix, "kg_api_tokens", [
+        "token_hash string", "token_id string", "username string",
+        "name string", "hint string",
+        "created_at datetime64(3, 'UTC')", "expires_at datetime64(3, 'UTC')",
+        "last_used_at datetime64(3, 'UTC')",
+    ], pk="token_hash"))
     # Append-only support-history audit log: one row per chat turn (question,
     # answer, and the tool calls made). Not MUTABLE -- like kg_ingest_log, we
     # want the full event history, not a keyed latest-state view.
@@ -233,6 +242,7 @@ def drop_schema(client, prefix: str) -> None:
         raise ValueError("refusing to drop unprefixed (production) streams")
     for name in (
         "kg_nodes", "kg_edges", "kg_ingest_log", "kg_repos",
-        "kg_users", "kg_roles", "kg_sessions", "chat_audit_log", "chat_usage",
+        "kg_users", "kg_roles", "kg_sessions", "kg_api_tokens",
+        "chat_audit_log", "chat_usage",
     ):
         client.command(f"DROP STREAM IF EXISTS {qualified(name, prefix)}")

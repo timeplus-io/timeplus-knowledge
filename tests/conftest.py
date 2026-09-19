@@ -43,7 +43,7 @@ _BACKEND_ENV = {
 
 _KG_STREAMS = (
     "kg_nodes", "kg_edges", "kg_ingest_log", "kg_repos", "kg_users",
-    "kg_roles", "kg_sessions", "chat_audit_log",
+    "kg_roles", "kg_sessions", "kg_api_tokens", "chat_audit_log",
 )
 
 
