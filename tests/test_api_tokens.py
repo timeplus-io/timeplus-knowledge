@@ -48,6 +48,34 @@ def test_resolve_bumps_last_used_throttled(tp):
     assert auth.list_api_tokens(client, "alice", prefix=prefix)[0].last_used_at == first
 
 
+def test_late_usage_touch_cannot_resurrect_a_revoked_token(tp):
+    client, prefix = tp
+    token, rec = auth.create_api_token(client, "alice", "laptop", prefix=prefix)
+    _eventually(lambda: auth.resolve_api_token(client, token, prefix=prefix))  # writes usage
+    assert auth.revoke_api_token(client, "alice", rec.token_id, prefix=prefix) is True
+    assert _eventually(lambda: auth.resolve_api_token(client, token, prefix=prefix),
+                       predicate=lambda v: v is None) is None
+    # A touch that lands after the revoke writes the usage stream only; a
+    # usage row without its credential row must grant nothing.
+    h = auth._token_hash(token)
+    usage = db.qualified("kg_api_token_usage", prefix)
+    client.insert(usage, [[h, auth._now()]], column_names=["token_hash", "last_used_at"])
+    _eventually(lambda: client.query(
+        f"SELECT count() FROM {db.latest(usage)} WHERE token_hash = %(h)s",
+        parameters={"h": h}).result_rows[0][0], predicate=lambda v: v == 1)
+    assert auth.resolve_api_token(client, token, prefix=prefix) is None
+    assert auth.list_api_tokens(client, "alice", prefix=prefix) == []
+
+
+def test_seed_admin_clears_orphaned_admin_tokens(tp):
+    client, prefix = tp
+    token, _ = auth.create_api_token(client, auth.SEED_USERNAME, "stale", prefix=prefix)
+    _eventually(lambda: auth.resolve_api_token(client, token, prefix=prefix))
+    assert auth.seed_admin(client, prefix=prefix) is True
+    assert _eventually(lambda: auth.resolve_api_token(client, token, prefix=prefix),
+                       predicate=lambda v: v is None) is None
+
+
 def test_expiry(tp, monkeypatch):
     client, prefix = tp
     token, rec = auth.create_api_token(client, "alice", "ci", expires_days=30, prefix=prefix)

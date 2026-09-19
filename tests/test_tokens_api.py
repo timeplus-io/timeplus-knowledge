@@ -99,6 +99,39 @@ def test_cap_409(env, monkeypatch):
     assert _create(c, h, name="second").status_code == 409
 
 
+def test_recreated_username_does_not_inherit_old_tokens(env):
+    c, client, prefix, hdr = env
+    a, r = hdr("alice"), hdr("root")
+    token = _create(c, a).json()["token"]
+    _eventually(lambda: auth.resolve_api_token(client, token, prefix=prefix))
+    assert c.post("/api/users/delete", headers=r, json={"username": "alice"}).status_code == 200
+    assert _eventually(lambda: auth.get_user(client, "alice", prefix=prefix),
+                       predicate=lambda v: v is None) is None
+    assert c.post("/api/users", headers=r, json={
+        "username": "alice", "password": "password-2", "role": "explorer"}).status_code == 200
+    assert _eventually(lambda: auth.resolve_api_token(client, token, prefix=prefix),
+                       predicate=lambda v: v is None) is None
+
+
+def test_creating_a_user_clears_orphaned_credentials(env):
+    # A token/session row that outlived its user (partial delete, direct SQL)
+    # would otherwise authenticate as the NEXT account with that username.
+    c, client, prefix, hdr = env
+    a, r = hdr("alice"), hdr("root")
+    token = _create(c, a).json()["token"]
+    session = auth.create_session(client, "alice", 3600, prefix=prefix)
+    _eventually(lambda: auth.resolve_api_token(client, token, prefix=prefix))
+    auth.delete_user(client, "alice", prefix=prefix)  # user row only: tokens orphaned
+    assert _eventually(lambda: auth.get_user(client, "alice", prefix=prefix),
+                       predicate=lambda v: v is None) is None
+    assert c.post("/api/users", headers=r, json={
+        "username": "alice", "password": "password-2", "role": "explorer"}).status_code == 200
+    assert _eventually(lambda: auth.resolve_api_token(client, token, prefix=prefix),
+                       predicate=lambda v: v is None) is None
+    assert _eventually(lambda: auth.get_session(client, session, prefix=prefix),
+                       predicate=lambda v: v is None) is None
+
+
 def test_disable_and_delete_user_drop_tokens(env):
     c, client, prefix, hdr = env
     a, r = hdr("alice"), hdr("root")

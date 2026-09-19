@@ -404,6 +404,11 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
         _guard_token_limit(actor, body.daily_token_limit, 0)
         _check_role_exists(client, body.role)
         _guard_role_assignment(client, actor, body.role)
+        # This is a NEW account that happens to reuse a username: clear any
+        # credential still keyed to it (orphaned by a partial delete or direct
+        # SQL) so it can't authenticate as the account created below.
+        auth_mod.delete_user_api_tokens(client, body.username, prefix=prefix)
+        auth_mod.delete_user_sessions(client, body.username, prefix=prefix)
         auth_mod.upsert_user(client, auth_mod.User(
             body.username, auth_mod.hash_password(body.password), body.role,
             must_change_password=body.must_change_password,
@@ -455,9 +460,13 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
         if u.role == auth_mod.ROLE_ADMIN and not u.disabled \
                 and auth_mod.admin_count(client, prefix=prefix) <= 1:
             raise HTTPException(400, "cannot demote/disable/delete the last admin")
-        auth_mod.delete_user(client, body.username, prefix=prefix)
-        auth_mod.delete_user_sessions(client, body.username, prefix=prefix)
+        # Credentials first: a token/session outliving its user row would
+        # authenticate as the next account with that username, and a failure
+        # here leaves the user in place (a retryable state) rather than a
+        # deleted user whose credentials still work.
         auth_mod.delete_user_api_tokens(client, body.username, prefix=prefix)
+        auth_mod.delete_user_sessions(client, body.username, prefix=prefix)
+        auth_mod.delete_user(client, body.username, prefix=prefix)
         return {"ok": True}
 
     @router.get("/roles")

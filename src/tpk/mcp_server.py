@@ -5,6 +5,7 @@
 # lives at `mcp.server.mcpserver.MCPServer`. Same API surface (`.tool()`,
 # `.list_tools()`, `.call_tool()`, `.run()`) that the rest of this module
 # relies on.
+import anyio.to_thread
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver import MCPServer as FastMCP
 
@@ -17,8 +18,10 @@ REPOS_TOML = config_path()
 
 
 async def _unguarded(ctx, fn, *, tool: str, needs_source: bool = False):
-    """stdio: local, single-user, unrestricted -- run the KG call as-is."""
-    return fn()
+    """stdio: local, single-user, unrestricted -- run the KG call as-is, but
+    off the event loop: the tools are async, and blocking DB/file work on the
+    loop thread would stall the whole stdio server for its duration."""
+    return await anyio.to_thread.run_sync(fn)
 
 
 def build_server(kg, guard=None) -> FastMCP:
