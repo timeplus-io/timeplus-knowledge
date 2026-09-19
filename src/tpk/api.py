@@ -96,6 +96,20 @@ class DeleteRole(BaseModel):
     name: str
 
 
+class CreateToken(BaseModel):
+    name: str
+    expires_days: int | None = None
+
+
+class RevokeToken(BaseModel):
+    token_id: str
+    username: str | None = None   # another user's token: needs users:manage
+
+
+class RevokeAllTokens(BaseModel):
+    username: str
+
+
 def _validate(body: AddRepo) -> RepoConfig:
     if not _NAME_RE.match(body.name) or body.name in (".", ".."):
         raise HTTPException(400, "name must match ^[A-Za-z0-9._-]+$ and not be '.' or '..'")
@@ -255,6 +269,20 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
         if actor.role != auth_mod.ROLE_ADMIN and target.role == auth_mod.ROLE_ADMIN:
             raise HTTPException(403, "cannot manage admin users")
 
+    def _token_owner(client, actor: User, username: str | None) -> str:
+        """The user whose tokens this call targets. Anyone (with `explore`)
+        manages their own; another user's need users:manage, and a non-admin
+        manager may not touch an admin's."""
+        if not username or username == actor.username:
+            return actor.username
+        if auth_mod.CAP_USERS_MANAGE not in auth.effective_caps(actor):
+            raise HTTPException(403, f"missing capability: {auth_mod.CAP_USERS_MANAGE}")
+        target = auth_mod.get_user(client, username, prefix=prefix)
+        if target is None:
+            raise HTTPException(404, "no such user")
+        _guard_admin_target(actor, target)
+        return username
+
     def _guard_token_limit(actor, requested, current):
         """A daily token budget is a cost-governance lever: only admins may
         change one (#62/#24 bounded delegation). A non-admin users:manage
@@ -411,6 +439,10 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
             daily_token_limit=token_limit), prefix=prefix)
         if disabled or body.password is not None:
             auth_mod.delete_user_sessions(client, u.username, prefix=prefix)
+        if disabled:
+            # A disabled user's agents must stop too (#74). A password reset
+            # alone does NOT revoke API tokens: they are independent credentials.
+            auth_mod.delete_user_api_tokens(client, u.username, prefix=prefix)
         return {"ok": True}
 
     @router.post("/users/delete")
@@ -425,6 +457,7 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
             raise HTTPException(400, "cannot demote/disable/delete the last admin")
         auth_mod.delete_user(client, body.username, prefix=prefix)
         auth_mod.delete_user_sessions(client, body.username, prefix=prefix)
+        auth_mod.delete_user_api_tokens(client, body.username, prefix=prefix)
         return {"ok": True}
 
     @router.get("/roles")
@@ -477,6 +510,50 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
         if auth_mod.usernames_with_role(client, body.name, prefix=prefix):
             raise HTTPException(409, "role is assigned to users")
         auth_mod.delete_role(client, body.name, prefix=prefix)
+        return {"ok": True}
+
+    # -- API tokens (remote MCP, #74) ---------------------------------------
+    def _token_json(t) -> dict:
+        iso = lambda d: d.isoformat() if d else None
+        return {"token_id": t.token_id, "username": t.username, "name": t.name,
+                "hint": t.hint, "created_at": iso(t.created_at),
+                "expires_at": iso(t.expires_at), "last_used_at": iso(t.last_used_at)}
+
+    @router.get("/tokens")
+    def api_list_tokens(username: str | None = None,
+                        actor: User = Depends(auth.require_cap(auth_mod.CAP_EXPLORE))):
+        client = _client()
+        owner = _token_owner(client, actor, username)
+        return {"tokens": [_token_json(t) for t in
+                           auth_mod.list_api_tokens(client, owner, prefix=prefix)]}
+
+    @router.post("/tokens")
+    def api_create_token(body: CreateToken,
+                         actor: User = Depends(auth.require_cap(auth_mod.CAP_EXPLORE))):
+        try:
+            token, rec = auth_mod.create_api_token(
+                _client(), actor.username, body.name, body.expires_days, prefix=prefix)
+        except auth_mod.ApiTokenLimitError as e:
+            raise HTTPException(409, str(e))
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return {**_token_json(rec), "token": token}
+
+    @router.post("/tokens/revoke")
+    def api_revoke_token(body: RevokeToken,
+                         actor: User = Depends(auth.require_cap(auth_mod.CAP_EXPLORE))):
+        client = _client()
+        owner = _token_owner(client, actor, body.username)
+        if not auth_mod.revoke_api_token(client, owner, body.token_id, prefix=prefix):
+            raise HTTPException(404, "no such token")
+        return {"ok": True}
+
+    @router.post("/tokens/revoke-all")
+    def api_revoke_all_tokens(body: RevokeAllTokens,
+                              actor: User = Depends(auth.require_cap(auth_mod.CAP_USERS_MANAGE))):
+        client = _client()
+        owner = _token_owner(client, actor, body.username)
+        auth_mod.delete_user_api_tokens(client, owner, prefix=prefix)
         return {"ok": True}
 
     return router
