@@ -88,6 +88,7 @@ export the matching env var — whichever suits your deployment. Secrets are
 |---|---|---|---|
 | `TIMEPLUS_HOST` | `[db].host` | `localhost` | DB host |
 | `TIMEPLUS_USER` | `[db].user` | `default` | DB user |
+| `TIMEPLUS_PORT` | `[db].port` | `8123` | DB HTTP port |
 | `TIMEPLUS_DATABASE` | `[db].database` | `tpk` | Database all tpk streams live under |
 | `TPK_DB_BACKEND` | `[db].backend` | `timeplusd` | Stream-semantics mode (`timeplusd`\|`proton`) |
 | `TPK_STREAM_PREFIX` | `[db].stream_prefix` | `` | Namespace prefix for all streams |

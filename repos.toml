@@ -37,6 +37,7 @@ token_budget = 16000
 [db]
 # host         = "localhost"     # env: TIMEPLUS_HOST
 # user         = "default"       # env: TIMEPLUS_USER
+# port         = 8123            # env: TIMEPLUS_PORT       (DB HTTP port)
 # database     = "tpk"           # env: TIMEPLUS_DATABASE   (all tpk streams live here)
 # backend      = "timeplusd"     # env: TPK_DB_BACKEND      ("timeplusd" | "proton")
 # stream_prefix = ""             # env: TPK_STREAM_PREFIX   (namespaces streams within the database)

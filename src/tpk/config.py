@@ -80,6 +80,7 @@ class Settings:
             user=setting("TIMEPLUS_USER", "db", "user", "default"),
             # password is a secret: env-only, never read from the config file.
             password=os.environ.get("TIMEPLUS_PASSWORD", ""),
+            port=setting("TIMEPLUS_PORT", "db", "port", 8123, cast=int),
             stream_prefix=setting("TPK_STREAM_PREFIX", "db", "stream_prefix", ""),
             backend=db_backend(),
         )
