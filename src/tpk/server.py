@@ -175,6 +175,8 @@ def create_app(
         if mcp_state["server"] is None:
             yield
             return
+        # session_manager.run() is once-per-instance: one app object cannot be
+        # entered in two lifespans (in tests, one `with TestClient(app)` per app).
         async with mcp_state["server"].session_manager.run():
             yield
 

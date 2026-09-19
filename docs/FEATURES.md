@@ -93,7 +93,7 @@ Manage what the graph indexes at runtime, without editing files or restarting.
 
 Login-based access control, with roles that scope what each user can query.
 
-- **Users, roles, sessions** stored in Timeplus streams (`kg_users`, `kg_roles`, `kg_sessions`). Passwords are argon2id-hashed; session tokens are stored only as SHA-256 hashes.
+- **Users, roles, sessions** stored in Timeplus streams (`kg_users`, `kg_roles`, `kg_sessions`), plus the remote-MCP API tokens (`kg_api_tokens` and their last-use timestamps in `kg_api_token_usage`). Passwords are argon2id-hashed; session and API tokens are stored only as SHA-256 hashes.
 - **Seeded admin + forced change.** A fresh deployment seeds `admin` / `changeme`; the admin must change the password on first login before anything else.
 - **Function capabilities per role (issue #23).** A role grants any subset of `chat`, `explore`, `corpus:view`/`corpus:manage`, `users:view`/`users:manage` (`:manage` implies `:view`), enforced identically on the API and the UI — the sidebar and each screen show only what the caller holds. The built-in `admin` role is the reserved super-role with every capability. Existing roles migrate to chat-only on upgrade.
 - **Role-scoped chat.** Orthogonal to capabilities: a role lists the exact `name@ref` corpus entries its members may query, and a non-admin's chat/explore results are transparently restricted to that scope (admin, the local stdio MCP server, and the CLI are unrestricted; the remote `/mcp` endpoint runs as the token's user and is scoped like chat). Isolation is enforced server-side across every graph tool path.
