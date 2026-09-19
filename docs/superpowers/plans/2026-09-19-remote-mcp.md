@@ -1175,7 +1175,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Consumes: `/api/tokens`, `/api/tokens/revoke`, `/api/tokens/revoke-all` (Task 3); `apiFetch` from `./api`; existing CSS classes `tk-btn`, `tk-btn-secondary`, `tk-modal-overlay`, `tk-modal`, `tk-modal-header`, `tk-modal-title`, `tk-modal-spacer`, `tk-modal-close`.
 - Produces: `View` gains `"tokens"`; default export `Tokens()` (no props).
 
-The markup below reuses the existing Timeplus Console classes from `Users.tsx` / `app.css` verbatim (`tk-manage-header`, `tk-manage-title`, `tk-manage-subtitle`, `tk-manage-header-spacer`, `tk-manage-error`, `tk-users-table-card`, `tk-users-table`, `tk-users-actions`, `tk-form-field`, `tk-input`, `tk-form-required`, `tk-modal-body`, `tk-modal-footer`, `tk-btn-secondary`, `tk-btn-danger`). Check how `Users.tsx` wraps its page root (the outermost `<div className=…>` of its return) and use the same wrapper class for `Tokens`; only two new classes are added (`tk-token-created`, `tk-token-value`).
+The markup below reuses the existing Timeplus Console classes from `Users.tsx` / `app.css` verbatim (`tk-manage-header`, `tk-manage-title`, `tk-manage-subtitle`, `tk-manage-header-spacer`, `tk-manage-error`, `tk-users-table-card`, `tk-users-table`, `tk-users-actions`, `tk-form-field`, `tk-input`, `tk-form-required`, `tk-modal-body`, `tk-modal-footer`, `tk-btn-secondary`, `tk-btn-danger`). The page root reuses `Users.tsx`'s `tk-users` wrapper; only two new classes are added (`tk-token-created`, `tk-token-value`).
 
 - [ ] **Step 1: Add the view to the shell**
 
@@ -1292,7 +1292,7 @@ export default function Tokens() {
   const closeCreated = () => setCreated(null);
 
   return (
-    <div className="tk-manage">
+    <div className="tk-users">
       {error && <div className="tk-manage-error" role="alert">{error}</div>}
       <div className="tk-manage-header">
         <div>
