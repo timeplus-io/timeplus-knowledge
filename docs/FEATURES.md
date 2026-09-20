@@ -41,7 +41,7 @@ Stored entirely in Timeplus streams — no separate graph database.
 
 - **Entities** (`kg_nodes`): functions, classes, files, documents, concepts — each with kind, name, qualified name, source location, and a summary.
 - **Relationships** (`kg_edges`): calls, imports, containment, and semantic links, each tagged with a confidence bucket (extracted vs. inferred).
-- **Communities**: clustered groupings of related entities for higher-level navigation.
+- **Communities**: clusters of densely connected entities, found by graphify's community detection at ingest — roughly a subsystem. Ids are opaque numbers unique only within one `repo@ref`; `list_communities` labels each with its dominant directories and files.
 - Node IDs hash a versioned entry key so multiple releases of the same repo coexist without collision.
 
 ## 3. Graph query tools
@@ -54,7 +54,7 @@ The `KnowledgeGraph` read layer exposes six composable tools — the same set th
 | `get_entity` | Fetch one entity's full record. |
 | `neighbors` | Local subgraph around an entity (BFS, direction- and relation-filtered). |
 | `path_between` | Shortest connection between two entities. |
-| `list_communities` | Cluster overview across the corpus. |
+| `list_communities` | Bounded cluster overview (top N by size, default 50 / max 200, `min_nodes` filter) with `total`/`truncated`, a per-repo summary, and a directory/file label per cluster. |
 | `read_source` | Read exact source lines so answers can quote real code. |
 
 All queries run against a single serialized Timeplus session and are transparently filtered by the active corpus and the caller's role scope (see §7).

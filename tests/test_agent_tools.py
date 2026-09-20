@@ -23,8 +23,9 @@ class FakeKG:
     def path_between(self, id_a, id_b, max_depth=4):
         return None
 
-    def list_communities(self, repo=None):
-        return []
+    def list_communities(self, repo=None, limit=None, min_nodes=1):
+        self.communities_call = {"repo": repo, "limit": limit, "min_nodes": min_nodes}
+        return {"communities": [], "total": 0, "returned": 0, "truncated": False}
 
     def read_source(self, repo, file_path, line_start, line_end):
         if file_path == "boom.py":
@@ -73,3 +74,13 @@ def test_search_empty_returns_guidance_string():
     out = tools["search_entities"].invoke({"query": "no such thing"})
     assert isinstance(out, str) and out.startswith("NO_RESULTS")
     assert "could not find this in the knowledge graph" in out
+
+
+def test_list_communities_passes_the_output_bounds_through():
+    """#76: the agent can narrow/widen the overview; the KG enforces the cap."""
+    kg = FakeKG()
+    tools = {t.name: t for t in build_agent_tools(kg)}
+    tools["list_communities"].invoke({"repo": "r1", "limit": 5, "min_nodes": 10})
+    assert kg.communities_call == {"repo": "r1", "limit": 5, "min_nodes": 10}
+    tools["list_communities"].invoke({})
+    assert kg.communities_call == {"repo": None, "limit": None, "min_nodes": 1}

@@ -37,7 +37,7 @@ def build_server(kg, guard=None) -> FastMCP:
                               repos: list[str] | None = None, limit: int = 20) -> list[dict]:
         """Find code/doc entities in the Timeplus knowledge graph by keyword.
         Every whitespace-separated token must match the entity's name,
-        qualified name, or summary (case-insensitive)."""
+        qualified name, or summary (case-insensitive). `limit` is capped at 200."""
         return await run(ctx, lambda: kg.search_entities(query, kinds=kinds, repos=repos, limit=limit),
                          tool="search_entities")
 
@@ -63,9 +63,17 @@ def build_server(kg, guard=None) -> FastMCP:
                          tool="path_between")
 
     @server.tool()
-    async def list_communities(ctx: Context, repo: str | None = None) -> list[dict]:
-        """Cluster overview: (repo, community, node_count), largest first."""
-        return await run(ctx, lambda: kg.list_communities(repo=repo), tool="list_communities")
+    async def list_communities(ctx: Context, repo: str | None = None,
+                               limit: int | None = None, min_nodes: int = 1) -> dict:
+        """Cluster overview, largest first. BOUNDED: returns at most `limit`
+        communities (default 50, max 200) with at least `min_nodes` nodes, as
+        {communities, total, returned, truncated, by_repo}. Check `truncated`
+        / `total`; pass `repo` (an entry key from `by_repo`) to drill into one
+        repo, raise `min_nodes` to skip tiny clusters. A community id is an
+        opaque number unique only within its repo -- read `top_dirs` /
+        `top_files` to see what a cluster is about."""
+        return await run(ctx, lambda: kg.list_communities(repo=repo, limit=limit, min_nodes=min_nodes),
+                         tool="list_communities")
 
     @server.tool()
     async def read_source(ctx: Context, repo: str, file_path: str, line_start: int, line_end: int) -> str:

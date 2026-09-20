@@ -29,7 +29,7 @@ def build_agent_tools(kg) -> list:
         """Find code/doc entities in the Timeplus knowledge graph by keyword.
         Results are ranked; multi-word queries fall back to best-effort
         matching when no entity matches every word. Start here for any
-        question; use kinds/repos to narrow."""
+        question; use kinds/repos to narrow. `limit` is capped at 200."""
         result = _safe(kg.search_entities, query, kinds=kinds, repos=repos, limit=limit)
         if result == []:
             return (
@@ -77,10 +77,17 @@ def build_agent_tools(kg) -> list:
         return _safe(kg.path_between, id_a, id_b, max_depth=max_depth)
 
     @tool
-    def list_communities(repo: str | None = None) -> list[dict] | str:
-        """Cluster overview: (repo, community, node_count), largest first.
+    def list_communities(repo: str | None = None, limit: int | None = None,
+                         min_nodes: int = 1) -> dict | str:
+        """Cluster overview, largest first. BOUNDED: returns at most `limit`
+        communities (default 50, max 200) with at least `min_nodes` nodes, as
+        {communities, total, returned, truncated, by_repo}. Check `truncated`
+        / `total`; pass `repo` (an entry key from `by_repo`) to drill into one
+        repo, raise `min_nodes` to skip tiny clusters. A community id is an
+        opaque number unique only within its repo -- read `top_dirs` /
+        `top_files` to see what a cluster is about.
         Useful for orientation questions about a repo's structure."""
-        return _safe(kg.list_communities, repo=repo)
+        return _safe(kg.list_communities, repo=repo, limit=limit, min_nodes=min_nodes)
 
     @tool
     def read_source(repo: str, file_path: str, line_start: int, line_end: int) -> str:
