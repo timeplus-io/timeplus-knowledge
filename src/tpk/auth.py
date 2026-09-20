@@ -208,6 +208,31 @@ def seed_admin(client, prefix: str = "") -> bool:
     return True
 
 
+def reset_admin(client, prefix: str = "", revoke_all: bool = False) -> None:
+    """Break-glass recovery (#78, `tpk auth reset-admin`): put the `admin`
+    account back to SEED_PASSWORD -- enabled, admin role, forced password
+    change -- whatever state it is in (disabled, lost password, row deleted).
+    Every other user and all roles are left alone.
+
+    Credentials go FIRST: sessions and API tokens are keyed to a username, so
+    anything still keyed to `admin` would authenticate as the recovered
+    account. `revoke_all` clears EVERY user's sessions and API tokens instead
+    (suspected compromise) -- accounts survive, their credentials don't. Goes
+    through db.delete, so it works on both backends (proton has no DELETE)."""
+    if revoke_all:
+        for stream in ("kg_api_tokens", "kg_api_token_usage", "kg_sessions"):
+            db.delete(client, db.qualified(stream, prefix), "1 = 1", {}, ("token_hash",))
+    else:
+        delete_user_api_tokens(client, SEED_USERNAME, prefix=prefix)
+        delete_user_sessions(client, SEED_USERNAME, prefix=prefix)
+    upsert_user(
+        client,
+        User(SEED_USERNAME, hash_password(SEED_PASSWORD), ROLE_ADMIN,
+             must_change_password=True, disabled=False),
+        prefix=prefix,
+    )
+
+
 # -- roles -----------------------------------------------------------------
 
 def upsert_role(client, role: Role, prefix: str = "") -> None:

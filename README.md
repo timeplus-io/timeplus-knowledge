@@ -627,24 +627,27 @@ tick capabilities and corpus entries by checkbox — without hand-writing
 these requests; it is read-only for a `users:view`-only caller.
 
 **Break-glass (locked out of every admin account).** The API's last-admin
-guard only stops you from doing this through `/api`; if every admin row is
-gone or disabled another way (e.g. direct SQL, a bug), there's no in-app
-recovery path. Reset the whole auth store and let `tpk serve` re-seed it:
+guard only stops you from doing this through `/api`; if every admin is
+disabled, deleted, or its password is lost, there is no in-app way back. Run
+the recovery command where the DB credentials are — inside the app container:
 
-    for s in kg_users kg_sessions kg_api_tokens kg_api_token_usage; do
-      echo "DELETE FROM $s WHERE 1=1" | \
-        curl "http://${TIMEPLUS_HOST}:8123/" -u "${TIMEPLUS_USER:-tpk}:${TIMEPLUS_PASSWORD}" --data-binary @-
-    done
+    docker compose exec app tpk auth reset-admin
+    # all-in-one:  docker exec -it tpk tpk auth reset-admin
+    # Kubernetes:  kubectl -n timeplus-knowledge exec -it deploy/tpk-app -- tpk auth reset-admin
 
-Wipe the credential streams too, not just `kg_users`: sessions and API tokens
-are keyed to a *username*, so any row left behind would authenticate as the
-re-seeded `admin`.
+It resets `admin` to `admin` / `changeme` (enabled, admin role,
+`must_change_password = true`) and deletes `admin`'s sessions and API tokens
+— credentials are keyed to a *username*, so anything left behind would
+authenticate as the recovered account. Every other user and all roles are
+untouched, and it takes effect immediately (no restart). **Log in and change
+the password right away**: until you do, the well-known seed password works.
 
-Restart the server afterward (`docker compose restart agent`, or `tpk
-serve`) — seeding only runs against an empty `kg_users` table, so the next
-startup re-creates `admin` / `changeme` with `must_change_password = true`.
-This also deletes every non-admin user; recreate them (and any roles you
-still need — `kg_roles` is untouched by this) after logging back in.
+If you suspect a compromise rather than a lockout, add `--revoke-all` to also
+delete **every** user's sessions and API tokens (accounts and roles are kept;
+users log in again and re-create their tokens). `--yes` skips the confirmation
+prompt. The command works on both DB backends and honours `TIMEPLUS_DATABASE`
+/ `TPK_STREAM_PREFIX`, unlike hand-written `DELETE` statements. Anyone able to
+run it already holds the database credentials, so it grants nothing new.
 
 ## Use from Claude Code (MCP)
 
