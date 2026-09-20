@@ -13,6 +13,10 @@ class FakeKG:
     def search_entities(self, query, kinds=None, repos=None, limit=20):
         return [{"id": "x", "name": query}]
 
+    def list_communities(self, repo=None, limit=None, min_nodes=1):
+        self.communities_call = {"repo": repo, "limit": limit, "min_nodes": min_nodes}
+        return {"communities": [], "total": 0, "returned": 0, "truncated": False}
+
 
 def test_all_six_tools_registered():
     server = build_server(FakeKG())
@@ -44,3 +48,13 @@ def test_kg_call_does_not_run_on_the_event_loop():
 
     loop_thread = asyncio.run(call())
     assert ThreadRecordingKG.worker_thread not in (None, loop_thread)
+
+
+def test_list_communities_passes_the_output_bounds_through():
+    """#76: MCP clients can narrow/widen the overview; the KG enforces the cap."""
+    kg = FakeKG()
+    server = build_server(kg)
+    asyncio.run(server.call_tool("list_communities", {"repo": "r1", "limit": 5, "min_nodes": 10}))
+    assert kg.communities_call == {"repo": "r1", "limit": 5, "min_nodes": 10}
+    asyncio.run(server.call_tool("list_communities", {}))
+    assert kg.communities_call == {"repo": None, "limit": None, "min_nodes": 1}

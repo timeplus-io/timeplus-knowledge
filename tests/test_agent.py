@@ -28,8 +28,8 @@ class FakeKG:
     def path_between(self, id_a, id_b, max_depth=4):
         return None
 
-    def list_communities(self, repo=None):
-        return []
+    def list_communities(self, repo=None, limit=None, min_nodes=1):
+        return {"communities": [], "total": 0, "returned": 0, "truncated": False}
 
     def read_source(self, repo, file_path, line_start, line_end):
         return ""

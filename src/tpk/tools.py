@@ -53,6 +53,13 @@ class KnowledgeGraph:
     # endpoints can be much further apart than a local BFS neighborhood.
     MAX_PATH_DEPTH = 6
     MAX_SOURCE_LINES = 400
+    # Output bounds (#76): every tool result lands in an LLM context -- the
+    # chat agent's or a remote MCP client's -- so none may be unbounded. The
+    # search ceiling matches the Explorer API's own (graph_api: le=200).
+    MAX_SEARCH_RESULTS = 200
+    DEFAULT_COMMUNITIES = 50
+    MAX_COMMUNITIES = 200
+    COMMUNITY_LABEL_SIZE = 3
 
     def __init__(self, client, stream_prefix: str = "",
                  repo_paths: dict[str, Path] | None = None,
@@ -178,6 +185,7 @@ class KnowledgeGraph:
         tokens = [t for t in query.split() if t]
         if not tokens:
             return []
+        limit = min(max(int(limit), 1), self.MAX_SEARCH_RESULTS)
         token_exprs, params = [], {"q": query.lower(), "limit": limit}
         for i, tok in enumerate(tokens):
             params[f"t{i}"] = f"%{tok.lower()}%"
@@ -317,8 +325,17 @@ class KnowledgeGraph:
             path.append(node)
         return path
 
-    def list_communities(self, repo=None):
-        clauses, params = [], {}
+    def list_communities(self, repo=None, limit=None, min_nodes=1):
+        """Cluster overview, largest first, BOUNDED (#76): at most `limit`
+        communities (default DEFAULT_COMMUNITIES, capped at MAX_COMMUNITIES)
+        with at least `min_nodes` nodes. `total`/`truncated` tell the caller
+        what was cut off. A community id is an opaque integer from graphify's
+        clustering, unique only within one repo@ref, so each row is labelled
+        with its dominant directories and files. Without `repo`, a small
+        per-repo summary (`by_repo`) says where to drill in next."""
+        limit = self.DEFAULT_COMMUNITIES if limit is None else int(limit)
+        limit = min(max(limit, 1), self.MAX_COMMUNITIES)
+        clauses, params = [], {"min_nodes": max(int(min_nodes), 1), "limit": limit}
         if repo:
             clauses.append("repo = %(repo)s")
             params["repo"] = repo
@@ -327,13 +344,55 @@ class KnowledgeGraph:
             clauses.append("repo IN %(active_repos)s")
             params["active_repos"] = active or ["__none__"]
         clause = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        nodes = db.latest(db.qualified("kg_nodes", self.prefix))
+        grouped = (
+            f"SELECT repo, community, count() AS node_count FROM {nodes}{clause}"
+            " GROUP BY repo, community HAVING node_count >= %(min_nodes)s"
+        )
+        # repo/community tie-breakers keep the page deterministic.
         rows = self._query_rows(
-            f"SELECT repo, community, count() AS node_count"
-            f" FROM {db.latest(db.qualified('kg_nodes', self.prefix))}{clause}"
-            " GROUP BY repo, community ORDER BY node_count DESC",
+            f"{grouped} ORDER BY node_count DESC, repo, community LIMIT %(limit)s",
             parameters=params,
         )
-        return [dict(zip(["repo", "community", "node_count"], r)) for r in rows]
+        communities = [dict(zip(["repo", "community", "node_count"], r)) for r in rows]
+        total = self._query_rows(f"SELECT count() FROM ({grouped})", parameters=params)[0][0]
+        self._label_communities(communities)
+        out = {
+            "communities": communities,
+            "total": total,
+            "returned": len(communities),
+            "truncated": total > len(communities),
+        }
+        if not repo:
+            by_repo = self._query_rows(
+                f"SELECT repo, count() AS communities, sum(node_count) AS nodes"
+                f" FROM ({grouped}) GROUP BY repo ORDER BY nodes DESC, repo",
+                parameters=params,
+            )
+            out["by_repo"] = [dict(zip(["repo", "communities", "nodes"], r)) for r in by_repo]
+        return out
+
+    def _label_communities(self, communities: list[dict]) -> None:
+        """Add `top_dirs` / `top_files` to each row, in place. One query over
+        just the returned (<= MAX_COMMUNITIES) communities -- aggregating
+        labels for every community before LIMIT took ~10s on a real corpus,
+        this takes ~0.2s. top_k is approximate, which is fine for a label."""
+        for c in communities:
+            c["top_dirs"], c["top_files"] = [], []
+        if not communities:
+            return
+        k = self.COMMUNITY_LABEL_SIZE
+        rows = self._query_rows(
+            f"SELECT repo, community,"
+            f" top_k_if({k})(replace_regex(file_path, '/[^/]*$', ''), position(file_path, '/') > 0),"
+            f" top_k_if({k})(replace_regex(file_path, '^.*/', ''), file_path != '')"
+            f" FROM {db.latest(db.qualified('kg_nodes', self.prefix))}"
+            f" WHERE (repo, community) IN %(pairs)s GROUP BY repo, community",
+            parameters={"pairs": [(c["repo"], c["community"]) for c in communities]},
+        )
+        labels = {(r[0], r[1]): (list(r[2]), list(r[3])) for r in rows}
+        for c in communities:
+            c["top_dirs"], c["top_files"] = labels.get((c["repo"], c["community"]), ([], []))
 
     @staticmethod
     def _resolve_repo_root(repo, corpus_paths, static_paths):

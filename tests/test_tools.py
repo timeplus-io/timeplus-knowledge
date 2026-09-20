@@ -212,9 +212,57 @@ def test_dangling_edge_dropped_from_neighbors_and_breaks_path(kg):
 
 
 def test_list_communities(kg):
-    rows = kg.list_communities(repo="r1")
-    by_name = {r["community"]: r["node_count"] for r in rows}
+    out = kg.list_communities(repo="r1")
+    by_name = {r["community"]: r["node_count"] for r in out["communities"]}
     assert by_name == {"core": 2, "docs": 1}
+    assert (out["total"], out["returned"], out["truncated"]) == (2, 2, False)
+    # a single-repo call needs no per-repo orientation summary
+    assert "by_repo" not in out
+
+
+def test_list_communities_is_bounded_and_says_so(kg):
+    """The result is capped (#76): largest first, and the caller can tell it
+    was cut off and how much there is in total."""
+    out = kg.list_communities(limit=1)
+    assert [(r["repo"], r["community"]) for r in out["communities"]] == [("r1", "core")]
+    assert (out["total"], out["returned"], out["truncated"]) == (3, 1, True)
+
+
+def test_list_communities_limit_is_clamped(kg, monkeypatch):
+    monkeypatch.setattr(type(kg), "MAX_COMMUNITIES", 2)
+    assert kg.list_communities(limit=10_000)["returned"] == 2
+    assert kg.list_communities(limit=0)["returned"] == 1   # floor of 1, not "unbounded"
+    assert kg.list_communities()["returned"] == 2          # default also obeys the cap
+
+
+def test_list_communities_min_nodes_drops_the_long_tail(kg):
+    out = kg.list_communities(min_nodes=2)
+    assert [(r["repo"], r["community"]) for r in out["communities"]] == [("r1", "core")]
+    # total counts what matches the filter, so truncated stays meaningful
+    assert (out["total"], out["truncated"]) == (1, False)
+
+
+def test_list_communities_by_repo_orients_an_unfiltered_call(kg):
+    out = kg.list_communities()
+    assert {r["repo"]: (r["communities"], r["nodes"]) for r in out["by_repo"]} == {
+        "r1": (2, 3), "docs": (1, 1)}
+
+
+def test_list_communities_labels_say_what_a_cluster_is(kg):
+    """Community ids are opaque integers from graphify; the label (dominant
+    directories + files) is what makes the overview usable."""
+    by_key = {(r["repo"], r["community"]): r for r in kg.list_communities()["communities"]}
+    assert by_key[("docs", "docs")]["top_dirs"] == ["ops"]
+    assert by_key[("docs", "docs")]["top_files"] == ["ckpt.md"]
+    # root-level files have no directory; they still show up as files
+    assert by_key[("r1", "core")]["top_dirs"] == []
+    assert by_key[("r1", "core")]["top_files"] == ["m.py"]
+
+
+def test_search_entities_limit_is_clamped(kg, monkeypatch):
+    monkeypatch.setattr(type(kg), "MAX_SEARCH_RESULTS", 2)
+    assert len(kg.search_entities("checkpoint", limit=10_000)) == 2
+    assert len(kg.search_entities("checkpoint", limit=0)) == 1
 
 
 def test_neighbors_edges_stay_consistent_with_truncated_nodes(kg, monkeypatch):
@@ -378,7 +426,8 @@ def test_all_entries_disabled_means_zero_results(tp, tmp_path):
     # wrong reason.
     _eventually(lambda: len(corpus_entries_for(client, prefix)), lambda v: v >= 1)
     assert kg.search_entities("checkpoint") == []
-    assert kg.list_communities() == []
+    empty = kg.list_communities()
+    assert (empty["communities"], empty["total"], empty["by_repo"]) == ([], 0, [])
 
 
 def corpus_entries_for(client, prefix):
@@ -410,8 +459,10 @@ def test_role_scope_restricts_results(tp, tmp_path):
     try:
         hits = kg.search_entities("checkpoint")
         assert {h["repo"] for h in hits} == {"docs@main"}
-        rows = kg.list_communities()
-        assert {r["repo"] for r in rows} == {"docs@main"}
+        out = kg.list_communities()
+        assert {r["repo"] for r in out["communities"]} == {"docs@main"}
+        # the orientation summary must not leak out-of-scope repos either
+        assert {r["repo"] for r in out["by_repo"]} == {"docs@main"}
     finally:
         ROLE_SCOPE.reset(token)
 
@@ -434,7 +485,8 @@ def test_role_scope_empty_intersection_matches_nothing(tp):
     token = ROLE_SCOPE.set(frozenset({"absent@v9"}))
     try:
         assert kg.search_entities("checkpoint") == []
-        assert kg.list_communities() == []
+        assert kg.list_communities()["communities"] == []
+        assert kg.list_communities()["by_repo"] == []
     finally:
         ROLE_SCOPE.reset(token)
 
