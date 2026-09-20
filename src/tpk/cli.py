@@ -161,6 +161,46 @@ def import_bundle(
     typer.echo("import complete")
 
 
+auth_app = typer.Typer(help="Auth store maintenance (run where the DB credentials are)")
+app.add_typer(auth_app, name="auth")
+
+
+@auth_app.command("reset-admin")
+def auth_reset_admin(
+    revoke_all: bool = typer.Option(
+        False, "--revoke-all",
+        help="Also delete EVERY user's sessions and API tokens (suspected compromise). "
+             "Accounts and roles are kept.",
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt"),
+):
+    """Break-glass: restore the `admin` account when every admin is locked out.
+
+    Resets `admin` to the seed password (enabled, admin role, must change
+    password on first login) and deletes admin's sessions and API tokens.
+    Other users and roles are untouched. Takes effect immediately -- no
+    restart. Anyone who can run this already holds the DB credentials."""
+    from tpk import auth as auth_mod
+
+    prefix = setting("TPK_STREAM_PREFIX", "db", "stream_prefix", "")
+    scope = ("EVERY user's sessions and API tokens" if revoke_all
+             else f"`{auth_mod.SEED_USERNAME}`'s sessions and API tokens")
+    if not yes:
+        typer.confirm(
+            f"Reset `{auth_mod.SEED_USERNAME}` to the seed password and delete {scope}?",
+            abort=True,
+        )
+    client = db.get_client(Settings.from_env())
+    db.ensure_schema(client, prefix)
+    auth_mod.reset_admin(client, prefix=prefix, revoke_all=revoke_all)
+    typer.echo(f"deleted {scope}")
+    typer.echo(
+        f"`{auth_mod.SEED_USERNAME}` reset: log in with password "
+        f"`{auth_mod.SEED_PASSWORD}` NOW and change it -- until you do, that "
+        f"well-known password works."
+    )
+
+
 @app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", help="Bind address"),

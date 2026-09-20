@@ -98,7 +98,7 @@ Login-based access control, with roles that scope what each user can query.
 - **Function capabilities per role (issue #23).** A role grants any subset of `chat`, `explore`, `corpus:view`/`corpus:manage`, `users:view`/`users:manage` (`:manage` implies `:view`), enforced identically on the API and the UI — the sidebar and each screen show only what the caller holds. The built-in `admin` role is the reserved super-role with every capability. Existing roles migrate to chat-only on upgrade.
 - **Role-scoped chat.** Orthogonal to capabilities: a role lists the exact `name@ref` corpus entries its members may query, and a non-admin's chat/explore results are transparently restricted to that scope (admin, the local stdio MCP server, and the CLI are unrestricted; the remote `/mcp` endpoint runs as the token's user and is scoped like chat). Isolation is enforced server-side across every graph tool path.
 - **Bounded delegation.** A non-admin with `users:manage` can never mint admins or manage admin users, and can only grant capabilities and corpus entries within its own grant — no self-promotion path.
-- **Admin console.** A Users/Roles console manages accounts, role assignments, password resets, per-role capabilities, and per-role entry-key access; last-admin lockout is prevented.
+- **Admin console.** A Users/Roles console manages accounts, role assignments, password resets, per-role capabilities, and per-role entry-key access; last-admin lockout is prevented, and `tpk auth reset-admin` recovers the admin account from the command line if it happens anyway.
 - **Hardened DB layer.** The compose stack provisions a dedicated `tpk` timeplusd user and password-locks the previously open `default` user.
 
 ## Deployment surfaces
@@ -110,7 +110,7 @@ Login-based access control, with roles that scope what each user can query.
 | `3218` | Timeplus REST ingest API |
 | `tpk-mcp` | MCP server (via `docker compose exec`) |
 | `/mcp` | Remote MCP endpoint (streamable HTTP, per-user API token) |
-| `tpk` CLI | `ingest`, `status`, `serve`, and corpus commands |
+| `tpk` CLI | `ingest`, `status`, `serve`, corpus commands, and `auth reset-admin` (break-glass admin recovery) |
 
 ## Getting started
 
