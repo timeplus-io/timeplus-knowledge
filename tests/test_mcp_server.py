@@ -58,3 +58,29 @@ def test_list_communities_passes_the_output_bounds_through():
     assert kg.communities_call == {"repo": "r1", "limit": 5, "min_nodes": 10}
     asyncio.run(server.call_tool("list_communities", {}))
     assert kg.communities_call == {"repo": None, "limit": None, "min_nodes": 1}
+
+
+def test_main_reports_a_connect_failure_in_one_actionable_line(monkeypatch, capsys):
+    """#77: an MCP client shows a crashed stdio server only as "Connection
+    closed", so the reason must be one readable stderr line, not a traceback
+    -- and must never echo the password."""
+    import pytest
+
+    from tpk import mcp_server
+
+    monkeypatch.setenv("TIMEPLUS_HOST", "localhost")
+    monkeypatch.setenv("TIMEPLUS_USER", "default")
+    monkeypatch.setenv("TIMEPLUS_PASSWORD", "hunter2-secret")
+
+    def boom(settings):
+        raise RuntimeError("Code: 516. DB::Exception: default: Authentication failed\nstack…")
+
+    monkeypatch.setattr(mcp_server.db, "get_client", boom)
+    with pytest.raises(SystemExit) as exc:
+        mcp_server.main()
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert len(err.strip().splitlines()) == 1
+    assert "localhost:8123" in err and "'default'" in err and "Authentication failed" in err
+    assert "TIMEPLUS_USER" in err and "TIMEPLUS_PASSWORD" in err
+    assert "hunter2-secret" not in err and "Traceback" not in err

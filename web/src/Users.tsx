@@ -304,6 +304,11 @@ export default function Users({ capabilities, isAdmin }:
                 <td>
                   {!canManage ? (
                     <span className="tk-user-sub">view only</span>
+                  ) : u.role === "admin" && !isAdmin ? (
+                    // Only an admin may act on an admin (the API's
+                    // _guard_admin_target): a non-admin manager gets no
+                    // button that would 403 (#79).
+                    <span className="tk-user-sub">admin only</span>
                   ) : (
                   <div className="tk-users-actions">
                     {resettingUser === u.username ? (
@@ -331,29 +336,25 @@ export default function Users({ capabilities, isAdmin }:
                         Reset password
                       </button>
                     )}
-                    {/* Only an admin may act on an admin, so a non-admin
-                        manager never gets a button that 403s. */}
-                    {(u.role !== "admin" || isAdmin) && (
-                      revokingTokensUser === u.username ? (
-                        <span className="tk-users-confirm">
-                          <button type="button" className="tk-btn tk-btn-danger"
-                                  onClick={() => {
-                                    setRevokingTokensUser(null);
-                                    act(() => call("/api/tokens/revoke-all", { username: u.username }));
-                                  }}>
-                            Confirm revoke tokens
-                          </button>
-                          <button type="button" className="tk-btn tk-btn-secondary"
-                                  onClick={() => setRevokingTokensUser(null)}>
-                            Cancel
-                          </button>
-                        </span>
-                      ) : (
-                        <button type="button" className="tk-btn tk-btn-secondary"
-                                onClick={() => setRevokingTokensUser(u.username)}>
-                          Revoke API tokens
+                    {revokingTokensUser === u.username ? (
+                      <span className="tk-users-confirm">
+                        <button type="button" className="tk-btn tk-btn-danger"
+                                onClick={() => {
+                                  setRevokingTokensUser(null);
+                                  act(() => call("/api/tokens/revoke-all", { username: u.username }));
+                                }}>
+                          Confirm revoke tokens
                         </button>
-                      )
+                        <button type="button" className="tk-btn tk-btn-secondary"
+                                onClick={() => setRevokingTokensUser(null)}>
+                          Cancel
+                        </button>
+                      </span>
+                    ) : (
+                      <button type="button" className="tk-btn tk-btn-secondary"
+                              onClick={() => setRevokingTokensUser(u.username)}>
+                        Revoke API tokens
+                      </button>
                     )}
                     {u.role !== "admin" && (
                       <>

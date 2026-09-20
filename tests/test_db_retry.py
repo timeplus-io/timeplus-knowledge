@@ -50,3 +50,35 @@ def test_connect_with_retry_raises_after_deadline(monkeypatch):
     with pytest.raises(ConnectionError):
         db.connect_with_retry(object(), timeout_s=60, interval_s=0.01)
     assert attempts["n"] == 1  # tried once, then the deadline tripped
+
+
+# -- proxy bypass for a local DB (#77) ---------------------------------------
+# A shell-wide HTTP_PROXY makes timeplus_connect route http://localhost:8123
+# through the proxy (-> 502 / "Connection closed" in an MCP client). Handing
+# the driver a plain pool manager skips its env-proxy lookup.
+
+def _captured_get_client(monkeypatch):
+    from tpk import db
+
+    seen = {}
+    monkeypatch.setattr(db.timeplus_connect, "get_client",
+                        lambda **kw: seen.update(kw) or object())
+    return db, seen
+
+
+@pytest.mark.parametrize("host", ["localhost", "127.0.0.1", "::1", "LOCALHOST"])
+def test_get_client_bypasses_env_proxy_for_loopback_hosts(monkeypatch, host):
+    from tpk.config import Settings
+
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.invalid:3128")
+    db, seen = _captured_get_client(monkeypatch)
+    db.get_client(Settings(host=host, user="u", password="p"))
+    assert seen["pool_mgr"] is not None
+
+
+def test_get_client_leaves_remote_hosts_to_the_environment(monkeypatch):
+    from tpk.config import Settings
+
+    db, seen = _captured_get_client(monkeypatch)
+    db.get_client(Settings(host="timeplusd.internal", user="u", password="p"))
+    assert "pool_mgr" not in seen

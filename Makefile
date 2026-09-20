@@ -49,11 +49,18 @@ status: ## Show the last ingest run per repo
 
 # --- MCP ---------------------------------------------------------------------
 
-mcp: ## Run the MCP server on stdio (Ctrl-D to exit)
+mcp: ## Run the MCP server on stdio (Ctrl-D to exit); prints why if it can't connect
 	TIMEPLUS_HOST=$(TIMEPLUS_HOST) uv run python -m tpk.mcp_server
 
-mcp-register: ## Register the MCP server with Claude Code (this checkout)
-	claude mcp add timeplus-knowledge -- uv --directory $(PWD) run python -m tpk.mcp_server
+# The stdio server needs DB credentials (#77): the compose DB only accepts the
+# `tpk` user with TIMEPLUS_PASSWORD. `-e` stores them in Claude Code's local
+# config for this project.
+TIMEPLUS_USER ?= tpk
+mcp-register: ## Register the stdio MCP server with Claude Code: make mcp-register TIMEPLUS_PASSWORD=...
+	@test -n "$(TIMEPLUS_PASSWORD)" || { echo "usage: make mcp-register TIMEPLUS_PASSWORD=<db password> [TIMEPLUS_USER=tpk]"; exit 2; }
+	@claude mcp add timeplus-knowledge \
+	  -e TIMEPLUS_HOST=$(TIMEPLUS_HOST) -e TIMEPLUS_USER=$(TIMEPLUS_USER) -e TIMEPLUS_PASSWORD=$(TIMEPLUS_PASSWORD) \
+	  -- uv --directory $(PWD) run python -m tpk.mcp_server
 
 # --- chat agent & web UI ------------------------------------------------------
 

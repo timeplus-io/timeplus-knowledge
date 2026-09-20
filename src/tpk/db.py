@@ -22,6 +22,7 @@ import logging
 import time
 
 import timeplus_connect
+from timeplus_connect.driver.httputil import default_pool_manager
 
 from tpk.config import Settings, database, db_backend
 
@@ -80,13 +81,23 @@ def delete(client, stream: str, where: str, parameters: dict, pk: tuple[str, ...
     client.insert(stream, [[*r, 1] for r in rows], column_names=[*pk, "deleted"])
 
 
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
 def get_client(settings: Settings):
-    return timeplus_connect.get_client(
+    kwargs = dict(
         host=settings.host,
         port=settings.port,
         username=settings.user,
         password=settings.password,
     )
+    # A shell-wide HTTP_PROXY would otherwise send requests for a LOCAL
+    # timeplusd through the proxy (502s; an MCP client just sees "Connection
+    # closed", #77). The driver only consults the proxy env vars when it has
+    # to pick a pool manager itself, so hand it the plain one.
+    if settings.host.lower() in _LOOPBACK_HOSTS:
+        kwargs["pool_mgr"] = default_pool_manager()
+    return timeplus_connect.get_client(**kwargs)
 
 
 def connect_with_retry(settings: Settings, timeout_s: float = 60.0,

@@ -677,7 +677,30 @@ WARNING on the `tpk.mcp` logger — tokens themselves are never logged.
 
 ### Local (stdio)
 
-    claude mcp add timeplus-knowledge -- uv --directory /Users/gangtao/Code/timeplus/timeplus-knowledge run python -m tpk.mcp_server
+The stdio server talks to Timeplus directly, so it needs the same DB
+credentials as `tpk serve`. Easiest is to run it **inside the app container**,
+which already has them:
+
+    claude mcp add timeplus-knowledge -- docker compose exec -T app tpk-mcp
+    # all-in-one image:  claude mcp add timeplus-knowledge -- docker exec -i tpk tpk-mcp
+
+To run it from a checkout instead, pass the credentials to the server with
+`-e` (the compose DB only accepts the `tpk` user with your `TIMEPLUS_PASSWORD`;
+`default` with no password is rejected):
+
+    claude mcp add timeplus-knowledge \
+      -e TIMEPLUS_HOST=localhost -e TIMEPLUS_USER=tpk -e TIMEPLUS_PASSWORD=<password> \
+      -- uv --directory /path/to/timeplus-knowledge run python -m tpk.mcp_server
+
+or `make mcp-register TIMEPLUS_PASSWORD=<password>` from the checkout. `-e`
+stores the password in Claude Code's local config for this project.
+
+If the server can't connect it exits with one line on stderr saying why
+(host, user, and the database's own error, e.g. `Authentication failed`). MCP
+clients hide that and only report `Failed to connect — Connection closed`, so
+run `make mcp` (or the command after `--`) in a terminal to see it. A local
+database (`localhost` / `127.0.0.1`) is always reached directly, even when
+`HTTP_PROXY` is set in your shell.
 
 If you're running from a worktree or a separate clone rather than the main
 checkout, `--directory` must point at *that* checkout (the one containing
