@@ -5,6 +5,8 @@
 # lives at `mcp.server.mcpserver.MCPServer`. Same API surface (`.tool()`,
 # `.list_tools()`, `.call_tool()`, `.run()`) that the rest of this module
 # relies on.
+import sys
+
 import anyio.to_thread
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver import MCPServer as FastMCP
@@ -86,8 +88,25 @@ def build_server(kg, guard=None) -> FastMCP:
 
 def main() -> None:
     settings = Settings.from_env()
-    client = db.get_client(settings)
-    db.ensure_schema(client)
+    try:
+        client = db.get_client(settings)
+        db.ensure_schema(client)
+    except Exception as exc:
+        # An MCP client shows a crashed stdio server only as "Connection
+        # closed" and hides the traceback -- so say why in ONE line (#77).
+        # The driver's first line is generic; the server's own "Code: ..." line
+        # (e.g. "Authentication failed") is the one worth showing.
+        lines = [ln.strip() for ln in str(exc).splitlines() if ln.strip()]
+        reason = next((ln for ln in lines if "DB::Exception" in ln),
+                      lines[0] if lines else type(exc).__name__)[:240]
+        print(
+            f"tpk-mcp: cannot use Timeplus at {settings.host}:{settings.port} as user "
+            f"{settings.user!r}: {reason} -- set TIMEPLUS_HOST / TIMEPLUS_USER / "
+            f"TIMEPLUS_PASSWORD for this server (claude mcp add ... -e TIMEPLUS_USER=... "
+            f"-e TIMEPLUS_PASSWORD=...), or use the remote /mcp endpoint instead.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     corpus.seed_from_toml(client, REPOS_TOML)
     repos = load_repos(REPOS_TOML)
     kg = KnowledgeGraph(client, repo_paths=resolved_repo_paths(repos))
