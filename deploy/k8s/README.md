@@ -177,6 +177,10 @@ sure response buffering is disabled (e.g. nginx `proxy_buffering off`).
 
 ## Connect a coding agent (MCP)
 
+Members need a role with the `explore` capability to see the **API tokens**
+page and connect (plus `source:view` for the `read_source` tool); `admin` has
+both.
+
 `/mcp` (streamable HTTP, authenticated with a per-user API token) is served
 by the same app container on the same port/Service as the web UI in all
 three modes (`tpk-allinone` or `tpk-app`, port 8000) — no manifest change
@@ -200,6 +204,33 @@ alike, so nothing path-filters `/mcp`).
 Denied `/mcp` requests are logged at WARNING on the `tpk.mcp` logger (tokens
 are never logged). See the repo README's "Use from Claude Code (MCP)" section
 for the full token lifecycle (revoke, expiry, admin revoke-on-disable).
+
+## Upgrading
+
+1. **Make sure the image exists before you touch the manifest.** A GitHub
+   release does not guarantee an image: check that the `Docker` workflow run for
+   the tag succeeded and the tag is on Docker Hub, e.g.
+   `docker buildx imagetools inspect timeplus/tpk-app:<version>`. The `tpk-app`
+   Deployment uses `strategy: Recreate` (single `ReadWriteOnce` checkout
+   volume), so the old pod is stopped **first** — a missing image is an outage,
+   not a no-op.
+2. Pin the new tag (`image: timeplus/tpk-app:<version>`) and apply:
+
+       kubectl apply -f app-only.yaml          # or enterprise.yaml / allinone.yaml
+       kubectl -n timeplus-knowledge rollout status deployment/tpk-app
+
+   Expect a short gap while the pod restarts. Schema changes need no manual
+   step: `tpk serve` creates any new streams on startup (`CREATE … IF NOT
+   EXISTS`), and the corpus, users, roles and API tokens live in the database,
+   not the pod.
+3. Verify: `curl -s -o /dev/null -w '%{http_code}\n' https://<host>/healthz`
+   → `200`, and an unauthenticated `POST https://<host>/mcp` → `401`.
+4. Roll back by re-applying the previous tag.
+
+**Locked out of every admin account?** Run the break-glass command in the pod
+(see the main README → Users & roles):
+
+    kubectl -n timeplus-knowledge exec -it deploy/tpk-app -- tpk auth reset-admin
 
 ## Configuration
 
