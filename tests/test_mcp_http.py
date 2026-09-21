@@ -127,7 +127,10 @@ def test_admin_unscoped_and_scoped_user_isolated_per_tool(env):
     _, out = _call(c, scoped, "path_between", {"id_a": "gan1", "id_b": "gan2"})
     assert "gan2" in out
     _, out = _call(c, scoped, "path_between", {"id_a": "gan1", "id_b": "gbn1"})
-    assert "gbn1" not in out or "null" in out
+    # out of scope: not found, and nothing about the beta entity leaks --
+    # neither its id nor its name, not even through the "callers_of_b" hints
+    assert "gbn1" not in out and "BetaWidget" not in out
+    assert json.loads(json.loads(out)["content"][0]["text"])["found"] is False
 
     _, out = _call(c, root, "list_communities", {})
     assert "beta@v1" in out

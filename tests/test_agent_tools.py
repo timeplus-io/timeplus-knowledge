@@ -20,8 +20,8 @@ class FakeKG:
     def neighbors(self, entity_id, rels=None, direction="both", depth=1, confidence=None):
         return {"nodes": [], "edges": [], "depth_used": depth}
 
-    def path_between(self, id_a, id_b, max_depth=4):
-        return None
+    def path_between(self, id_a, id_b, max_depth=8, mode="auto"):
+        return {"found": False, "mode": None, "direction": None, "path": [], "note": ""}
 
     def list_communities(self, repo=None, limit=None, min_nodes=1):
         self.communities_call = {"repo": repo, "limit": limit, "min_nodes": min_nodes}
