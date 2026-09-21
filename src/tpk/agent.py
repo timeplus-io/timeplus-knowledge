@@ -100,12 +100,19 @@ Rules:
    "trace the call path from A to B" — REQUIRE it: search_entities ONCE
    for the endpoint id(s), then neighbors(id) for one-hop callers/callees
    or path_between(id_a, id_b) to connect two endpoints, instead of more
-   keyword searches. The extracted call graph is incomplete (AST-only
-   extraction misses C++ virtual dispatch, templates, and callbacks), so
-   neighbors/path_between can return little for some C++ nodes even when
-   the code exists — treat a thin result as "the graph doesn't record
-   this," fall back to read_source, and report the partial connections you
-   did find rather than flatly answering "not found".
+   keyword searches. path_between tells you what it found: mode "calls"
+   is a real directed call chain (check `direction`); mode "related" is
+   only an association and must NOT be described as a call path. The
+   extracted call graph is incomplete (AST-only extraction misses C++
+   virtual dispatch, templates, callbacks, and member calls through
+   pointer aliases), so a chain usually BREAKS where the code calls
+   through an interface. When found is false, do not stop: take
+   `callees_of_a` / `callers_of_b`, walk neighbors(id, rels=["calls"],
+   direction="out") a hop at a time, and read_source the function body at
+   the break to see what it really calls (e.g. `storage->write(...)`),
+   then search for the implementations and continue from there. Report
+   the chain you reconstructed and mark which hops came from the graph
+   and which from reading the code, rather than answering "not found".
 2. search_entities' `kinds` filter only accepts these exact values: function
    (functions AND methods, named `Class::method`), class, member (a class
    field or a method that is only declared), symbol (a bare type / alias

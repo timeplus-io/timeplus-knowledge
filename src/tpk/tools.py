@@ -51,7 +51,19 @@ class KnowledgeGraph:
     MAX_NODES_PER_HOP = 200
     # A path needs more headroom than a neighborhood-depth query -- the two
     # endpoints can be much further apart than a local BFS neighborhood.
-    MAX_PATH_DEPTH = 6
+    MAX_PATH_DEPTH = 12
+    # path_between explores from BOTH ends and stops at a total-visited budget,
+    # instead of cutting each hop to an arbitrary `sorted(frontier)[:200]` --
+    # that cut hid real paths behind any wide fan-out (#17).
+    MAX_PATH_VISITED = 5000
+    PATH_HINTS = 15
+    # "How does A reach B" is a CALL chain: directed, call relations only.
+    CALL_RELS = ("calls", "indirect_call")
+    # May be the endpoint of a related-path, never the bridge: two files that
+    # include the same header, or two functions that mention `String`, are not
+    # thereby related. These are also the graph's biggest hubs.
+    CONNECTOR_KINDS = ("symbol", "file")
+    _IN_CHUNK = 1000
     MAX_SOURCE_LINES = 400
     # Output bounds (#76): every tool result lands in an LLM context -- the
     # chat agent's or a remote MCP client's -- so none may be unbounded. The
@@ -272,57 +284,156 @@ class KnowledgeGraph:
             "depth_used": depth_used,
         }
 
-    def path_between(self, id_a, id_b, max_depth: int = 4):
-        max_depth = min(max(max_depth, 1), self.MAX_PATH_DEPTH)
-        if id_a == id_b:
-            return self._nodes_by_ids([id_a])
-        parents: dict[str, tuple[str, dict]] = {}
-        seen = {id_a}
-        frontier = [id_a]
-        for _ in range(max_depth):
-            if not frontier:
-                break
-            # One batched round-trip per BFS level (IN-clause over the whole
-            # frontier) instead of one query per dequeued node.
-            edges = self._edges_touching(frontier, None, "both", None)
-            next_frontier: set[str] = set()
-            for e in edges:
-                for cur, nxt in ((e["src"], e["dst"]), (e["dst"], e["src"])):
-                    if nxt in seen:
-                        continue
-                    seen.add(nxt)
-                    parents[nxt] = (cur, e)
-                    next_frontier.add(nxt)
-            if id_b in seen:
-                return self._materialize_path(id_a, id_b, parents)
-            # Same cap as `neighbors`: bound total work per level, sorted for
-            # determinism.
-            frontier = sorted(next_frontier)[: self.MAX_NODES_PER_HOP]
-        return None
+    def path_between(self, id_a, id_b, max_depth: int = 8, mode: str = "auto"):
+        """How are A and B connected?
 
-    def _materialize_path(self, id_a, id_b, parents):
-        hops = []
-        node = id_b
-        while node != id_a:
-            prev, edge = parents[node]
-            hops.append((node, edge))
+        mode="calls":   a DIRECTED call chain (CALL_RELS), tried A->B then B->A;
+                        the path is always listed caller-first and `direction`
+                        says which way it runs.
+        mode="related": an undirected path over every relation, never routed
+                        THROUGH a connector node (CONNECTOR_KINDS).
+        mode="auto":    calls first, then related -- and the result says which
+                        one it is, because a related path is NOT a call chain.
+
+        Always returns a dict. When nothing is found it carries `note` (why) and
+        the direct `callees_of_a` / `callers_of_b`, so the caller has a next step
+        -- a thin result usually means the graph doesn't record the hop (virtual
+        dispatch, a member call graphify could not type), not that it isn't there.
+        """
+        if mode not in ("auto", "calls", "related"):
+            raise ValueError("mode must be one of: auto, calls, related")
+        depth = min(max(int(max_depth), 1), self.MAX_PATH_DEPTH)
+        out = {"found": False, "mode": None, "direction": None, "path": [], "note": ""}
+        if id_a == id_b:
+            nodes = self._nodes_by_ids([id_a])
+            return {**out, "found": bool(nodes), "path": nodes, "note": "same entity"}
+
+        reasons = []
+        if mode in ("auto", "calls"):
+            for direction, (src, dst) in (("a_to_b", (id_a, id_b)), ("b_to_a", (id_b, id_a))):
+                hops, why = self._search(src, dst, depth, self.CALL_RELS, directed=True)
+                path = self._materialize_path(src, hops) if hops else None
+                if path:
+                    note = ("call chain, caller first" if direction == "a_to_b" else
+                            "call chain runs from B to A (B calls A, transitively); listed caller first")
+                    return {**out, "found": True, "mode": "calls", "direction": direction,
+                            "path": path, "note": note}
+                reasons.append(why)
+        if mode in ("auto", "related"):
+            hops, why = self._search(id_a, id_b, depth, None, directed=False,
+                                     skip_kinds=self.CONNECTOR_KINDS)
+            path = self._materialize_path(id_a, hops) if hops else None
+            if path:
+                return {**out, "found": True, "mode": "related", "direction": None, "path": path,
+                        "note": "related through other relations -- this is NOT a call chain"}
+            reasons.append(why)
+
+        why = "budget" if "budget" in reasons else "depth" if "depth" in reasons else "exhausted"
+        note = {
+            "budget": f"search budget exhausted ({self.MAX_PATH_VISITED} entities visited)",
+            "depth": f"no path within max depth {depth}",
+            "exhausted": "no path: the graph records no connection between them",
+        }[why]
+        return {
+            **out,
+            "note": note + ". The extracted call graph is incomplete (virtual dispatch and "
+                    "untyped member calls are missing): walk neighbors() from the hints "
+                    "below and use read_source to bridge a missing hop.",
+            "callees_of_a": self._call_hints(id_a, "out"),
+            "callers_of_b": self._call_hints(id_b, "in"),
+        }
+
+    def _edges_chunked(self, ids, rels, direction) -> list[dict]:
+        ids = sorted(ids)
+        edges: list[dict] = []
+        for i in range(0, len(ids), self._IN_CHUNK):
+            edges.extend(self._edges_touching(ids[i:i + self._IN_CHUNK], rels, direction, None))
+        return edges
+
+    def _connector_ids(self, ids, kinds) -> set[str]:
+        if not ids or not kinds:
+            return set()
+        ids, found = sorted(ids), set()
+        for i in range(0, len(ids), self._IN_CHUNK):
+            rows = self._query_rows(
+                f"SELECT id FROM {db.latest(db.qualified('kg_nodes', self.prefix))}"
+                " WHERE id IN %(ids)s AND kind IN %(kinds)s",
+                parameters={"ids": ids[i:i + self._IN_CHUNK], "kinds": list(kinds)},
+            )
+            found.update(r[0] for r in rows)
+        return found
+
+    def _call_hints(self, entity_id, direction) -> list[dict]:
+        edges = self._edges_touching([entity_id], list(self.CALL_RELS), direction, None)
+        other = "dst" if direction == "out" else "src"
+        ids = sorted({e[other] for e in edges})[: self.PATH_HINTS]
+        return [{k: n[k] for k in ("id", "name", "kind", "file_path")}
+                for n in self._nodes_by_ids(ids)]
+
+    def _search(self, src, dst, depth, rels, directed, skip_kinds=()):
+        """Bidirectional BFS. Returns (hops, "") or (None, why) with why one of
+        depth | budget | exhausted. `hops` is [(next_node_id, edge), ...] from src."""
+        rels = list(rels) if rels else None
+        fwd = {src: None}   # node -> (previous node, edge) walking away from src
+        bwd = {dst: None}   # node -> (next node, edge) walking towards dst
+        frontier_f, frontier_b = {src}, {dst}
+        for _ in range(depth):
+            if not frontier_f or not frontier_b:
+                return None, "exhausted"
+            forward = len(frontier_f) <= len(frontier_b)
+            frontier, seen, other = (frontier_f, fwd, bwd) if forward else (frontier_b, bwd, fwd)
+            direction = "both" if not directed else ("out" if forward else "in")
+            fresh: set[str] = set()
+            for e in self._edges_chunked(frontier, rels, direction):
+                for cur, nxt in ((e["src"], e["dst"]), (e["dst"], e["src"])):
+                    if directed and (cur, nxt) != ((e["src"], e["dst"]) if forward else (e["dst"], e["src"])):
+                        continue
+                    if cur in frontier and nxt not in seen:
+                        seen[nxt] = (cur, e)
+                        fresh.add(nxt)
+            # A connector may BE an endpoint, but is never a bridge: it is not
+            # expanded, and the two sides meeting AT one (both reached `String`)
+            # is not a path either.
+            bridges = fresh - (self._connector_ids(fresh, skip_kinds) - {src, dst})
+            met = sorted(bridges & other.keys())
+            if met:
+                return self._join(met[0], fwd, bwd), ""
+            if len(fwd) + len(bwd) > self.MAX_PATH_VISITED:
+                return None, "budget"
+            fresh = bridges - {src, dst}
+            if forward:
+                frontier_f = fresh
+            else:
+                frontier_b = fresh
+        return None, "depth"
+
+    @staticmethod
+    def _join(meet, fwd, bwd):
+        left, node = [], meet
+        while fwd[node] is not None:
+            prev, edge = fwd[node]
+            left.append((node, edge))
             node = prev
-        hops.reverse()
-        node_ids = [id_a] + [n for n, _ in hops]
+        left.reverse()
+        right, node = [], meet
+        while bwd[node] is not None:
+            nxt, edge = bwd[node]
+            right.append((nxt, edge))
+            node = nxt
+        return left + right
+
+    def _materialize_path(self, start_id, hops):
+        node_ids = [start_id] + [n for n, _ in hops]
         node_map = {n["id"]: n for n in self._nodes_by_ids(node_ids)}
-        start = node_map.get(id_a)
-        if start is None:
+        if any(nid not in node_map for nid in node_ids):
+            # A dangling edge (an endpoint's node row is missing, e.g. a
+            # partial ingest) or an out-of-scope node: a path through a node we
+            # can't present isn't presentable either.
             return None
-        path: list[dict] = [start]
+        path: list[dict] = [node_map[start_id]]
         for nid, edge in hops:
-            node = node_map.get(nid)
-            if node is None:
-                # A dangling edge: the endpoint's node row is missing (e.g.
-                # partial ingest failure). A path through a node we can't
-                # present isn't presentable either.
-                return None
             path.append(edge)
-            path.append(node)
+            path.append(node_map[nid])
         return path
 
     def list_communities(self, repo=None, limit=None, min_nodes=1):

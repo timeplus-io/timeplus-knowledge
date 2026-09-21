@@ -157,29 +157,127 @@ def test_neighbors_depth_is_capped(kg):
     assert result["depth_used"] == KnowledgeGraph.MAX_DEPTH
 
 
-def test_path_between(kg):
-    path = kg.path_between("d1", "c1")
-    ids = [p["id"] for p in path if "id" in p]
-    assert ids[0] == "d1" and ids[-1] == "c1"
-    assert kg.path_between("a1", "missing") is None
+def _ids(result):
+    return [p["id"] for p in result["path"] if "id" in p]
+
+
+def test_path_between_finds_a_directed_call_chain(kg):
+    # a1 -calls-> b1 -calls-> c1
+    r = kg.path_between("a1", "c1")
+    assert (r["found"], r["mode"], r["direction"]) == (True, "calls", "a_to_b")
+    assert _ids(r) == ["a1", "b1", "c1"]
+    assert [p["rel"] for p in r["path"] if "rel" in p] == ["calls", "calls"]
+
+
+def test_path_between_reports_a_call_chain_running_the_other_way(kg):
+    # Asked c1 -> a1, but it is a1 that (transitively) calls c1. Say so, and
+    # list the chain caller-first -- never pretend c1 calls a1.
+    r = kg.path_between("c1", "a1")
+    assert (r["found"], r["mode"], r["direction"]) == (True, "calls", "b_to_a")
+    assert _ids(r) == ["a1", "b1", "c1"]
+
+
+def test_path_between_falls_back_to_a_related_path_and_says_so(kg):
+    # d1 -documents-> a1 -calls-> ... : a real connection, but not a call chain.
+    r = kg.path_between("d1", "c1")
+    assert (r["found"], r["mode"]) == (True, "related")
+    assert _ids(r)[0] == "d1" and _ids(r)[-1] == "c1"
+    assert "not a call chain" in r["note"].lower()
+
+
+def test_path_between_calls_mode_does_not_fall_back(kg):
+    r = kg.path_between("d1", "c1", mode="calls")
+    assert r["found"] is False and r["path"] == []
+    # ...and gives the caller somewhere to go next
+    assert [n["id"] for n in r["callers_of_b"]] == ["b1"]
+    assert r["callees_of_a"] == []
+
+
+def test_path_between_unknown_endpoint(kg):
+    r = kg.path_between("a1", "missing")
+    assert r["found"] is False
+    assert [n["id"] for n in r["callees_of_a"]] == ["b1"]
 
 
 def test_path_between_max_depth_is_clamped(kg):
-    # d1 -> a1 -> b1 -> c1 is 3 hops; max_depth=99 must be clamped to
-    # MAX_PATH_DEPTH (6) rather than accepted verbatim, and the batched BFS
-    # must still find the path within the clamp.
-    path = kg.path_between("d1", "c1", max_depth=99)
-    ids = [p["id"] for p in path if "id" in p]
-    assert ids[0] == "d1" and ids[-1] == "c1"
+    # max_depth=99 must be clamped to MAX_PATH_DEPTH rather than accepted
+    # verbatim, and the search must still find the path within the clamp.
+    assert kg.path_between("a1", "c1", max_depth=99)["found"] is True
 
 
 def test_path_between_clamp_can_make_target_unreachable(kg, monkeypatch):
     from tpk.tools import KnowledgeGraph
 
-    # d1 -> c1 needs 3 hops; clamping MAX_PATH_DEPTH to 1 must make it
+    # a1 -> c1 needs 2 hops; clamping MAX_PATH_DEPTH to 1 must make it
     # unreachable even though the caller asked for max_depth=99.
     monkeypatch.setattr(KnowledgeGraph, "MAX_PATH_DEPTH", 1)
-    assert kg.path_between("d1", "c1", max_depth=99) is None
+    r = kg.path_between("a1", "c1", max_depth=99, mode="calls")
+    assert r["found"] is False and "depth" in r["note"]
+
+
+def _add(kg, client_prefix, nodes, edges):
+    from tpk.ingest import upsert_graph
+
+    client, prefix = client_prefix
+    upsert_graph(client, prefix, nodes, edges, datetime.now(timezone.utc))
+    want = {n.id for n in nodes}
+    _eventually(lambda: {r["id"] for r in kg._nodes_by_ids(sorted(want))}, lambda got: got == want)
+    _eventually(lambda: len(kg._edges_touching(sorted(want), None, "both", None)),
+                lambda n: n >= len(edges))
+
+
+def _fn(id_, name, kind="function"):
+    return Node(id=id_, repo="r1", kind=kind, name=name, qualified_name=f"x.{name}",
+                file_path="x.py", line_start=1, line_end=2, summary="", community="0",
+                visibility="internal")
+
+
+def test_path_between_is_not_cut_off_by_a_wide_fan_out(kg, tp):
+    """The old BFS kept `sorted(frontier)[:200]` per hop -- an arbitrary cut by
+    id that hid real paths (#17). A caller with 250 callees must still reach the
+    one that matters, even when its id sorts last."""
+    fan = [_fn(f"fan{i:03d}", f"helper{i}") for i in range(250)]
+    nodes = [_fn("hub_caller", "dispatch"), _fn("zzz_last", "theOneThatMatters"), _fn("goal", "goal")] + fan
+    edges = ([Edge("hub_caller", n.id, "calls", "EXTRACTED", "r1") for n in fan]
+             + [Edge("hub_caller", "zzz_last", "calls", "EXTRACTED", "r1"),
+                Edge("zzz_last", "goal", "calls", "EXTRACTED", "r1")])
+    _add(kg, tp, nodes, edges)
+    r = kg.path_between("hub_caller", "goal", mode="calls")
+    assert r["found"] is True and _ids(r) == ["hub_caller", "zzz_last", "goal"]
+
+
+def test_related_path_never_routes_through_a_shared_symbol_or_file(kg, tp):
+    """`x.cpp -imports-> Context <-imports- y.cpp` connects everything to
+    everything and means nothing. Symbols and files may be endpoints, never
+    the bridge."""
+    # `left` also has two ordinary callees, so after the first hop the forward
+    # frontier is the bigger one and the search expands from `right` next --
+    # both sides then reach the connector, which must NOT count as a meeting.
+    nodes = [_fn("left", "leftFn"), _fn("right", "rightFn"),
+             _fn("left_c1", "leftCallee1"), _fn("left_c2", "leftCallee2"),
+             _fn("sym_string", "String", kind="symbol"), _fn("file_ctx", "Context.h", kind="file")]
+    edges = [Edge("left", "left_c1", "calls", "EXTRACTED", "r1"),
+             Edge("left", "left_c2", "calls", "EXTRACTED", "r1"),
+             Edge("left", "sym_string", "references", "EXTRACTED", "r1"),
+             Edge("right", "sym_string", "references", "EXTRACTED", "r1"),
+             Edge("left", "file_ctx", "imports", "EXTRACTED", "r1"),
+             Edge("right", "file_ctx", "imports", "EXTRACTED", "r1")]
+    _add(kg, tp, nodes, edges)
+    assert kg.path_between("left", "right")["found"] is False
+    # a symbol is still reachable as an ENDPOINT
+    assert kg.path_between("left", "sym_string")["found"] is True
+
+
+def test_path_between_stops_at_the_visited_budget(kg, tp, monkeypatch):
+    from tpk.tools import KnowledgeGraph
+
+    fan = [_fn(f"bud{i:03d}", f"b{i}") for i in range(60)]
+    nodes = [_fn("bud_src", "src"), _fn("bud_dst", "dst")] + fan
+    edges = [Edge("bud_src", n.id, "calls", "EXTRACTED", "r1") for n in fan]
+    _add(kg, tp, nodes, edges)
+    monkeypatch.setattr(KnowledgeGraph, "MAX_PATH_VISITED", 20)
+    r = kg.path_between("bud_src", "bud_dst", mode="calls")
+    assert r["found"] is False and "budget" in r["note"]
 
 
 def test_dangling_edge_dropped_from_neighbors_and_breaks_path(kg):
@@ -208,7 +306,7 @@ def test_dangling_edge_dropped_from_neighbors_and_breaks_path(kg):
     for e in result["edges"]:
         assert e["src"] != "ghost1" and e["dst"] != "ghost1"
 
-    assert kg.path_between("b1", "ghost1", max_depth=3) is None
+    assert kg.path_between("b1", "ghost1", max_depth=3)["found"] is False
 
 
 def test_list_communities(kg):
