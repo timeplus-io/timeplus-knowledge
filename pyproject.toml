@@ -1,6 +1,8 @@
 [project]
 name = "tpk"
-version = "0.1.0"
+# Placeholder only -- hatchling needs a static value. The REAL version comes from
+# the release tag (see src/tpk/version.py) and this number is reported nowhere.
+version = "0.0.0"
 description = "Timeplus knowledge graph toolkit"
 authors = [
     { email = "gang@timeplus.io" }

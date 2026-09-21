@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useServerVersion, versionLabel } from "./version";
 import { CAP, type Capability, hasCap } from "./capabilities";
 
 // The app-wide sidebar shell. Two widths (mockup t6): expanded (220px, icon +
@@ -78,6 +79,7 @@ export default function Shell({
   onChangePassword: () => void;
   children: ReactNode;
 }) {
+  const serverVersion = useServerVersion();
   // Collapsed state persists across navigation and reloads.
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try { return localStorage.getItem(COLLAPSE_KEY) === "1"; } catch { return false; }
@@ -142,6 +144,12 @@ export default function Shell({
           </svg>
           <span className="tk-nav-collapse-label">Collapse</span>
         </button>
+        {serverVersion && (
+          <div className="tk-version" title={serverVersion.commit
+            ? `tpk ${serverVersion.version} (${serverVersion.commit})` : `tpk ${serverVersion.version}`}>
+            {versionLabel(serverVersion)}
+          </div>
+        )}
         <div className="tk-account" ref={accountRef}>
           <button
             type="button"

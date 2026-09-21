@@ -101,7 +101,7 @@ def _usage_tokens(msg) -> int:
     return 0
 
 
-def _build_kg_and_repos():
+def _build_kg_and_repos(prefix: str = ""):
     """Production path: one shared `KnowledgeGraph` (+ the parsed repo
     config it needs) built up front in `create_app`, reused by both the
     lazily-built chat agent and the graph API router -- instead of each
@@ -114,16 +114,17 @@ def _build_kg_and_repos():
     repos = load_repos(REPOS_TOML)
     settings = Settings.from_env()
     client = db.get_client(settings)
-    db.ensure_schema(client)
-    corpus.seed_from_toml(client, REPOS_TOML)
+    db.ensure_schema(client, prefix)
+    corpus.seed_from_toml(client, REPOS_TOML, prefix=prefix)
     kg = KnowledgeGraph(
         client,
+        stream_prefix=prefix,
         repo_paths=resolved_repo_paths(repos),
     )
     return kg, repos
 
 
-def _build_production_agent(kg, repos):
+def _build_production_agent(kg, repos, prefix: str = ""):
     from tpk import corpus, db
     from tpk.agent import build_agent
     from tpk.config import AgentConfig, Settings
@@ -142,7 +143,7 @@ def _build_production_agent(kg, repos):
 
     def _live_corpus():
         with provider_lock:
-            return [e for e in corpus.list_entries(provider_client) if e.enabled]
+            return [e for e in corpus.list_entries(provider_client, prefix=prefix) if e.enabled]
 
     return build_agent(
         kg,
@@ -204,7 +205,7 @@ def create_app(
         # (fake/no-op) and, when it wants the graph router mounted, its own
         # `kg` built over the test stream prefix -- so this branch never
         # runs there and never touches the network in unit tests.
-        kg, repos_for_agent = _build_kg_and_repos()
+        kg, repos_for_agent = _build_kg_and_repos(stream_prefix)
         # Per-user daily token budget (#62). Always-on in production (not gated
         # by the audit toggle); a fresh client per read/write. Tests inject
         # their own `usage` (or leave it None to disable enforcement).
@@ -219,12 +220,17 @@ def create_app(
 
     def _agent():
         if state["agent"] is None:
-            state["agent"] = _build_production_agent(kg, repos_for_agent)
+            state["agent"] = _build_production_agent(kg, repos_for_agent, stream_prefix)
         return state["agent"]
 
     @app.get("/healthz")
     def healthz():
-        return {"status": "ok"}
+        # Unauthenticated on purpose: a version string is not sensitive, and
+        # it makes "is the rollout live?" a one-line curl (#85).
+        from tpk.version import get_version
+
+        version, commit = get_version()
+        return {"status": "ok", "version": version, "commit": commit}
 
     @app.get("/chat/model")
     def chat_model(user: User = Depends(auth.require_cap(auth_mod.CAP_CHAT))):

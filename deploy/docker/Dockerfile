@@ -52,10 +52,16 @@ RUN printf '#!/bin/sh\nPATH=/opt/tpk/.venv/bin:$PATH exec /opt/tpk/.venv/bin/tpk
     && chmod +x /usr/local/bin/tpk /usr/local/bin/tpk-mcp \
     && mkdir -p /opt/tpk/.checkouts
 # TIMEPLUS_HOST is overridden at runtime to point at the db service.
+# The running version (#85). The build context has no .git, so the image can't
+# work it out: the publish workflow passes the release tag + commit in.
+ARG TPK_VERSION=dev
+ARG TPK_COMMIT=
 ENV TIMEPLUS_HOST=localhost \
     TIMEPLUS_USER=default \
     PYTHONUNBUFFERED=1 \
-    TPK_CHECKOUT_DIR=/opt/tpk/.checkouts
+    TPK_CHECKOUT_DIR=/opt/tpk/.checkouts \
+    TPK_VERSION=${TPK_VERSION} \
+    TPK_COMMIT=${TPK_COMMIT}
 EXPOSE 8000
 ENTRYPOINT ["tpk"]
 CMD ["serve", "--host", "0.0.0.0", "--port", "8000"]
@@ -86,11 +92,15 @@ RUN chmod +x /usr/local/bin/render-users.sh /usr/local/bin/allinone-entrypoint.s
     && chmod +x /usr/local/bin/tpk /usr/local/bin/tpk-mcp \
     && mkdir -p /opt/tpk/.checkouts \
     && chown -R 101:101 /opt/tpk
+ARG TPK_VERSION=dev
+ARG TPK_COMMIT=
 ENV TIMEPLUS_HOST=localhost \
     TIMEPLUS_USER=default \
     TPK_DB_BACKEND=proton \
     PYTHONUNBUFFERED=1 \
-    TPK_CHECKOUT_DIR=/opt/tpk/.checkouts
+    TPK_CHECKOUT_DIR=/opt/tpk/.checkouts \
+    TPK_VERSION=${TPK_VERSION} \
+    TPK_COMMIT=${TPK_COMMIT}
 EXPOSE 8000
 ENTRYPOINT ["/usr/local/bin/allinone-entrypoint.sh"]
 USER 101:101
