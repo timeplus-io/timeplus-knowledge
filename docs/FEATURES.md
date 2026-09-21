@@ -132,7 +132,7 @@ Login-based access control, with roles that scope what each user can query.
 | `8123` | Timeplusd SQL over HTTP (ClickHouse-compatible; override with `TIMEPLUS_PORT`) |
 | `3218` | Timeplus REST ingest API |
 | `tpk-mcp` | stdio MCP server (via `docker compose exec -T app tpk-mcp`) |
-| `tpk` CLI | `ingest`, `status`, `serve`, `export` / `import`, and `auth reset-admin` (break-glass admin recovery) |
+| `tpk` CLI | `ingest`, `status`, `serve`, `export` / `import`, `auth reset-admin` (break-glass admin recovery), and `eval` (run a fixed question set through the agent and report its tool usage) |
 
 **Images** (multi-arch: `linux/amd64` + `linux/arm64`, published per release tag by GitHub Actions): `timeplus/tpk-app` — the app alone, for a separate timeplusd; `timeplus/tpk` — all-in-one (OSS proton + tpk).
 

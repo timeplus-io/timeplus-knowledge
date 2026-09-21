@@ -754,6 +754,25 @@ tools, what does the docs repo say about Quickstart?").
 
 stdio MCP is local and unrestricted: no login, no role scope.
 
+## Evaluate the agent
+
+`tpk eval` runs a small fixed question set (trace, relationship, architecture,
+docs — `src/tpk/eval_questions.toml`) through the **real** chat agent against
+the live graph, and reports *how* it answered: which tools it called, whether
+it used the graph's edges (`neighbors` / `path_between`) or only keyword search,
+how many tool calls it spent, and a sanity check that the answer is about the
+right thing. Use it to measure a prompt, tool or extraction change instead of
+eyeballing chat traces:
+
+    docker compose exec app tpk eval --yes -o /tmp/before.json
+    # ...change something, rebuild...
+    docker compose exec app tpk eval --yes -o /tmp/after.json --compare /tmp/before.json
+
+`--only trace --only relationship` and `--limit N` narrow the run;
+`--questions my.toml` uses your own set. Every question is a full agent run
+against the configured LLM, so it costs tokens (12 questions by default) and
+takes a few minutes. It is a behaviour probe, not a correctness benchmark.
+
 ## Tests
 
     uv run pytest                    # integration tests skip without TIMEPLUS_HOST

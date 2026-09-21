@@ -1,0 +1,92 @@
+# The bundled eval set for `tpk eval` (#35). Written against the Timeplus
+# corpus (proton / proton-enterprise, docs, helm-charts). Keep it SMALL: every
+# question is a real agent run (LLM cost). `expect_answer_any` is a sanity
+# check that the answer is about the right thing, not a correctness oracle.
+#
+# trace / relationship questions must be answered from graph EDGES, so they
+# require one of: neighbors, path_between.
+
+# -- trace: how does A reach B ------------------------------------------------
+[[question]]
+id = "trace-http-insert-nativelog"
+category = "trace"
+question = "Trace the call path from HTTP insert to nativelog write"
+expect_tools_any = ["neighbors", "path_between"]
+expect_answer_any = ["InterpreterInsertQuery", "executeQuery", "NativeLog"]
+
+[[question]]
+id = "trace-insert-build-chain"
+category = "trace"
+question = "Trace how InterpreterInsertQuery::execute ends up building the insert chain: which functions does it go through?"
+expect_tools_any = ["neighbors", "path_between"]
+expect_answer_any = ["buildChainImpl", "buildChain"]
+
+[[question]]
+id = "trace-mv-checkpoint"
+category = "trace"
+question = "Trace how a materialized view checkpoint gets triggered and written to storage."
+expect_tools_any = ["neighbors", "path_between"]
+expect_answer_any = ["checkpoint"]
+
+# -- relationship: one hop ----------------------------------------------------
+[[question]]
+id = "rel-execute-callees"
+category = "relationship"
+question = "What does InterpreterInsertQuery::execute call?"
+expect_tools_any = ["neighbors", "path_between"]
+expect_answer_any = ["buildChainImpl", "getTable", "buildQueryPipeline"]
+
+[[question]]
+id = "rel-produce-callers"
+category = "relationship"
+question = "What calls NativeLog::processProduceRequest?"
+expect_tools_any = ["neighbors", "path_between"]
+expect_answer_any = ["doProcessRequest"]
+
+[[question]]
+id = "rel-iinterpreter-subclasses"
+category = "relationship"
+question = "Which classes inherit from IInterpreter? Name a few."
+expect_tools_any = ["neighbors", "path_between"]
+expect_answer_any = ["InterpreterInsertQuery", "InterpreterSelectQuery", "InterpreterCreateQuery"]
+
+# -- architecture: graph tools help but are not required ----------------------
+[[question]]
+id = "arch-mv-checkpoints"
+category = "architecture"
+question = "How do materialized view checkpoints work?"
+expect_answer_any = ["checkpoint"]
+
+[[question]]
+id = "arch-nativelog"
+category = "architecture"
+question = "What are the main components of the NativeLog subsystem and how do they fit together?"
+expect_answer_any = ["NativeLog"]
+
+[[question]]
+id = "arch-insert-responsibility"
+category = "architecture"
+question = "Where is InterpreterInsertQuery defined and what is it responsible for?"
+expect_answer_any = ["src/Interpreters", "InterpreterInsertQuery.h", "InterpreterInsertQuery.cpp"]
+
+# -- docs / deployment: should come from documents, cheaply -------------------
+[[question]]
+id = "docs-kafka-external-stream"
+category = "docs"
+question = "How do I create an external stream to read from Kafka?"
+expect_answer_any = ["external stream"]
+max_tool_calls = 12
+
+[[question]]
+id = "docs-mutable-stream"
+category = "docs"
+question = "What is a mutable stream and when should I use one?"
+expect_answer_any = ["mutable"]
+max_tool_calls = 12
+
+[[question]]
+id = "deploy-helm-resources"
+category = "docs"
+question = "What does the Helm chart set for timeplusd resources?"
+expect_answer_any = ["resources", "memory", "cpu"]
+max_tool_calls = 12
