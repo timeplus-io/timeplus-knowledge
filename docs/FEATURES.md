@@ -33,6 +33,7 @@ Builds the graph from a pinned, versioned corpus.
   - `code-only` (default): local tree-sitter AST parsing. Free, offline, deterministic. Covers ~30 languages (Python, C/C++, Go, Rust, TypeScript/JS, Java, C#, and more).
   - `semantic`: adds an LLM pass over doc/config files (Markdown, YAML, reST, HTML). **Code is AST-parsed in both modes** — semantic never sends code to the LLM — so LLM cost scales with doc count, not code size.
 - **Pluggable LLM backends.** Anthropic or OpenAI, direct or through a gateway (AWS Bedrock via LiteLLM / Bedrock Access Gateway), configured in the `[llm]` section.
+- **Live progress.** An ingest reports its phase (`fetch` → `extract` → `parse` → `upsert` → `done`) with running node/edge counts — as progress lines in `tpk ingest` and on the job in the Manage tab — instead of going silent for the length of a large repo.
 - **Per-repo isolation & history.** A failing repo logs `failed` and leaves its previous graph intact; `kg_ingest_log` keeps append-only run history (SHA, node/edge counts, status).
 
 ## 2. The knowledge graph
@@ -57,25 +58,45 @@ The `KnowledgeGraph` read layer exposes six composable tools — the same set th
 | `list_communities` | Bounded cluster overview (top N by size, default 50 / max 200, `min_nodes` filter) with `total`/`truncated`, a per-repo summary, and a directory/file label per cluster. |
 | `read_source` | Read exact source lines so answers can quote real code. |
 
+Every result is bounded, because it lands in an LLM's context (the chat agent's or a remote MCP client's): `search_entities` caps `limit` at 200, `neighbors` at depth 3 / 200 nodes per hop, `path_between` at depth 6, `read_source` at 400 lines, and `list_communities` at 200 rows (default 50).
+
 All queries run against a single serialized Timeplus session and are transparently filtered by the active corpus and the caller's role scope (see §7).
 
 ## 4. Chat agent & web UI
 
 - A **LangGraph ReAct agent** reasons over the six graph tools to answer natural-language questions, citing the source it read.
-- **Streaming web UI** (React, Timeplus Console styling) served on port **8000**, with token-by-token SSE streaming and live tool-call display.
+- **Streaming web UI** (React, Timeplus Console styling) served on port **8000**, with token-by-token SSE streaming. The sidebar shows only the pages the caller's capabilities allow:
+  - **Chat** — live tool-call display, a collapsible **thinking trace** (the model's reasoning, including OpenAI-compatible reasoning models such as gpt-oss), and `[n]` citations backed by a **Sources** panel of the exact lines the agent read. The header shows the active chat model.
+  - **Explorer** — search the graph, inspect an entity, walk its neighbors on a radial subgraph, read its source, and hand an entity to Chat ("Ask about this").
+  - **API tokens** — personal tokens for connecting a coding agent over MCP (§5).
+  - **Manage** — the corpus (§6), with live ingest progress.
+  - **Users** — accounts and roles (§7).
+- **Source-code protection.** Raw source — the thinking trace, citation fragments, Explorer's source view, MCP `read_source` — is shown only to roles holding `source:view`; everyone else still gets grounded answers, just without the code itself.
+- **Per-user daily token budget.** Non-admin chat usage is metered per user per day: a per-user limit overrides the role's, which overrides the global default (`TPK_DAILY_TOKEN_LIMIT`, 500k; `0` = unlimited). Only an admin can change a budget.
 - **Dual provider support** (Anthropic / OpenAI) with gateway compatibility; chat model and extraction model are configured independently.
 
-## 5. MCP integration (Claude Code)
+## 5. MCP integration (Claude Code, Cursor, …)
 
-The graph is available to Claude Code (and other MCP clients) as a first-class tool server:
+The same six tools are available to coding agents as an MCP server, two ways.
+
+**Remote — a deployed tpk (streamable HTTP at `/mcp`).** Served by `tpk serve` on the same port as the UI (no extra Service, port or ingress rule; stateless, so it works behind a load balancer).
 
 ```
-claude mcp add timeplus-knowledge -- docker compose exec -T tpk tpk-mcp
+claude mcp add --transport http timeplus-knowledge https://<host>/mcp \
+  --header "Authorization: Bearer tpk_…"
 ```
 
-The MCP server exposes the same six tools, so a coding assistant can search the Timeplus codebase, trace call paths, and quote source directly in its own workflow.
+- **The caller is a tpk user.** A token acts as its owner: `explore` to connect, the role's corpus scope on every tool call, `source:view` for `read_source`. Role or capability changes apply on the next call; nothing is cached in the token.
+- **Personal API tokens.** Created on the **API tokens** page (shown once, with a ready-to-paste `claude mcp add` command): optional expiry (never / 30 / 90 / 365 days), up to 20 per user, stored only as SHA-256 hashes, valid **only** at `/mcp` (never for the REST API). Users revoke their own; a `users:manage` holder can revoke anyone's; disabling or deleting a user revokes theirs.
+- **Fail-closed and auditable.** 401 / 403 / 503 mirror the REST API; denied requests are logged at WARNING on `tpk.mcp` (tokens are never logged); internal errors are masked for remote callers. `TPK_MCP_HTTP_ENABLED=0` turns the endpoint off; `TPK_MCP_ALLOWED_HOSTS` restricts accepted `Host` headers.
 
-For a deployed `tpk serve`, the same six tools are also reachable remotely over streamable HTTP at `/mcp`: create a personal API token in the web UI ("API tokens" page) and register it with `claude mcp add --transport http` and an `Authorization: Bearer <token>` header. The call then runs as the token's user, scoped like chat.
+**Local — stdio.** Unrestricted (no login, no role scope); runs where the DB credentials are:
+
+```
+claude mcp add timeplus-knowledge -- docker compose exec -T app tpk-mcp
+```
+
+From a checkout, pass `TIMEPLUS_HOST` / `TIMEPLUS_USER` / `TIMEPLUS_PASSWORD` with `-e` (or `make mcp-register TIMEPLUS_PASSWORD=…`). If it cannot connect, the server exits with one line saying why.
 
 ## 6. Corpus management (issue #4)
 
@@ -95,7 +116,7 @@ Login-based access control, with roles that scope what each user can query.
 
 - **Users, roles, sessions** stored in Timeplus streams (`kg_users`, `kg_roles`, `kg_sessions`), plus the remote-MCP API tokens (`kg_api_tokens` and their last-use timestamps in `kg_api_token_usage`). Passwords are argon2id-hashed; session and API tokens are stored only as SHA-256 hashes.
 - **Seeded admin + forced change.** A fresh deployment seeds `admin` / `changeme`; the admin must change the password on first login before anything else.
-- **Function capabilities per role (issue #23).** A role grants any subset of `chat`, `explore`, `corpus:view`/`corpus:manage`, `users:view`/`users:manage` (`:manage` implies `:view`), enforced identically on the API and the UI — the sidebar and each screen show only what the caller holds. The built-in `admin` role is the reserved super-role with every capability. Existing roles migrate to chat-only on upgrade.
+- **Function capabilities per role (issue #23).** A role grants any subset of `chat`, `explore`, `corpus:view`/`corpus:manage`, `users:view`/`users:manage` (`:manage` implies `:view`), and `source:view` (see raw source: thinking trace, citation fragments, Explorer source, MCP `read_source`), enforced identically on the API and the UI — the sidebar and each screen show only what the caller holds. The built-in `admin` role is the reserved super-role with every capability. Existing roles migrate to chat-only on upgrade.
 - **Role-scoped chat.** Orthogonal to capabilities: a role lists the exact `name@ref` corpus entries its members may query, and a non-admin's chat/explore results are transparently restricted to that scope (admin, the local stdio MCP server, and the CLI are unrestricted; the remote `/mcp` endpoint runs as the token's user and is scoped like chat). Isolation is enforced server-side across every graph tool path.
 - **Bounded delegation.** A non-admin with `users:manage` can never mint admins or manage admin users, and can only grant capabilities and corpus entries within its own grant — no self-promotion path.
 - **Admin console.** A Users/Roles console manages accounts, role assignments, password resets, per-role capabilities, and per-role entry-key access; last-admin lockout is prevented, and `tpk auth reset-admin` recovers the admin account from the command line if it happens anyway.
@@ -105,12 +126,17 @@ Login-based access control, with roles that scope what each user can query.
 
 | Port / entry | Purpose |
 |--------------|---------|
-| `8000` | Chat agent + web UI (login-gated) |
-| `8123` | Timeplusd SQL over HTTP (ClickHouse-compatible) |
-| `3218` | Timeplus REST ingest API |
-| `tpk-mcp` | MCP server (via `docker compose exec`) |
+| `8000` | Chat agent + web UI (login-gated), REST API, and `/mcp` |
 | `/mcp` | Remote MCP endpoint (streamable HTTP, per-user API token) |
-| `tpk` CLI | `ingest`, `status`, `serve`, corpus commands, and `auth reset-admin` (break-glass admin recovery) |
+| `/healthz` | Liveness |
+| `8123` | Timeplusd SQL over HTTP (ClickHouse-compatible; override with `TIMEPLUS_PORT`) |
+| `3218` | Timeplus REST ingest API |
+| `tpk-mcp` | stdio MCP server (via `docker compose exec -T app tpk-mcp`) |
+| `tpk` CLI | `ingest`, `status`, `serve`, `export` / `import`, and `auth reset-admin` (break-glass admin recovery) |
+
+**Images** (multi-arch: `linux/amd64` + `linux/arm64`, published per release tag by GitHub Actions): `timeplus/tpk-app` — the app alone, for a separate timeplusd; `timeplus/tpk` — all-in-one (OSS proton + tpk).
+
+**Ways to run it:** docker compose (DB + app), the all-in-one container, or Kubernetes — all-in-one, DB + app, or app-only against an existing Timeplus Enterprise (see [`deploy/k8s`](../deploy/k8s/README.md), including the upgrade procedure).
 
 ## Getting started
 

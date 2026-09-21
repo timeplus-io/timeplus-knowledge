@@ -354,9 +354,18 @@ counts being bit-for-bit reproducible across ingests of the same commit.
 
 `tpk serve` runs a FastAPI server exposing a streaming chat agent (`POST
 /chat`, Server-Sent Events: each event is a `data: {...}\n\n` line with
-`type` one of `token` | `tool` | `done` | `error`) over the knowledge graph,
+`type` one of `token` | `thinking` | `tool` | `tool_result` | `source` | `done` |
+`error`; `thinking` and `source` are sent only to callers holding `source:view`)
+over the knowledge graph,
 plus the built React web UI at `/` (mounted from `web/dist` when present) and
 `GET /healthz`.
+
+The web UI's sidebar shows only the pages the caller's capabilities allow:
+**Chat** (live tool calls, a collapsible thinking trace, `[n]` citations with a
+Sources panel), **Explorer** (search, entity detail, neighbors graph, source),
+**API tokens** (personal tokens for [MCP](#use-from-claude-code-mcp)),
+**Manage** (the corpus, with live ingest progress) and **Users** (accounts and
+roles).
 
 The agent needs its own LLM configuration, separate from graphify's
 extraction backend — set in `.env` or the shell:
@@ -582,11 +591,17 @@ governs access along two orthogonal axes:
 
 - **Function capabilities** — which features a member can reach. Any subset
   of `chat`, `explore`, `corpus:view`, `corpus:manage`, `users:view`,
-  `users:manage` (`:manage` implies `:view`), enforced identically on the
+  `users:manage` (`:manage` implies `:view`) and `source:view`, enforced
+  identically on the
   API (each endpoint requires its capability) and the UI (the sidebar and
   each screen show only what the caller holds). Omitting `capabilities` when
   creating a role defaults it to chat-only; roles created before this
   feature migrate to chat-only on upgrade.
+  `explore` also covers the **API tokens** page and connecting a coding agent
+  over [remote MCP](#remote-http--a-deployed-tpk). `source:view` gates raw
+  source everywhere it can appear — the chat thinking trace and citation
+  fragments, Explorer's source view, and the MCP `read_source` tool; without
+  it a member still gets grounded answers, just not the code itself.
 - **Corpus scope** — `entry_keys`, each a corpus entry identity in the same
   `name@ref` (or bare `name` for local-path entries) form used throughout
   [Manage the corpus](#manage-the-corpus). A non-admin's `chat`/`explore`
@@ -713,7 +728,12 @@ fails to start, which shows up in `claude mcp list` as
 `✘ Failed to connect — -32000: MCP error -32000: Connection closed`.
 
 Tools: `search_entities`, `get_entity`, `neighbors`, `path_between`,
-`list_communities`, `read_source`.
+`list_communities`, `read_source`. Every result is bounded (it lands in the
+agent's context): `search_entities` caps `limit` at 200, and
+`list_communities` returns the top 50 clusters by default (max 200, `min_nodes`
+to skip tiny ones) as `{communities, total, returned, truncated, by_repo}`, each
+cluster labelled with its dominant directories and files — pass `repo` to drill
+into one corpus entry.
 
 Built on the `mcp` SDK 2.0 (`FastMCP`); verify registration with
 `claude mcp list` and exercise the tools by asking Claude Code a question
@@ -740,7 +760,14 @@ auth fails, so point the suite at the `tpk` user instead:
       uv run pytest -q
 
 This also exercises the credentialed connection path end-to-end, not just
-the unauthenticated dev default.
+the unauthenticated dev default. The test fixtures address their streams
+without a database qualifier, so if the suite fails with `Stream
+default.test_… doesn't exist`, add `TIMEPLUS_DATABASE=default`.
+
+`TIMEPLUS_PORT` points the suite (and everything else) at a timeplusd on a
+non-default port — handy when 8123 is taken by another project. A local
+database (`localhost` / `127.0.0.1`) is always reached directly, so a
+shell-wide `HTTP_PROXY` does not get in the way.
 
 ## Manual queries
 
