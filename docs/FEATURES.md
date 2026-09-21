@@ -54,11 +54,11 @@ The `KnowledgeGraph` read layer exposes six composable tools — the same set th
 | `search_entities` | Find code/doc entities by keyword (filterable by kind, repo). |
 | `get_entity` | Fetch one entity's full record. |
 | `neighbors` | Local subgraph around an entity (BFS, direction- and relation-filtered). |
-| `path_between` | Shortest connection between two entities. |
+| `path_between` | How two entities are connected: a **directed call chain** first (either direction, listed caller-first), else a "related" path over other relations that is labelled as *not* a call chain and never routes through a shared file or type symbol. When nothing is found it returns each end's direct callers/callees as next steps. |
 | `list_communities` | Bounded cluster overview (top N by size, default 50 / max 200, `min_nodes` filter) with `total`/`truncated`, a per-repo summary, and a directory/file label per cluster. |
 | `read_source` | Read exact source lines so answers can quote real code. |
 
-Every result is bounded, because it lands in an LLM's context (the chat agent's or a remote MCP client's): `search_entities` caps `limit` at 200, `neighbors` at depth 3 / 200 nodes per hop, `path_between` at depth 6, `read_source` at 400 lines, and `list_communities` at 200 rows (default 50).
+Every result is bounded, because it lands in an LLM's context (the chat agent's or a remote MCP client's): `search_entities` caps `limit` at 200, `neighbors` at depth 3 / 200 nodes per hop, `path_between` at depth 12 within a 5,000-entity search budget, `read_source` at 400 lines, and `list_communities` at 200 rows (default 50).
 
 All queries run against a single serialized Timeplus session and are transparently filtered by the active corpus and the caller's role scope (see §7).
 

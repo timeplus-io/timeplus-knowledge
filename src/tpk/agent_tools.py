@@ -66,15 +66,20 @@ def build_agent_tools(kg) -> list:
         )
 
     @tool
-    def path_between(id_a: str, id_b: str, max_depth: int = 4) -> list[dict] | None | str:
-        """Shortest connection between two entities (depth capped at 6), or
-        null if none found. Use this to trace a connection or call path
-        between two endpoints: search_entities for each endpoint's id, then
-        path_between(id_a, id_b). A null result means no path within
-        max_depth — the extracted call graph can be incomplete (C++ virtual
-        dispatch, templates), so a missing path does not prove the code lacks
-        the relationship; fall back to neighbors on each endpoint."""
-        return _safe(kg.path_between, id_a, id_b, max_depth=max_depth)
+    def path_between(id_a: str, id_b: str, max_depth: int = 8,
+                     mode: str = "auto") -> dict | str:
+        """How are two entities connected? Returns {found, mode, direction, path,
+        note}. mode="auto" (default) looks for a DIRECTED CALL CHAIN first
+        (A calls ... calls B, or the reverse -- `direction` says which; the
+        path is listed caller first), then falls back to a "related" path
+        over other relations, which is NOT a call chain -- always check
+        `mode` before describing the result. mode="calls" / "related" force
+        one. When found is false, `callees_of_a` / `callers_of_b` list the
+        direct calls at each end: the extracted call graph is incomplete
+        (C++ virtual dispatch, untyped member calls), so continue from those
+        with neighbors() and read_source rather than concluding "no
+        connection". max_depth is capped at 12."""
+        return _safe(kg.path_between, id_a, id_b, max_depth=max_depth, mode=mode)
 
     @tool
     def list_communities(repo: str | None = None, limit: int | None = None,
