@@ -736,8 +736,12 @@ fails to start, which shows up in `claude mcp list` as
 `✘ Failed to connect — -32000: MCP error -32000: Connection closed`.
 
 Tools: `search_entities`, `get_entity`, `neighbors`, `path_between`,
-`list_communities`, `read_source`. Every result is bounded (it lands in the
-agent's context): `search_entities` caps `limit` at 200, and
+`list_communities`, `read_source`. `path_between` returns `{found, mode,
+direction, path, note}`: `mode: "calls"` is a real directed call chain,
+`mode: "related"` only an association; when nothing is found it lists each
+end's direct callers/callees, because the extracted C++ call graph is
+incomplete (virtual dispatch, untyped member calls). Every result is bounded (it
+lands in the agent's context): `search_entities` caps `limit` at 200, and
 `list_communities` returns the top 50 clusters by default (max 200, `min_nodes`
 to skip tiny ones) as `{communities, total, returned, truncated, by_repo}`, each
 cluster labelled with its dominant directories and files — pass `repo` to drill
