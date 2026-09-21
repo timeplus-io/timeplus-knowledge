@@ -40,7 +40,7 @@ Builds the graph from a pinned, versioned corpus.
 
 Stored entirely in Timeplus streams — no separate graph database.
 
-- **Entities** (`kg_nodes`): functions, classes, files, documents, concepts — each with kind, name, qualified name, source location, and a summary.
+- **Entities** (`kg_nodes`): each with kind, name, qualified name, source location, and a summary. Code kinds are `function` (functions and methods, named `Class::method`), `class`, `member` (a field, or a method that is only declared), `file`, and `symbol` (a bare type/alias reference); doc kinds are `document`, `concept`, `rationale`, `paper`, `image`. graphify has no class/method notion of its own, so tpk derives the code kinds from the graph structure — e.g. an out-of-class C++ definition (`BlockIO Foo::execute() {…}`) is recognised as the method `Foo::execute` via the class's `defines` edge.
 - **Relationships** (`kg_edges`): calls, imports, containment, and semantic links, each tagged with a confidence bucket (extracted vs. inferred).
 - **Communities**: clusters of densely connected entities, found by graphify's community detection at ingest — roughly a subsystem. Ids are opaque numbers unique only within one `repo@ref`; `list_communities` labels each with its dominant directories and files.
 - Node IDs hash a versioned entry key so multiple releases of the same repo coexist without collision.

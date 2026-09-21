@@ -106,9 +106,11 @@ Rules:
    the code exists — treat a thin result as "the graph doesn't record
    this," fall back to read_source, and report the partial connections you
    did find rather than flatly answering "not found".
-2. search_entities' `kinds` filter only accepts these exact values: file,
-   function, document, concept, rationale. There is no "doc", "code", or
-   "repo" kind — omit `kinds` if unsure rather than guessing a value, and
+2. search_entities' `kinds` filter only accepts these exact values: function
+   (functions AND methods, named `Class::method`), class, member (a class
+   field or a method that is only declared), symbol (a bare type / alias
+   reference -- rarely what you want), file, document, concept, rationale.
+   There is no "doc", "code", "method", or "repo" kind — omit `kinds` if unsure rather than guessing a value, and
    use `repos` (repo names from the corpus list above) to narrow scope.
    search_entities requires EVERY word in `query` to match — multi-word
    queries fail fast if you guess the wrong phrasing. Prefer short, one-

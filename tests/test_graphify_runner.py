@@ -112,8 +112,8 @@ def test_inferred_confidence_stays_inferred(tmp_path: Path):
 
 
 def test_file_kind_nodes_in_same_file_get_distinct_ids(tmp_path: Path):
-    # Real graphify output maps every non-callable "code" node to kind="file"
-    # -- not just the one node representing the file itself. Two such nodes
+    # Real graphify output emits many non-callable "code" nodes per file, not
+    # just the one node representing the file itself. Two such nodes
     # in the same source_file (e.g. two top-level structs, or a shell
     # function the `_callable` heuristic missed) must not collapse onto the
     # same node id, or the mutable-stream upsert silently drops one of them.
@@ -136,11 +136,126 @@ def test_file_kind_nodes_in_same_file_get_distinct_ids(tmp_path: Path):
     )
     nodes, _ = parse_graph_json(g, repo="r", default_visibility="internal")
     assert len(nodes) == 2
-    assert all(n.kind == "file" for n in nodes)
+    # only the node that IS the file is a "file"; the struct is a "symbol" (#17)
+    assert {n.name: n.kind for n in nodes} == {"common.go": "file", "Topology": "symbol"}
     ids = {n.id for n in nodes}
     assert len(ids) == 2, "two distinct file-kind nodes in one file must not share an id"
     qualified_names = {n.qualified_name for n in nodes}
     assert len(qualified_names) == 2
+
+
+# -- kinds and names from graph structure (#17) -------------------------------
+# graphify has no class/method kinds: a class is `_callable` + `_callable_class`,
+# an in-class inline method is callable with a ".name()" label, and an
+# OUT-OF-CLASS definition (`BlockIO Foo::execute() {...}` -- the dominant C++
+# form) comes out NON-callable with a BARE label, merged into the header
+# declaration. The shapes below are copied from real proton-enterprise output
+# (src/Interpreters/InterpreterInsertQuery.{h,cpp}).
+
+def _cpp_graph(tmp_path: Path) -> Path:
+    H, CPP = "src/I/Insert.h", "src/I/Insert.cpp"
+    code = {"file_type": "code"}
+    g = tmp_path / "graph.json"
+    g.write_text(json.dumps({
+        "nodes": [
+            {"id": "h", "label": "Insert.h", "source_file": H, "source_location": "L1", **code},
+            {"id": "cpp", "label": "Insert.cpp", "source_file": CPP, "source_location": "L1", **code},
+            {"id": "cls", "label": "InterpreterInsertQuery", "source_file": H, "source_location": "L20",
+             "_callable": True, "_callable_class": True, **code},
+            {"id": "base", "label": "IInterpreter", "source_file": H, "source_location": "L20", **code},
+            {"id": "ctor", "label": "InterpreterInsertQuery::InterpreterInsertQuery()", "source_file": CPP,
+             "source_location": "L46", "_callable": True, **code},
+            {"id": "inline", "label": ".supportsTransactions()", "source_file": H, "source_location": "L66",
+             "_callable": True, **code},
+            {"id": "exec", "label": "execute", "source_file": H, "source_location": "L36", **code},
+            {"id": "decl_only", "label": "getTable", "source_file": H, "source_location": "L63", **code},
+            {"id": "field", "label": "query_ptr", "source_file": H, "source_location": "L71", **code},
+            {"id": "free", "label": "isTrivialSelect()", "source_file": CPP, "source_location": "L183",
+             "_callable": True, **code},
+            {"id": "alias", "label": "String", "source_file": H, "source_location": "L5", **code},
+        ],
+        "links": [
+            {"source": "h", "target": "cls", "relation": "contains"},
+            {"source": "cls", "target": "base", "relation": "inherits"},
+            {"source": "cls", "target": "inline", "relation": "method"},
+            {"source": "cls", "target": "exec", "relation": "defines"},
+            {"source": "cpp", "target": "exec", "relation": "contains"},
+            {"source": "exec", "target": "free", "relation": "calls"},
+            {"source": "cls", "target": "decl_only", "relation": "defines"},
+            {"source": "cls", "target": "field", "relation": "defines"},
+            {"source": "cpp", "target": "ctor", "relation": "contains"},
+            {"source": "cpp", "target": "free", "relation": "contains"},
+            {"source": "exec", "target": "alias", "relation": "references"},
+        ],
+    }))
+    return g
+
+
+def test_kinds_are_derived_from_graph_structure(tmp_path: Path):
+    nodes, _ = parse_graph_json(_cpp_graph(tmp_path), repo="r", default_visibility="internal")
+    assert {n.name: n.kind for n in nodes} == {
+        "Insert.h": "file",
+        "Insert.cpp": "file",
+        "InterpreterInsertQuery": "class",
+        "IInterpreter": "class",                                  # only known as a base class
+        "InterpreterInsertQuery::InterpreterInsertQuery": "function",
+        "InterpreterInsertQuery::supportsTransactions": "function",  # ".name()" inline method
+        "InterpreterInsertQuery::execute": "function",            # out-of-class definition
+        "InterpreterInsertQuery::getTable": "member",             # declared, body not in the graph
+        "InterpreterInsertQuery::query_ptr": "member",            # field
+        "isTrivialSelect": "function",
+        "String": "symbol",                                       # bare type reference
+    }
+
+
+def test_out_of_class_method_keeps_its_calls_and_is_searchable_by_class(tmp_path: Path):
+    nodes, edges = parse_graph_json(_cpp_graph(tmp_path), repo="r", default_visibility="internal")
+    by_name = {n.name: n for n in nodes}
+    execute = by_name["InterpreterInsertQuery::execute"]
+    assert "InterpreterInsertQuery::execute" in execute.qualified_name
+    calls = {(e.src, e.dst) for e in edges if e.rel == "calls"}
+    assert (execute.id, by_name["isTrivialSelect"].id) in calls
+
+
+def test_reclassified_nodes_keep_distinct_ids(tmp_path: Path):
+    nodes, _ = parse_graph_json(_cpp_graph(tmp_path), repo="r", default_visibility="internal")
+    assert len({n.id for n in nodes}) == len(nodes) == 11
+
+
+def test_same_method_name_in_two_classes_does_not_collide(tmp_path: Path):
+    g = tmp_path / "graph.json"
+    code = {"file_type": "code", "source_file": "a.h", "source_location": "L1"}
+    g.write_text(json.dumps({
+        "nodes": [
+            {"id": "A", "label": "A", "_callable": True, "_callable_class": True, **code},
+            {"id": "B", "label": "B", "_callable": True, "_callable_class": True, **code},
+            {"id": "a_exec", "label": "execute", **code},
+            {"id": "b_exec", "label": "execute", **code},
+        ],
+        "links": [
+            {"source": "A", "target": "a_exec", "relation": "defines"},
+            {"source": "B", "target": "b_exec", "relation": "defines"},
+            {"source": "a_exec", "target": "b_exec", "relation": "calls"},
+        ],
+    }))
+    nodes, edges = parse_graph_json(g, repo="r", default_visibility="internal")
+    assert sorted(n.name for n in nodes if n.kind == "function") == ["A::execute"]
+    assert sorted(n.name for n in nodes if n.kind == "member") == ["B::execute"]
+    assert len({n.id for n in nodes}) == 4 and len(edges) == 3
+
+
+def test_overloaded_functions_in_one_file_keep_distinct_ids(tmp_path: Path):
+    # Two overloads share `file::name`; the mutable-stream upsert would silently
+    # keep only one (~3% of proton's functions). The second falls back to the
+    # graphify id, so both survive and the first keeps its readable name.
+    g = tmp_path / "graph.json"
+    code = {"file_type": "code", "source_file": "a.cpp", "source_location": "L1", "_callable": True}
+    g.write_text(json.dumps({"nodes": [{"id": "f_int", "label": "f()", **code},
+                                       {"id": "f_str", "label": "f()", **code}], "links": []}))
+    nodes, _ = parse_graph_json(g, repo="r", default_visibility="internal")
+    assert [n.name for n in nodes] == ["f", "f"]
+    assert sorted(n.qualified_name for n in nodes) == ["a.cpp::f", "a.cpp::f#f_str"]
+    assert len({n.id for n in nodes}) == 2
 
 
 class _FakePopen:
