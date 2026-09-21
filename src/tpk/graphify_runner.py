@@ -28,26 +28,36 @@ node-link-format graph. Verified against real output (graphify 0.9.38,
 
 Notable differences from a naive "kind"/"name"/"edges" guess:
 - Edges live under "links", not "edges" (bare networkx node_link_data shape).
-- There is no "kind"/"type" field on nodes. Node category is derived from
-  "file_type" plus the "_callable" flag: a callable code node is a
-  `function`, a non-callable "code" node is mapped to `file`, and any other
-  file_type passes through as-is (see the documented vocabulary below).
-  NOTE: despite the name, `file` is *not* one node per source file in real
-  graphify output -- it also catches top-level structs/types/vars and
-  functions the `_callable` heuristic misses (observed on timeplus-cli:
-  e.g. a shell function labeled "handle_signal()" with `_callable` unset).
-  Do not assume `file`-kind qualified_name/id is a stable per-file handle.
+- There is no "kind"/"type" field on nodes. tpk derives one (CODE_KINDS) from
+  the node's flags AND its edges -- flags alone misfile a third of a C++
+  codebase (#17, measured on proton-enterprise: 102k "file" nodes, 13k real):
+    * `class`    -- `_callable_class`; or a node known only as one end of an
+                    `inherits` edge.
+    * `function` -- `_callable` ("name()" free function, ".name()" method
+                    written inside its class); OR a non-callable node a class
+                    `defines` whose body is in the graph (a source file
+                    `contains` it, or it makes calls). That second shape is an
+                    OUT-OF-CLASS definition (`BlockIO Foo::execute() {...}`, the
+                    dominant C++ form): graphify merges it into the header
+                    declaration, leaving a bare `execute` label and no
+                    `_callable` flag -- but its `calls` edges are intact.
+    * `member`   -- a class `defines` it and no body is known: a field, or a
+                    method that is only declared (pure virtual / defined in a
+                    file outside the extraction).
+    * `file`     -- the one node whose label is its source file's basename.
+    * `symbol`   -- anything else: bare type / alias / variable references
+                    (`String`, `ContextPtr`, ...). Often very high degree.
+  Methods and members are named `Class::name` from the owning class's label.
 - There is no "name" field; the human name is derived from "label"
   (stripping a trailing "()" for callables).
 - There is no "qualified_name"/"fqn" field; one is synthesized so it is
-  stable *and unique* across the graph: `source_file::name` for callables
-  (`function` kind); `source_file::<graphify's own node id>` for everything
-  else (`file` kind and all DOC_KINDS). The node's own "id" is used --
-  rather than, say, its label or line number -- because it is the one field
+  stable *and unique* across the graph: `source_file::name` for `function`
+  nodes (falling back to `...#<graphify id>` when two share it, e.g.
+  overloads); `source_file::<graphify's own node id>` for everything else.
+  The node's own "id" is used -- rather than, say, its label or line number -- because it is the one field
   graphify guarantees is unique per node (it is the dict key in the
-  node-link graph); label and line number are not (a "file" node can share
-  a source_file and line with an unrelated node -- see the `file` kind note
-  below).
+  node-link graph); label and line number are not (two nodes can share a
+  source_file, label and line -- see the kind note above).
 - File location is "source_file" (not "file"/"file_path"), and there is a
   single "source_location" like "L6" rather than separate line_start/
   line_end fields.
@@ -241,20 +251,81 @@ def _first(d: dict, keys: list[str], default=""):
 DOC_KINDS = {"document", "paper", "image", "rationale", "concept"}
 
 
-def _node_kind_and_name(rn: dict) -> tuple[str, str]:
-    """Derive (kind, name) from graphify's file_type/_callable/label fields."""
-    label = str(_first(rn, ["label", "name", "title"], _first(rn, ["id"], "")))
-    file_type = str(_first(rn, ["file_type", "kind", "type"], "code")).lower()
-    callable_ = bool(rn.get("_callable", False))
+# Kinds for source-derived ("code") nodes. graphify itself has no such field:
+# they are derived from the node's flags AND its edges (see _classify_code_node).
+CODE_KINDS = ("file", "class", "function", "member", "symbol")
 
-    if callable_:
+
+def _label(rn: dict) -> str:
+    return str(_first(rn, ["label", "name", "title"], _first(rn, ["id"], "")))
+
+
+class _Structure:
+    """What the EDGES say about each raw node -- needed because graphify's node
+    flags alone misfile a third of a C++ codebase (#17): an out-of-class method
+    definition (`BlockIO Foo::execute() {...}`, the dominant C++ form) comes out
+    NON-callable with a bare label, merged into its header declaration."""
+
+    def __init__(self, raw_nodes: list[dict], raw_edges: list[dict]):
+        self.owner: dict[str, str] = {}      # member id -> id of the class that defines it
+        self.contained: set[str] = set()     # a source file `contains` it (it has a body there)
+        self.calls_out: set[str] = set()
+        self.in_hierarchy: set[str] = set()  # either end of an `inherits` edge
+        self.label = {str(_first(rn, ["id", "name"])): _label(rn) for rn in raw_nodes}
+        for re_ in raw_edges:
+            src = str(_first(re_, ["source", "src", "from"]))
+            dst = str(_first(re_, ["target", "dst", "to"]))
+            rel = str(_first(re_, ["relation", "rel", "type", "label"], "")).lower()
+            if rel in ("defines", "method"):
+                self.owner.setdefault(dst, src)
+            elif rel == "contains":
+                self.contained.add(dst)
+            elif rel in ("calls", "indirect_call"):
+                self.calls_out.add(src)
+            elif rel in ("inherits", "extends"):
+                self.in_hierarchy.update((src, dst))
+
+    def qualify(self, raw_id: str, name: str) -> str:
+        """`execute` -> `InterpreterInsertQuery::execute` when a class owns it."""
+        owner = self.label.get(self.owner.get(raw_id, ""), "")
+        if owner and "::" not in name:
+            return f"{owner}::{name}"
+        return name
+
+
+def _node_kind_and_name(rn: dict, structure: "_Structure | None" = None) -> tuple[str, str]:
+    """Derive (kind, name) from graphify's flags plus the graph structure."""
+    label = _label(rn)
+    file_type = str(_first(rn, ["file_type", "kind", "type"], "code")).lower()
+    if file_type != "code" and not rn.get("_callable"):
+        # document/paper/image/rationale/concept (or any other non-"code" value):
+        # pass the documented file_type through as the node kind unchanged.
+        return file_type or "entity", label
+    return _classify_code_node(rn, label, structure or _Structure([], []))
+
+
+def _classify_code_node(rn: dict, label: str, st: "_Structure") -> tuple[str, str]:
+    raw_id = str(_first(rn, ["id", "name"]))
+    if rn.get("_callable_class"):
+        return "class", label
+    if rn.get("_callable"):
+        # "name()" free function, or ".name()" for a method written inside its class.
         name = label[:-2] if label.endswith("()") else label
-        return "function", name
-    if file_type == "code":
-        return "file", label
-    # document/paper/image/rationale/concept (or any other non-"code" value):
-    # pass the documented file_type through as the node kind unchanged.
-    return file_type or "entity", label
+        return "function", st.qualify(raw_id, name.lstrip("."))
+    source_file = str(_first(rn, ["source_file", "file_path", "file", "path"], ""))
+    if source_file and label == source_file.rsplit("/", 1)[-1]:
+        return "file", label                       # the node that IS the file
+    if raw_id in st.owner:
+        # A class member. It is a method when its body is in the graph (a .cpp
+        # `contains` it, or it makes calls); otherwise a field -- or a method
+        # that is only declared here (pure virtual / defined elsewhere).
+        has_body = raw_id in st.contained or raw_id in st.calls_out
+        return ("function" if has_body else "member"), st.qualify(raw_id, label)
+    if raw_id in st.in_hierarchy:
+        return "class", label                      # known only as a base/derived class
+    if raw_id in st.calls_out:
+        return "function", label
+    return "symbol", label                         # bare type / alias / variable reference
 
 
 def _parse_line(rn: dict) -> int:
@@ -277,33 +348,30 @@ def parse_graph_json(
     raw_nodes = data.get("nodes", [])
     raw_edges = data.get("edges") or data.get("links") or []
 
+    structure = _Structure(raw_nodes, raw_edges)
+    seen_function_names: set[str] = set()
     nodes: list[Node] = []
     id_map: dict[str, str] = {}  # graphify id -> stable tpk id
     for rn in raw_nodes:
         raw_id = str(_first(rn, ["id", "name"]))
-        kind, name = _node_kind_and_name(rn)
+        kind, name = _node_kind_and_name(rn, structure)
         file_path = str(_first(rn, ["source_file", "file_path", "file", "path"]))
 
-        if kind == "file":
-            # "file" is not actually one node per file: graphify emits many
-            # non-callable "code" nodes per file (structs, top-level vars,
-            # shell functions missed by the `_callable` heuristic, ...), all
-            # mapped to kind="file" by _node_kind_and_name above. A bare
-            # `file_path` qualified_name collapsed all of them onto one node
-            # id (mutable-stream upsert silently dropped the rest -- verified
-            # against real timeplus-cli output: 473 parsed nodes down to 99
-            # stored rows). Disambiguate with the node's own graphify id,
-            # which is guaranteed unique within one graph.json (it is the
-            # node-link graph's own dict key) -- same pattern as the
-            # DOC_KINDS branch below, which never collided.
-            base = f"{file_path}::{raw_id}" if file_path else raw_id
-            qualified = str(_first(rn, ["qualified_name", "qualifiedName", "fqn"], base))
-        elif kind == "function":
+        if kind == "function":
+            # `file::Class::method` -- stable across runs and human-meaningful.
+            # Collisions (overloads, or a graphify node split across decl/def)
+            # fall back to the raw graphify id, which is unique per graph.json.
             base = f"{file_path}::{name}" if file_path else name
-            qualified = str(_first(rn, ["qualified_name", "qualifiedName", "fqn"], base))
+            if base in seen_function_names:
+                base = f"{base}#{raw_id}"
+            seen_function_names.add(base)
         else:
+            # Everything else is keyed by graphify's own node id: many such
+            # nodes share a file AND a label (fields, symbols, doc fragments),
+            # and a bare `file::label` collapsed them onto one row (verified on
+            # real timeplus-cli output: 473 parsed nodes -> 99 stored rows).
             base = f"{file_path}::{raw_id}" if file_path else raw_id
-            qualified = str(_first(rn, ["qualified_name", "qualifiedName", "fqn"], base))
+        qualified = str(_first(rn, ["qualified_name", "qualifiedName", "fqn"], base))
 
         line = _parse_line(rn)
         stable = node_id(repo, kind, qualified)

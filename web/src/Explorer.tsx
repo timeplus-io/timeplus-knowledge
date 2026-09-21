@@ -11,10 +11,12 @@ import {
   type SourceResponse,
 } from "./graph";
 
-// Real kind vocabulary emitted by the graphify pipeline (src/tpk/
-// graphify_runner.py's _node_kind_and_name / DOC_KINDS) -- "class" etc in
-// the mockup are illustrative, not an actual value this backend produces.
-const KIND_OPTIONS = ["function", "file", "document", "paper", "image", "rationale", "concept"];
+// Real kind vocabulary emitted by the ingest pipeline (src/tpk/
+// graphify_runner.py: CODE_KINDS + DOC_KINDS). Code kinds are derived from the
+// graph structure (#17): "member" = a class field or declared-only method,
+// "symbol" = a bare type / alias / variable reference.
+const KIND_OPTIONS = ["function", "class", "member", "symbol", "file",
+  "document", "paper", "image", "rationale", "concept"];
 
 // Radial subgraph layout caps at this many neighbor nodes before folding
 // the rest into a single dashed "...N more" node (mockup screen 1d).
