@@ -13,6 +13,10 @@ category = "trace"
 question = "Trace the call path from HTTP insert to nativelog write"
 expect_tools_any = ["neighbors", "path_between"]
 expect_answer_any = ["InterpreterInsertQuery", "executeQuery", "NativeLog"]
+# The longest chain in the set (HTTP -> interpreter -> storage -> sink ->
+# NativeLog, across ~4 interface breaks): measured at 21-22 calls with a
+# complete answer. 24 keeps it under the agent's hard recursion limit.
+max_tool_calls = 24
 
 [[question]]
 id = "trace-insert-build-chain"
