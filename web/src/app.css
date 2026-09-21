@@ -897,3 +897,8 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
    classes reuse Manage/Users verbatim. Only the copy-once panel is new. */
 .tk-token-created { border: 1px solid var(--gray-700); border-radius: var(--radius); background: var(--white); padding: 16px; margin: 16px 0; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .tk-token-value { width: 100%; box-sizing: border-box; margin: 0; padding: 8px 12px; border-radius: var(--radius); background: var(--gray-900); font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+
+/* Running server version (#85): sidebar footer + under the login card. */
+.tk-version { font-size: 11px; color: var(--gray-500); padding: 4px 12px 0; user-select: text; }
+.tk-sidebar.collapsed .tk-version { display: none; }
+.login-version { padding: 12px 0 0; text-align: center; }

@@ -68,6 +68,17 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha,format=short
 
+      # The version tpk reports at runtime (#85): the release tag without its
+      # "v", or dev-<sha> for branch / PR builds.
+      - name: tpk version
+        id: tpkver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -78,6 +89,9 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            TPK_VERSION=${{ steps.tpkver.outputs.version }}
+            TPK_COMMIT=${{ github.sha }}
           cache-from: type=gha,scope=app
           cache-to: type=gha,mode=max,scope=app
 
@@ -124,6 +138,17 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha,format=short
 
+      # The version tpk reports at runtime (#85): the release tag without its
+      # "v", or dev-<sha> for branch / PR builds.
+      - name: tpk version
+        id: tpkver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -134,5 +159,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            TPK_VERSION=${{ steps.tpkver.outputs.version }}
+            TPK_COMMIT=${{ github.sha }}
           cache-from: type=gha,scope=allinone
           cache-to: type=gha,mode=max,scope=allinone

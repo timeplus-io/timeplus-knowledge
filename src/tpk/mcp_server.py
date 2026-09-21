@@ -15,6 +15,7 @@ from tpk import corpus, db
 from tpk.config import Settings, config_path, load_repos
 from tpk.config import repo_paths as resolved_repo_paths
 from tpk.tools import KnowledgeGraph
+from tpk.version import get_version
 
 REPOS_TOML = config_path()
 
@@ -32,7 +33,7 @@ def build_server(kg, guard=None) -> FastMCP:
     mcp_http.make_guard(), which applies the caller's role scope and the
     source:view gate (#74)."""
     run = guard or _unguarded
-    server = FastMCP("timeplus-knowledge")
+    server = FastMCP("timeplus-knowledge", version=get_version()[0])
 
     @server.tool()
     async def search_entities(ctx: Context, query: str, kinds: list[str] | None = None,
@@ -90,7 +91,7 @@ def main() -> None:
     settings = Settings.from_env()
     try:
         client = db.get_client(settings)
-        db.ensure_schema(client)
+        db.ensure_schema(client, settings.stream_prefix)
     except Exception as exc:
         # An MCP client shows a crashed stdio server only as "Connection
         # closed" and hides the traceback -- so say why in ONE line (#77).
@@ -107,9 +108,11 @@ def main() -> None:
             file=sys.stderr,
         )
         sys.exit(1)
-    corpus.seed_from_toml(client, REPOS_TOML)
+    # Same stream prefix as `tpk serve` and the rest of the CLI (#84).
+    prefix = settings.stream_prefix
+    corpus.seed_from_toml(client, REPOS_TOML, prefix=prefix)
     repos = load_repos(REPOS_TOML)
-    kg = KnowledgeGraph(client, repo_paths=resolved_repo_paths(repos))
+    kg = KnowledgeGraph(client, stream_prefix=prefix, repo_paths=resolved_repo_paths(repos))
     build_server(kg).run()  # stdio transport
 
 

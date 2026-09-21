@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { apiFetch, setToken } from "./api";
+import { useServerVersion, versionLabel } from "./version";
 
 type Me = { username: string; role: string; capabilities: string[] };
 
@@ -29,6 +30,7 @@ export default function Login({
   initialMode?: "login" | "change";
   initialUsername?: string;
 }) {
+  const serverVersion = useServerVersion();
   const [mode, setMode] = useState<"login" | "change">(initialMode);
   const [username, setUsername] = useState(initialUsername);
   const [password, setPassword] = useState("");
@@ -162,6 +164,12 @@ export default function Login({
           </form>
         )}
       </div>
+      {serverVersion && (
+        <div className="tk-version login-version" title={serverVersion.commit
+          ? `tpk ${serverVersion.version} (${serverVersion.commit})` : `tpk ${serverVersion.version}`}>
+          {versionLabel(serverVersion)}
+        </div>
+      )}
     </div>
   );
 }

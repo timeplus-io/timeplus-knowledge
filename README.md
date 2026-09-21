@@ -91,7 +91,7 @@ export the matching env var — whichever suits your deployment. Secrets are
 | `TIMEPLUS_PORT` | `[db].port` | `8123` | DB HTTP port |
 | `TIMEPLUS_DATABASE` | `[db].database` | `tpk` | Database all tpk streams live under |
 | `TPK_DB_BACKEND` | `[db].backend` | `timeplusd` | Stream-semantics mode (`timeplusd`\|`proton`) |
-| `TPK_STREAM_PREFIX` | `[db].stream_prefix` | `` | Namespace prefix for all streams |
+| `TPK_STREAM_PREFIX` | `[db].stream_prefix` | `` | Namespace prefix for all streams — honoured by every entry point (`serve`, `ingest`, `export`/`import`, `auth`, stdio MCP) |
 | `TPK_DB_WAIT_SECONDS` | `[db].wait_seconds` | `60` | `serve`: DB connect retry budget |
 | `TPK_AGENT_PROVIDER` | `[agent].provider` | auto | Chat LLM backend (`anthropic`\|`openai`) |
 | `TPK_AGENT_MODEL` | `[agent].model` | per-provider | Chat model override |
@@ -358,7 +358,15 @@ counts being bit-for-bit reproducible across ingests of the same commit.
 `error`; `thinking` and `source` are sent only to callers holding `source:view`)
 over the knowledge graph,
 plus the built React web UI at `/` (mounted from `web/dist` when present) and
-`GET /healthz`.
+`GET /healthz` — unauthenticated, returning `{"status": "ok", "version":
+"0.0.5", "commit": "bc549ef"}`.
+
+**Which version is running?** The same string everywhere: `tpk --version`,
+`/healthz`, the web UI (sidebar footer and login page), the `tpk serve` startup
+line, and MCP `serverInfo.version`. Published images report their release tag
+(the Docker workflow bakes `TPK_VERSION` / `TPK_COMMIT` in), a git checkout
+reports `git describe` (e.g. `0.0.5-3-gbc549ef`), and a local `docker build`
+without those build-args reports `dev`.
 
 The web UI's sidebar shows only the pages the caller's capabilities allow:
 **Chat** (live tool calls, a collapsible thinking trace, `[n]` citations with a

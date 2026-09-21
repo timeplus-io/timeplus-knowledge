@@ -50,6 +50,24 @@ def _progress_line(
 
 app = typer.Typer(help="Timeplus knowledge graph toolkit")
 
+
+def _print_version(value: bool) -> None:
+    if value:
+        from tpk.version import version_string
+
+        typer.echo(f"tpk {version_string()}")
+        raise typer.Exit()
+
+
+@app.callback()
+def _main(
+    version: bool = typer.Option(
+        False, "--version", callback=_print_version, is_eager=True,
+        help="Show the tpk version and exit",
+    ),
+):
+    """Timeplus knowledge graph toolkit"""
+
 REPOS_TOML = config_path()
 
 
@@ -218,17 +236,25 @@ def serve(
         Settings.from_env(),
         timeout_s=setting("TPK_DB_WAIT_SECONDS", "db", "wait_seconds", 60.0, cast=float),
     )
-    db.ensure_schema(client)
+    # The whole server runs on the configured stream prefix, like ingest /
+    # export / import / auth do (#84) -- otherwise a prefixed deployment would
+    # ingest into one set of streams and serve from another.
+    prefix = setting("TPK_STREAM_PREFIX", "db", "stream_prefix", "")
+    db.ensure_schema(client, prefix)
     if REPOS_TOML.exists():
-        corpus.seed_from_toml(client, REPOS_TOML)
+        corpus.seed_from_toml(client, REPOS_TOML, prefix=prefix)
     # Eager bootstrap (issue #6): seed the admin user before uvicorn starts
     # serving. `serve` here always runs as a single uvicorn process (no
     # `workers=` argument), so the list_users-then-upsert_user race in
     # seed_admin() cannot happen between two processes of this command; and
     # even if it somehow raced, kg_users' PRIMARY KEY makes a double-seed of
     # the same "admin" row converge to one final row anyway.
-    auth_mod.seed_admin(client)
-    uvicorn.run(create_app(), host=host, port=port)
+    auth_mod.seed_admin(client, prefix)
+    from tpk.version import version_string
+
+    typer.echo(f"tpk {version_string()} starting on {host}:{port}"
+               + (f" (stream prefix {prefix!r})" if prefix else ""))
+    uvicorn.run(create_app(stream_prefix=prefix), host=host, port=port)
 
 
 if __name__ == "__main__":

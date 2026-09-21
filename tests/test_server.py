@@ -109,8 +109,12 @@ class _Usage:
 
 
 def test_healthz():
+    # Unauthenticated liveness; the version fields are covered in test_version.
     client = TestClient(create_app(agent=FakeAgent([]), auth=_StubAuth()))
-    assert client.get("/healthz").json() == {"status": "ok"}
+    resp = client.get("/healthz")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+    assert set(resp.json()) == {"status", "version", "commit"}
 
 
 def test_chat_over_daily_budget_returns_429(monkeypatch):
