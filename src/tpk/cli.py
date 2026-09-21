@@ -179,6 +179,66 @@ def import_bundle(
     typer.echo("import complete")
 
 
+@app.command(name="eval")
+def eval_agent(
+    out: Path = typer.Option(Path("eval-report.json"), "--out", "-o", help="Where to write the JSON report"),
+    only: list[str] = typer.Option(None, "--only", help="Run only these categories (repeatable)"),
+    limit: int = typer.Option(0, "--limit", help="Run at most N questions (0 = all)"),
+    questions: Path = typer.Option(None, "--questions", help="Custom question TOML (default: the bundled set)"),
+    compare: Path = typer.Option(None, "--compare", help="A previous report to diff against"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the cost confirmation"),
+):
+    """Run the fixed eval questions through the REAL chat agent and report how
+    it answered: tools called, graph-edge usage, tool-call count, basic checks.
+
+    Every question is a full agent run against the configured LLM (real token
+    cost) and the live knowledge graph. Runs unscoped, like an admin."""
+    import asyncio
+    import json as _json
+
+    from tpk import evals
+    from tpk.agent import RECURSION_LIMIT, build_agent
+    from tpk.config import AgentConfig
+    from tpk.server import _build_kg_and_repos
+    from tpk.version import version_string
+
+    qs = evals.load_questions(questions)
+    if only:
+        qs = [q for q in qs if q.category in only]
+    if limit:
+        qs = qs[:limit]
+    if not qs:
+        raise typer.BadParameter("no questions selected")
+    cfg = AgentConfig.from_env()
+    typer.echo(f"{len(qs)} questions -> {cfg.provider}/{cfg.model} (each is a full agent run; LLM cost applies)")
+    if not yes:
+        typer.confirm("Run the eval?", abort=True)
+
+    prefix = setting("TPK_STREAM_PREFIX", "db", "stream_prefix", "")
+    kg, repos = _build_kg_and_repos(prefix)
+    agent = build_agent(kg, cfg, repos)
+
+    def _progress(rec):
+        mark = "ok  " if rec["passed"] else "FAIL"
+        typer.echo(f"  {mark} {rec['id']:32s} {len(rec['tools']):>2} calls  {rec['latency_s']:>5}s  "
+                   + (rec["error"] or " ".join(rec["tools"]))[:90])
+
+    records = asyncio.run(evals.run_eval(agent, qs, recursion_limit=RECURSION_LIMIT, on_result=_progress))
+    report = evals.write_report(out, records, meta={
+        "tpk": version_string(), "provider": cfg.provider, "model": cfg.model,
+        "questions": len(qs), "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    })
+    typer.echo("")
+    typer.echo(evals.render_markdown(report))
+    typer.echo(f"\nreport written to {out}")
+    if compare:
+        diff = evals.compare(_json.loads(Path(compare).read_text()), report)
+        typer.echo(f"\nvs {compare}:")
+        for k in ("passed", "graph_tool_rate", "avg_tool_calls", "errors"):
+            typer.echo(f"  {k:16s} {diff[k][0]} -> {diff[k][1]}")
+        typer.echo(f"  fixed: {diff['fixed'] or '-'}   regressed: {diff['regressed'] or '-'}")
+
+
 auth_app = typer.Typer(help="Auth store maintenance (run where the DB credentials are)")
 app.add_typer(auth_app, name="auth")
 

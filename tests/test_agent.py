@@ -47,6 +47,22 @@ def test_system_prompt_contains_corpus_and_citation_rules():
     assert "neighbors" in p and "path_between" in p
 
 
+def test_system_prompt_has_a_trace_recipe_for_broken_call_chains():
+    """#17: the extracted C++ call graph breaks at every virtual / member call.
+    Telling the model to "use the graph" did nothing (1 graph-tool call in 13
+    audited turns); it needs the procedure for getting past a break."""
+    p = system_prompt(REPOS)
+    assert "TRACE RECIPE" in p
+    # walk call edges one hop at a time ...
+    assert 'rels=["calls"]' in p and 'direction="out"' in p and 'direction="in"' in p
+    # ... bridge a break by reading the body, then find the implementations by method name
+    assert "read_source" in p and '"::' in p and 'kinds=["function"]' in p
+    # ... and be honest about which hops came from where
+    assert "[graph]" in p and "[code]" in p
+    # a trace may spend more than the default budget
+    assert "18 tool calls" in p
+
+
 def test_system_prompt_forbids_dumping_complete_source():
     p = system_prompt(REPOS)
     # The model may explain and quote minimally, but must not reproduce whole files.
