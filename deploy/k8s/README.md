@@ -246,6 +246,8 @@ manifests, others stubbed as commented-out examples):
 | `TPK_DB_BACKEND` | `timeplusd` (Enterprise, mutable streams) or `proton` |
 | `TIMEPLUS_DATABASE` | database all tpk streams live under (default `tpk`; app-only: user needs CREATE DATABASE) |
 | `TPK_DB_WAIT_SECONDS` | how long the app waits for the DB on boot |
+| `TPK_ANONYMOUS_ACCESS` / `TPK_ANONYMOUS_DAILY_TOKEN_LIMIT` | unauthenticated chat over the `public` corpus entries (off by default) and its shared daily token budget |
+| `TPK_MCP_HTTP_ENABLED` / `TPK_MCP_ALLOWED_HOSTS` | the remote MCP endpoint (`/mcp`, on by default) and its optional `Host` allow-list |
 
 ### Custom corpus (`repos.toml`) via ConfigMap
 
