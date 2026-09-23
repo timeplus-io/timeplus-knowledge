@@ -909,6 +909,11 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 .tk-account-anonymous { display: flex; flex-direction: column; gap: 8px; padding: 8px 4px; }
 .tk-account-anon-badge { font-size: 12px; color: var(--gray-500); }
 .tk-sidebar.collapsed .tk-account-anon-badge { display: none; }
-.tk-account-signin { width: 100%; }
+.tk-account-signin { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.tk-account-signin .tk-nav-icon { width: 16px; height: 16px; }
+/* Collapsed sidebar (56px): icon only, the label moves to the tooltip. */
+.tk-sidebar.collapsed .tk-account-signin { width: 40px; padding: 8px 0; margin: 0 auto; }
+.tk-sidebar.collapsed .tk-account-signin-label { display: none; }
+.tk-sidebar.collapsed .tk-account-anonymous { padding: 8px 0; align-items: center; }
 .tk-form-warning { color: var(--red-500); }
 
