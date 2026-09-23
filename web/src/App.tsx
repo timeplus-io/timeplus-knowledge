@@ -34,7 +34,11 @@ export default function App() {
   // guards the one render before the mount-time /auth/me check resolves, so
   // a logged-in reload doesn't flash the login form.
   const [me, setMe] = useState<Me | null>(null);
-  // Server allows unauthenticated chat over the public corpus (#94).
+  // Server allows unauthenticated chat over the public corpus (#94). With it
+  // on, "no session" IS a session: a visitor lands straight in Chat as the
+  // anonymous principal (the mount-time /auth/me check adopts it). The login
+  // page is then only reached on purpose -- Sign in from the sidebar, or
+  // signing out of a real account -- both of which clear `me`.
   const [anonymousAvailable, setAnonymousAvailable] = useState(false);
   const [pendingChangeUser, setPendingChangeUser] = useState<string | null>(null);
   const [checked, setChecked] = useState(false);
@@ -78,7 +82,11 @@ export default function App() {
         if (cancelled) return;
         if (resp.ok) {
           const body = await resp.json();
-          if (body.anonymous) { setAnonymousAvailable(true); }
+          if (body.anonymous) {
+            setAnonymousAvailable(true);
+            setMe({ username: body.username, role: body.role,
+                    capabilities: body.capabilities ?? [], anonymous: true });
+          }
           // A must_change_password answer routes straight to Login's change
           // mode (skipping the login form — we already hold a valid token).
           else if (body.must_change_password) setPendingChangeUser(body.username);
@@ -122,6 +130,10 @@ export default function App() {
     }
   }
 
+  function anonymousMe(): Me {
+    return { username: "anonymous", role: "anonymous", capabilities: ["chat"], anonymous: true };
+  }
+
   if (!checked) return null;
 
   if (pendingChangeUser !== null) {
@@ -136,7 +148,8 @@ export default function App() {
   if (!me) {
     return (
       <div className="shell">
-        <Login onDone={setMe} anonymousAvailable={anonymousAvailable} />
+        <Login onDone={setMe} anonymousAvailable={anonymousAvailable}
+               onContinueAnonymously={anonymousAvailable ? () => setMe(anonymousMe()) : undefined} />
       </div>
     );
   }

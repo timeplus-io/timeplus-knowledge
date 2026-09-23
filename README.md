@@ -653,9 +653,11 @@ tick capabilities and corpus entries by checkbox — without hand-writing
 these requests; it is read-only for a `users:view`-only caller.
 
 **Anonymous access (off by default).** Set `TPK_ANONYMOUS_ACCESS=1`
-(`[server].anonymous_access`) and the login page offers **Continue without
-signing in**: an unauthenticated visitor can chat over the corpus entries whose
-visibility is `public` — and nothing else. The anonymous principal holds only
+(`[server].anonymous_access`) and a visitor with no session lands straight in
+Chat as the anonymous user — no login page first; **Sign in** is in the
+sidebar, and the login page offers **Continue without signing in** to go back.
+An unauthenticated visitor can chat over the corpus entries whose visibility
+is `public` — and nothing else. The anonymous principal holds only
 the `chat` capability (no Explorer, no source fragments or thinking trace, no
 MCP, no management), its corpus scope is the enabled public entries (enforced
 per entry, server-side, on every turn), and the agent's prompt lists only
