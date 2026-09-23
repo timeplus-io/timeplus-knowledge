@@ -25,12 +25,15 @@ async function fetchMe(): Promise<Me> {
 export default function Login({
   onDone,
   anonymousAvailable = false,
+  onContinueAnonymously,
   initialMode = "login",
   initialUsername = "",
 }: {
   onDone: (me: Me) => void;
   // The server serves unauthenticated chat over the public corpus (#94).
   anonymousAvailable?: boolean;
+  // "Continue without signing in" -> back to the anonymous chat session.
+  onContinueAnonymously?: () => void;
   initialMode?: "login" | "change";
   initialUsername?: string;
 }) {
@@ -133,14 +136,9 @@ export default function Login({
             <button type="submit" className="tk-btn login-submit" disabled={busy}>
               {busy ? "Signing in…" : "Sign in"}
             </button>
-            {anonymousAvailable && (
+            {anonymousAvailable && onContinueAnonymously && (
               <button type="button" className="tk-btn tk-btn-secondary login-anonymous" disabled={busy}
-                      onClick={async () => {
-                        setBusy(true); setError("");
-                        try { onDone(await fetchMe()); }
-                        catch (e) { setError(String(e)); }
-                        finally { setBusy(false); }
-                      }}>
+                      onClick={onContinueAnonymously}>
                 Continue without signing in
                 <span className="login-anonymous-sub">chat over the public docs only</span>
               </button>
