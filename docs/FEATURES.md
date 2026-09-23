@@ -106,7 +106,7 @@ Manage what the graph indexes at runtime, without editing files or restarting.
 - **Enable / disable.** A one-row flip gates whether an entry is searchable — instant, reversible, with a short-TTL live cache so changes take effect without a restart.
 - **Explicit delete with purge.** Removing an entry can optionally scrub its `kg_nodes`/`kg_edges` rows; ingest history is never purged.
 - **Background jobs.** Add / reindex operations run on a background worker; job status is pollable.
-- **Manage tab** in the web UI drives all of it (add, toggle, reindex, delete).
+- **Manage tab** in the web UI drives all of it (add, toggle, reindex, delete), and shows the **ingest history** — every run, whether started from the UI, `tpk ingest` or `kubectl exec`: status (`running` / `ok` / `failed` with the error / `stale` for a run that never wrote its end row), nodes, edges, commit, duration. Backed by the append-only `kg_ingest_log` stream via `GET /api/ingest-log`.
 - **Release-upgrade workflow:** add the new ref → ingest → verify → flip enabled; a legacy migration re-keys old bare-name rows on first ingest.
 - **Export / import (issue #29).** `tpk export` dumps the ingested graph + corpus registry to a portable bundle (proton `FORMAT Parquet`, one file per stream + manifest); `tpk import` loads it into a new environment — no re-ingest, no LLM calls. Idempotent upsert by default (`--replace` to reset); auth streams excluded.
 

@@ -16,6 +16,20 @@ type Job = {
   updated_at?: string | null;
 };
 
+// One ingest run from the persistent log (#15): UI, CLI and kubectl runs alike.
+type Run = {
+  run_id: string; entry_key: string; status: string; nodes: number; edges: number;
+  git_sha: string; error: string; started_at: string | null; finished_at: string | null;
+  duration_s: number | null;
+};
+
+function durationLabel(s: number | null): string {
+  if (s === null) return "";
+  if (s < 60) return `${Math.round(s)}s`;
+  const m = Math.floor(s / 60);
+  return m < 60 ? `${m}m ${Math.round(s - m * 60)}s` : `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
 const EMPTY_FORM = { name: "", github: "", ref: "", path: "", visibility: "internal",
   extraction: "code-only", description: "" };
 
@@ -73,6 +87,7 @@ export default function Manage({ capabilities }: { capabilities: string[] }) {
   const canManage = hasCap(capabilities, CAP.corpusManage);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [runs, setRuns] = useState<Run[]>([]);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -99,6 +114,7 @@ export default function Manage({ capabilities }: { capabilities: string[] }) {
     try {
       setRepos(await api("/api/repos"));
       setJobs(await api("/api/jobs"));
+      setRuns((await api("/api/ingest-log?limit=50")).runs);
       setError("");
     } catch (e) {
       setError(String(e));
@@ -128,9 +144,11 @@ export default function Manage({ capabilities }: { capabilities: string[] }) {
   }
 
   const activeJobs = jobs.filter((j) => j.status === "queued" || j.status === "running");
-  const finishedJobs = jobs
-    .filter((j) => j.status === "ok" || j.status === "failed")
-    .sort((a, b) => (b.finished_at ?? "").localeCompare(a.finished_at ?? ""));
+  // History comes from the persistent log. A run the JobManager is driving
+  // right now is shown in the live block above (with phase + progress), so it
+  // is dropped from the history list until it has an end row.
+  const liveKeys = new Set(activeJobs.map((j) => j.entry_key));
+  const history = runs.filter((r) => !(r.status === "running" && liveKeys.has(r.entry_key)));
 
   return (
     <div className="tk-manage">
@@ -269,8 +287,8 @@ export default function Manage({ capabilities }: { capabilities: string[] }) {
       <div className="tk-manage-lower">
         <div className="tk-jobs-panel">
           <div className="tk-jobs-panel-header">
-            <div className="tk-jobs-panel-title">Ingest jobs</div>
-            <div className="tk-jobs-panel-meta">polled every 5s</div>
+            <div className="tk-jobs-panel-title">Ingest history</div>
+            <div className="tk-jobs-panel-meta">every run — UI, CLI or kubectl · polled every 5s</div>
           </div>
 
           {activeJobs.length > 0 && (
@@ -304,22 +322,29 @@ export default function Manage({ capabilities }: { capabilities: string[] }) {
             </div>
           )}
 
-          {finishedJobs.length > 0 ? (
+          {history.length > 0 ? (
             <div className="tk-jobs-history">
-              {finishedJobs.map((j) => (
-                <div className="tk-job-row" key={j.id}>
-                  <div className="tk-job-name">{j.entry_key}</div>
-                  {j.status === "ok" ? (
-                    <div className="tk-job-result">ok · {j.nodes} nodes · {j.edges} edges</div>
+              {history.map((r) => (
+                <div className="tk-job-row" key={r.run_id} title={`run ${r.run_id}${r.git_sha ? ` · ${r.git_sha}` : ""}`}>
+                  <div className="tk-job-name">{r.entry_key}</div>
+                  {r.status === "ok" ? (
+                    <div className="tk-job-result">ok · {r.nodes} nodes · {r.edges} edges</div>
+                  ) : r.status === "running" ? (
+                    <div className="tk-job-result tk-job-status-running">running… (started outside the UI)</div>
                   ) : (
-                    <div className="tk-job-result tk-job-result-failed">failed · {j.error ?? "unknown error"}</div>
+                    <div className="tk-job-result tk-job-result-failed">
+                      {r.status} · {r.error || "unknown error"}
+                    </div>
                   )}
-                  <div className="tk-job-time">{j.finished_at ? formatRelative(j.finished_at) : ""}</div>
+                  <div className="tk-job-time">
+                    {r.duration_s !== null && <span className="tk-job-duration">{durationLabel(r.duration_s)} · </span>}
+                    {formatRelative(r.finished_at ?? r.started_at ?? "")}
+                  </div>
                 </div>
               ))}
             </div>
           ) : activeJobs.length === 0 && (
-            <div className="tk-jobs-empty">No ingest jobs yet.</div>
+            <div className="tk-jobs-empty">No ingest runs yet.</div>
           )}
         </div>
 

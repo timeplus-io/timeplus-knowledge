@@ -172,6 +172,10 @@ def ensure_schema(client, prefix: str = "") -> None:
           status string
         )
     """)
+    # Ingest history (#15): a `started` row is written when a run begins and
+    # an ok/failed row when it ends (same run_id); `error` carries the failure
+    # reason. Backfilled as "" on streams created before this column existed.
+    _add_column_if_missing(client, qualified("kg_ingest_log", prefix), "error", "string")
     client.command(_keyed_stream(prefix, "kg_repos", [
         "name string", "ref string", "github string", "path string",
         "enabled bool", "visibility string", "extraction string",

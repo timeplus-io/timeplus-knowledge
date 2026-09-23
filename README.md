@@ -495,6 +495,7 @@ release without losing the old one while you verify):
 | `POST /api/repos/toggle`  | admin bearer token | `{name, ref, enabled}`                                | Flip searchability without touching indexed data |
 | `POST /api/repos/reindex` | admin bearer token | `{name, ref}`                                         | Re-run ingest for an existing entry (submits a job) |
 | `POST /api/repos/delete`  | admin bearer token | `{name, ref, purge}`                                  | Remove the entry; `purge: true` also deletes its `kg_nodes`/`kg_edges` rows |
+| `GET /api/ingest-log?limit=&entry=` | `corpus:view` | – | Persistent ingest history, newest first: every run (UI, CLI, kubectl) folded per `run_id` with status `ok` / `failed` (+ error) / `running` / `stale`, nodes, edges, sha, started/finished, duration |
 | `GET /api/jobs`           | admin bearer token | —                                                     | Last 50 ingest jobs (`queued`/`running`/`ok`/`failed`), newest first |
 | `GET /api/jobs/{id}`      | admin bearer token | —                                                     | Single job status |
 

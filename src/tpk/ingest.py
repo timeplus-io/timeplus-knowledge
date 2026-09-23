@@ -4,7 +4,7 @@ import subprocess
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from tpk import db
@@ -70,11 +70,11 @@ def _git_sha(repo_path: Path) -> str:
     return proc.stdout.strip() if proc.returncode == 0 else "unknown"
 
 
-def _log(client, prefix: str, result: IngestResult, git_sha: str) -> None:
+def _log(client, prefix: str, result: IngestResult, git_sha: str, error: str = "") -> None:
     client.insert(
         db.qualified("kg_ingest_log", prefix),
-        [[result.repo, result.run_id, result.nodes, result.edges, git_sha, result.status]],
-        column_names=["repo", "run_id", "nodes", "edges", "git_sha", "status"],
+        [[result.repo, result.run_id, result.nodes, result.edges, git_sha, result.status, error[:2000]]],
+        column_names=["repo", "run_id", "nodes", "edges", "git_sha", "status", "error"],
     )
 
 
@@ -98,6 +98,15 @@ def ingest_repo(
         if on_progress is not None:
             on_progress(IngestProgress(phase, message, nodes, edges))
 
+    # A `started` row makes the run visible (UI ingest history, #15) while it
+    # runs -- including CLI / kubectl runs the API's JobManager never sees. Its
+    # ok/failed twin below shares the run_id. Best effort: a log failure must
+    # not stop the ingest.
+    try:
+        _log(client, prefix, IngestResult(key, run_id, 0, 0, "started"), "")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[tpk] could not log ingest start for {key}: {exc}")
+    error = ""
     try:
         if repo_cfg.github:
             _report("fetch")
@@ -129,8 +138,91 @@ def ingest_repo(
     except Exception as exc:  # per-repo isolation: never propagate, never touch prior rows
         print(f"[tpk] ingest failed for {key}: {exc}")
         result = IngestResult(key, run_id, 0, 0, "failed")
+        error = f"{type(exc).__name__}: {exc}"
     sha = _git_sha(repo_path) if repo_path else "unknown"
     if repo_cfg.ref:
         sha = f"{sha} ({repo_cfg.ref})"
-    _log(client, prefix, result, sha)
+    _log(client, prefix, result, sha, error)
     return result
+
+
+# -- ingest history (#15) ---------------------------------------------------
+# A `started` row with no ok/failed twin older than this is treated as
+# abandoned: the process died mid-run (OOM-kill, pod restart) and will never
+# write the end row.
+STALE_AFTER = timedelta(hours=2)
+_LOG_COLUMNS = ["repo", "run_id", "nodes", "edges", "git_sha", "status", "error", "_tp_time"]
+
+
+def _iso(dt) -> str | None:
+    return dt.replace(tzinfo=timezone.utc).isoformat() if dt is not None else None
+
+
+def list_runs(client, prefix: str = "", limit: int = 50, entry: str | None = None,
+              now: datetime | None = None) -> list[dict]:
+    """Ingest runs, newest first, folding each run's `started` and ok/failed
+    rows (same run_id) into one record. Rows written before #15 have no
+    `started` twin: they come back with started_at / duration_s = None."""
+    now = now or datetime.now(timezone.utc)
+    clauses, params = [], {}
+    if entry:
+        clauses.append("repo = %(repo)s")
+        params["repo"] = entry
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    # Newest rows first; a run's two rows are seconds-to-minutes apart, so a
+    # generous window (4x the page) is enough to see both for every run on the
+    # page -- a truncated run at the very end just lacks its start time.
+    rows = client.query(
+        f"SELECT {', '.join(_LOG_COLUMNS)} FROM table({db.qualified('kg_ingest_log', prefix)})"
+        f"{where} ORDER BY _tp_time DESC LIMIT %(n)s",
+        parameters={**params, "n": max(limit * 4, 200)},
+    ).result_rows
+    runs: dict[str, dict] = {}
+    order: list[str] = []
+    for repo, run_id, nodes, edges, sha, status, error, at in rows:
+        at = at.replace(tzinfo=timezone.utc)
+        rec = runs.get(run_id)
+        if rec is None:
+            rec = runs[run_id] = {"run_id": run_id, "entry_key": repo, "status": None, "nodes": 0,
+                                  "edges": 0, "git_sha": "", "error": "", "started_at": None,
+                                  "finished_at": None, "duration_s": None, "_sort": at}
+            order.append(run_id)
+        if status == "started":
+            rec["started_at"] = at
+        else:
+            rec.update(status=status, nodes=nodes, edges=edges, git_sha=sha, error=error or "",
+                       finished_at=at)
+    out = []
+    for run_id in order[:limit]:
+        rec = runs[run_id]
+        if rec["status"] is None:                   # only a `started` row
+            age = now - rec["started_at"]
+            if age > STALE_AFTER:
+                rec["status"] = "stale"
+                mins = int(age.total_seconds() // 60)
+                ago = f"{mins // 60}h {mins % 60}m" if mins >= 120 else f"{mins} min"
+                rec["error"] = f"started {ago} ago and did not finish (no end row)"
+            else:
+                rec["status"] = "running"
+        if rec["started_at"] and rec["finished_at"]:
+            rec["duration_s"] = round((rec["finished_at"] - rec["started_at"]).total_seconds(), 1)
+        rec["started_at"], rec["finished_at"] = _iso(rec["started_at"]), _iso(rec["finished_at"])
+        rec.pop("_sort")
+        out.append(rec)
+    return out
+
+
+def latest_status(client, prefix: str = "", now: datetime | None = None) -> dict[str, tuple]:
+    """Per entry key: (git_sha, status, time) of the most recent row, with an
+    abandoned `started` reported as "stale" (same rule as list_runs)."""
+    now = now or datetime.now(timezone.utc)
+    out: dict[str, tuple] = {}
+    for repo, sha, status, t in client.query(
+        f"SELECT repo, arg_max(git_sha, _tp_time), arg_max(status, _tp_time),"
+        f" max(_tp_time) FROM table({db.qualified('kg_ingest_log', prefix)}) GROUP BY repo"
+    ).result_rows:
+        if status == "started" and now - t.replace(tzinfo=timezone.utc) > STALE_AFTER:
+            status = "stale"
+        out[repo] = (sha, status, t)
+    return out
+

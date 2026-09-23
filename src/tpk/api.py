@@ -7,13 +7,14 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 import tpk.auth as auth_mod
 from tpk import corpus, db
 from tpk.auth import AuthLayer, User
 from tpk.config import RepoConfig, Settings, config_path, entry_key, load_llm
+from tpk import ingest as ingest_mod
 from tpk.ingest import ingest_repo
 
 REPOS_TOML = config_path()
@@ -326,12 +327,7 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
                 f"SELECT repo, count() FROM {db.latest(db.qualified('kg_nodes', prefix))} GROUP BY repo"
             ).result_rows
         )
-        last: dict[str, tuple] = {}
-        for repo, sha, status, t in client.query(
-            f"SELECT repo, arg_max(git_sha, _tp_time), arg_max(status, _tp_time),"
-            f" max(_tp_time) FROM table({db.qualified('kg_ingest_log', prefix)}) GROUP BY repo"
-        ).result_rows:
-            last[repo] = (sha, status, t)
+        last = ingest_mod.latest_status(client, prefix=prefix)
         out = []
         for e in entries:
             key = entry_key(e)
@@ -373,6 +369,14 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
         if cfg is None:
             raise HTTPException(404, "no such corpus entry")
         return {"job_id": jobs.submit(cfg)}
+
+    @router.get("/ingest-log")
+    def api_ingest_log(limit: int = Query(50, ge=1, le=200), entry: str | None = None,
+                       actor: User = Depends(auth.require_cap(auth_mod.CAP_CORPUS_VIEW))):
+        """Persistent ingest history (#15) -- every run, whether started from
+        the UI, the CLI or kubectl, folded per run_id; `running` / `stale`
+        for runs that have not written their end row."""
+        return {"runs": ingest_mod.list_runs(_client(), prefix=prefix, limit=limit, entry=entry)}
 
     @router.get("/jobs")
     def list_jobs(actor: User = Depends(auth.require_cap(auth_mod.CAP_CORPUS_VIEW))):
