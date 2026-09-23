@@ -73,8 +73,8 @@ corpus has doc/paper/image content):
   `rationale`, `concept`. Only `code` is source-derived; the other five are
   always non-code entities (extracted from docs/papers/images, or
   concept-like nodes such as "ideas, principles, mechanisms, design
-  patterns") and are treated as doc-kind (`DOC_KINDS`) regardless of the
-  repo's default visibility. `--code-only` runs only ever emit `code` (for
+  patterns") and are treated as doc-kind (`DOC_KINDS`). Every node, doc or
+  code, carries its entry's visibility (#94). `--code-only` runs only ever emit `code` (for
   files/functions) in practice, but the parser honors the full six-value
   enum so a future non-`--code-only` run parses correctly too.
 - `confidence` is one of `EXTRACTED` (explicit in source: import, call,
@@ -376,7 +376,10 @@ def parse_graph_json(
         line = _parse_line(rn)
         stable = node_id(repo, kind, qualified)
         id_map[raw_id] = stable
-        visibility = "public" if kind in DOC_KINDS else default_visibility
+        # Every node carries its ENTRY's visibility. (Doc-kind nodes used to
+        # be stamped "public" regardless; with anonymous access, #94, the
+        # entry is the unit of access control, so the label must agree.)
+        visibility = default_visibility
         nodes.append(
             Node(
                 id=stable,

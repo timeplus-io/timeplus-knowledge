@@ -48,6 +48,8 @@ token_budget = 16000
 # chat_audit   = true                   # env: TPK_CHAT_AUDIT
 # daily_token_limit = 500000             # env: TPK_DAILY_TOKEN_LIMIT (global fallback, non-admin per-user/day; 0 = unlimited)
 # mcp_http     = true                    # env: TPK_MCP_HTTP_ENABLED   (false/0 disables the remote MCP endpoint /mcp)
+# anonymous_access = false           # env: TPK_ANONYMOUS_ACCESS  (unauthenticated chat over public entries)
+# anonymous_daily_token_limit = 100000  # env: TPK_ANONYMOUS_DAILY_TOKEN_LIMIT (shared by all anonymous chat; 0 = closed)
 # mcp_allowed_hosts = ""                 # env: TPK_MCP_ALLOWED_HOSTS  (comma-separated Host allow-list; empty = no check)
 
 [repos.proton-enterprise]

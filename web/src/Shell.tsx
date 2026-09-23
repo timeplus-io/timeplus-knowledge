@@ -8,7 +8,7 @@ import { CAP, type Capability, hasCap } from "./capabilities";
 // stays outside (App.tsx renders it on the centered `.shell`).
 export type View = "chat" | "explorer" | "manage" | "users" | "tokens";
 
-type Me = { username: string; role: string; capabilities: string[] };
+type Me = { username: string; role: string; capabilities: string[]; anonymous?: boolean };
 
 const NAV_ITEMS: { key: View; label: string; cap: Capability }[] = [
   { key: "chat", label: "Chat", cap: CAP.chat },
@@ -150,6 +150,16 @@ export default function Shell({
             {versionLabel(serverVersion)}
           </div>
         )}
+        {me.anonymous ? (
+          <div className="tk-account tk-account-anonymous">
+            <div className="tk-account-anon-badge" title="Unauthenticated: only the public corpus is searchable">
+              Browsing the public docs
+            </div>
+            <button type="button" className="tk-btn tk-btn-secondary tk-account-signin" onClick={onLogout}>
+              Sign in
+            </button>
+          </div>
+        ) : (
         <div className="tk-account" ref={accountRef}>
           <button
             type="button"
@@ -188,6 +198,7 @@ export default function Shell({
             </div>
           )}
         </div>
+        )}
       </div>
       <div className="tk-content">{children}</div>
     </div>

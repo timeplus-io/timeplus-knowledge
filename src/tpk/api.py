@@ -395,6 +395,8 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
 
     @router.post("/users")
     def api_add_user(body: AddUser, actor: User = Depends(auth.require_cap(auth_mod.CAP_USERS_MANAGE))):
+        if body.username == auth_mod.ANONYMOUS_USERNAME:
+            raise HTTPException(400, "'anonymous' is a reserved username")
         if not _USERNAME_RE.match(body.username) or body.username in (".", ".."):
             raise HTTPException(400, "username must match ^[A-Za-z0-9._-]+$")
         err = auth_mod.validate_new_password(body.password)
@@ -484,6 +486,8 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
     def api_upsert_role(body: UpsertRole, actor: User = Depends(auth.require_cap(auth_mod.CAP_USERS_MANAGE))):
         if body.name == auth_mod.ROLE_ADMIN:
             raise HTTPException(400, "'admin' is a reserved role name")
+        if body.name == auth_mod.ROLE_ANONYMOUS:
+            raise HTTPException(400, "'anonymous' is a reserved role name")
         if not _USERNAME_RE.match(body.name):
             raise HTTPException(400, "role name must match ^[A-Za-z0-9._-]+$")
         if any(not isinstance(k, str) or not k for k in body.entry_keys):

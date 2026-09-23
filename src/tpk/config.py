@@ -111,6 +111,13 @@ def database() -> str:
     return name
 
 
+def anonymous_daily_token_limit() -> int:
+    """One GLOBAL daily token budget shared by all anonymous chat (#94):
+    env TPK_ANONYMOUS_DAILY_TOKEN_LIMIT > [server].anonymous_daily_token_limit
+    > 100000. 0 disables anonymous chat even when anonymous access is on."""
+    return int(setting("TPK_ANONYMOUS_DAILY_TOKEN_LIMIT", "server", "anonymous_daily_token_limit", 100_000, cast=int))
+
+
 def daily_token_limit() -> int:
     """Global fallback daily per-user token budget for non-admin chat (#62):
     env TPK_DAILY_TOKEN_LIMIT > [server].daily_token_limit > 500000. Applies to

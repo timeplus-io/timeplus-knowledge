@@ -19,6 +19,13 @@ from tpk import db
 log = logging.getLogger(__name__)
 
 ROLE_ADMIN = "admin"
+# The anonymous principal (#94): served for a request with NO credentials when
+# TPK_ANONYMOUS_ACCESS is on. Like `admin`, its role is a sentinel and never a
+# kg_roles row; unlike admin it holds exactly one capability (chat) and its
+# corpus scope is the enabled PUBLIC entries (public_scope). Both names are
+# reserved so no account or role can impersonate it.
+ROLE_ANONYMOUS = "anonymous"
+ANONYMOUS_USERNAME = "anonymous"
 SEED_USERNAME = "admin"
 SEED_PASSWORD = "changeme"
 
@@ -506,11 +513,14 @@ def _session_ttl() -> int:
 
 
 def effective_capabilities(user: User, role: Role | None) -> set[str]:
-    """The capabilities a user actually holds. `admin` gets all of them; any
-    other user gets the (view-expanded) capabilities of their role, or the
-    empty set if the role is missing/unreadable (fail closed)."""
+    """The capabilities a user actually holds. `admin` gets all of them;
+    `anonymous` gets chat only; any other user gets the (view-expanded)
+    capabilities of their role, or the empty set if the role is
+    missing/unreadable (fail closed)."""
     if user.role == ROLE_ADMIN:
         return set(ALL_CAPABILITIES)
+    if user.role == ROLE_ANONYMOUS:
+        return {CAP_CHAT}
     if role is None:
         return set()
     return expand_capabilities(role.capabilities)
@@ -523,11 +533,38 @@ def resolve_scope(client, user: User, prefix: str = "") -> frozenset[str] | None
     Explorer API (graph_api) and the remote MCP guard (mcp_http)."""
     if user.role == ROLE_ADMIN:
         return None
+    if user.role == ROLE_ANONYMOUS:
+        return public_scope(client, prefix=prefix)
     try:
         role = get_role(client, user.role, prefix=prefix)
     except Exception:
         role = None
     return frozenset(role.entry_keys) if role else frozenset()
+
+
+def public_scope(client, prefix: str = "") -> frozenset[str]:
+    """Entry keys an anonymous caller may query: the ENABLED entries whose
+    visibility is `public`, read live so a flip takes effect on the next
+    turn. Enforced per entry -- a node's own stored visibility is never
+    consulted. Fails closed to the empty scope."""
+    from tpk import corpus  # local: corpus imports db, auth must stay light
+    from tpk.config import entry_key
+
+    try:
+        return frozenset(entry_key(e) for e in corpus.list_entries(client, prefix=prefix)
+                         if e.enabled and e.visibility == "public")
+    except Exception:
+        return frozenset()
+
+
+def anonymous_access_enabled() -> bool:
+    from tpk.config import as_bool, setting
+
+    return as_bool(setting("TPK_ANONYMOUS_ACCESS", "server", "anonymous_access", False))
+
+
+# Never stored: username/role are reserved sentinels (see ROLE_ANONYMOUS).
+ANONYMOUS = User(ANONYMOUS_USERNAME, "", ROLE_ANONYMOUS)
 
 
 # Precomputed at import time so an unknown-username login still pays the
@@ -551,10 +588,21 @@ class AuthLayer:
 
         return db.get_client(Settings.from_env())
 
+    @staticmethod
+    def _anonymous_if_allowed(authorization: str | None) -> User | None:
+        """The anonymous principal for a request that carries NO credential at
+        all -- never for a wrong one: a bad token must not silently degrade to
+        public access."""
+        if authorization is None and anonymous_access_enabled():
+            return ANONYMOUS
+        return None
+
     def _resolve(self, authorization: str | None) -> User:
         if not authorization or not authorization.startswith("Bearer "):
             raise HTTPException(401, "missing bearer token")
         token = authorization.removeprefix("Bearer ")
+        if not token:
+            raise HTTPException(401, "missing bearer token")
         try:
             client = self._client()
             username = get_session(client, token, prefix=self.prefix)
@@ -587,8 +635,8 @@ class AuthLayer:
         """Resolve a user's effective capabilities, reading their role from
         the store for non-admins. Fails closed (empty set) if the role is
         unreadable."""
-        if user.role == ROLE_ADMIN:
-            return set(ALL_CAPABILITIES)
+        if user.role in (ROLE_ADMIN, ROLE_ANONYMOUS):
+            return effective_capabilities(user, None)
         try:
             role = get_role(self._client(), user.role, prefix=self.prefix)
         except Exception:
@@ -599,6 +647,10 @@ class AuthLayer:
         """Build a FastAPI dependency that admits a user only if they hold
         `capability`. Usage: `Depends(auth.require_cap(auth.CAP_CHAT))`."""
         def dependency(authorization: str | None = Header(None)) -> User:
+            if capability == CAP_CHAT:
+                anon = self._anonymous_if_allowed(authorization)
+                if anon is not None:
+                    return anon
             user = self.require_user(authorization)
             if capability not in self.effective_caps(user):
                 raise HTTPException(403, f"missing capability: {capability}")
@@ -625,6 +677,8 @@ def create_auth_router(auth_layer: AuthLayer) -> APIRouter:
         try:
             client = auth_layer._client()
             user = get_user(client, body.username, prefix=prefix)
+            if body.username == ANONYMOUS_USERNAME:
+                user = None  # reserved: the anonymous principal is never a login
         except Exception:
             raise HTTPException(503, "auth store unavailable")
         # Always run an argon2 verify, even for an unknown username, so the
@@ -653,10 +707,14 @@ def create_auth_router(auth_layer: AuthLayer) -> APIRouter:
             raise HTTPException(503, "auth store unavailable")
 
     @router.get("/me")
-    def me(user: User = Depends(auth_layer.require_user_any)):
-        return {"username": user.username, "role": user.role,
-                "must_change_password": user.must_change_password,
-                "capabilities": sorted(auth_layer.effective_caps(user))}
+    def me(authorization: str | None = Header(None)):
+        user = auth_layer._anonymous_if_allowed(authorization) or auth_layer.require_user_any(authorization)
+        out = {"username": user.username, "role": user.role,
+               "must_change_password": user.must_change_password,
+               "capabilities": sorted(auth_layer.effective_caps(user))}
+        if user.role == ROLE_ANONYMOUS:
+            out["anonymous"] = True
+        return out
 
     @router.post("/change-password")
     def change_password(body: ChangePasswordRequest,

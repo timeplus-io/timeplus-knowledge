@@ -645,3 +645,99 @@ def test_chat_admin_gets_source_and_tool_events():
     assert "tool" in types and "source" in types
     done = next(e for e in events if e["type"] == "done")
     assert len(done["sources"]) == 1
+
+
+# -- anonymous chat over the public corpus (#94) --------------------------------
+
+class _ScopeAgent(FakeAgent):
+    """Records the corpus scope in force while the agent runs -- what every
+    tool call would see."""
+
+    def __init__(self, events):
+        super().__init__(events)
+        self.seen_scope = "unset"
+
+    async def astream_events(self, _input, version="v2", config=None):
+        from tpk.tools import ROLE_SCOPE
+        self.seen_scope = ROLE_SCOPE.get()
+        async for e in super().astream_events(_input, version=version, config=config):
+            yield e
+
+
+class _AnonAuth(_StubAuth):
+    """Real gate logic (anonymous only when no header + feature on), no store:
+    `public_scope` is monkeypatched in `_anon_app`, so the client handed to
+    it is a dummy."""
+
+    def _resolve(self, authorization):
+        from fastapi import HTTPException
+        raise HTTPException(401, "missing bearer token")
+
+    def _client(self):
+        return object()
+
+
+def _anon_app(monkeypatch, agent, usage=None, sink=None, public=("docs@main",)):
+    from tpk import auth as auth_mod
+    monkeypatch.setenv("TPK_ANONYMOUS_ACCESS", "1")
+    monkeypatch.delenv("TPK_CONFIG", raising=False)
+    monkeypatch.setattr(auth_mod, "public_scope", lambda client, prefix="": frozenset(public))
+    return TestClient(create_app(agent=agent, auth=_AnonAuth(), usage=usage, audit_sink=sink))
+
+
+def test_anonymous_chat_runs_under_the_public_scope_only(monkeypatch):
+    agent = _ScopeAgent([_tok("hi")])
+    client = _anon_app(monkeypatch, agent)
+    resp = client.post("/chat", json={"message": "q"})
+    assert resp.status_code == 200
+    assert agent.seen_scope == frozenset({"docs@main"})
+    from tpk.tools import ROLE_SCOPE
+    assert ROLE_SCOPE.get() is None  # reset after the turn
+
+
+def test_anonymous_chat_with_no_public_entries_sees_nothing(monkeypatch):
+    agent = _ScopeAgent([_tok("hi")])
+    client = _anon_app(monkeypatch, agent, public=())
+    assert client.post("/chat", json={"message": "q"}).status_code == 200
+    assert agent.seen_scope == frozenset()  # closed, never None (= unrestricted)
+
+
+def test_anonymous_chat_shares_one_global_budget(monkeypatch):
+    monkeypatch.setenv("TPK_ANONYMOUS_DAILY_TOKEN_LIMIT", "500")
+    monkeypatch.setenv("TPK_DAILY_TOKEN_LIMIT", "999999")  # the per-user default must NOT apply
+    usage = _Usage(used=500)
+    client = _anon_app(monkeypatch, FakeAgent([_tok("hi")]), usage=usage)
+    resp = client.post("/chat", json={"message": "q"})
+    assert resp.status_code == 429
+    detail = resp.json()["detail"]
+    assert detail["limit"] == 500 and detail["anonymous"] is True
+    assert "sign in" in detail["message"].lower()
+
+
+def test_anonymous_usage_is_metered_under_the_anonymous_name(monkeypatch):
+    monkeypatch.setenv("TPK_ANONYMOUS_DAILY_TOKEN_LIMIT", "500")
+    usage = _Usage(used=0)
+    records = []
+    client = _anon_app(monkeypatch, FakeAgent([_tok("hi"), _end_usage(10)]), usage=usage, sink=records.append)
+    assert client.post("/chat", json={"message": "q"}).status_code == 200
+    assert usage.recorded == [("anonymous", 10)]
+    assert records and records[0].username == "anonymous"
+
+
+def test_anonymous_chat_never_gets_thinking_or_sources(monkeypatch):
+    client = _anon_app(monkeypatch, _think_agent())
+    body = client.post("/chat", json={"message": "q"}).text
+    assert '"thinking"' not in body and '"source"' not in body
+
+
+def test_anonymous_usage_endpoint_reports_the_shared_budget(monkeypatch):
+    monkeypatch.setenv("TPK_ANONYMOUS_DAILY_TOKEN_LIMIT", "500")
+    client = _anon_app(monkeypatch, FakeAgent([]), usage=_Usage(used=120))
+    assert client.get("/chat/usage").json() == {"limited": True, "used": 120, "limit": 500, "remaining": 380,
+                                                "reset": client.get("/chat/usage").json()["reset"], "anonymous": True}
+
+
+def test_anonymous_limit_zero_disables_anonymous_chat(monkeypatch):
+    monkeypatch.setenv("TPK_ANONYMOUS_DAILY_TOKEN_LIMIT", "0")
+    client = _anon_app(monkeypatch, FakeAgent([_tok("hi")]), usage=_Usage(used=0))
+    assert client.post("/chat", json={"message": "q"}).status_code == 429

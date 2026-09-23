@@ -153,3 +153,31 @@ def test_build_agent_falls_back_to_seed_corpus_when_provider_raises(monkeypatch)
     assert result["messages"][-1].content == "fallback ok"
     system_text = seen_messages[0][0].content
     assert "proton" in system_text and "Core streaming SQL engine" in system_text
+
+
+def test_live_prompt_lists_only_entries_inside_the_active_scope():
+    """The corpus list in the prompt follows ROLE_SCOPE, so a scoped turn
+    (a role, or the anonymous public scope, #94) never claims coverage of
+    entries the tools cannot reach."""
+    from tpk.agent import live_prompt
+    from tpk.config import RepoConfig
+    from tpk.tools import ROLE_SCOPE
+
+    docs = RepoConfig(name="docs", github="o/docs", ref="main", visibility="public", description="Public docs")
+    proton = RepoConfig(name="proton", github="o/proton", ref="v1", visibility="internal", description="Engine")
+    prompt_fn = live_prompt([docs, proton], corpus_provider=lambda: [docs, proton])
+
+    unscoped = prompt_fn({"messages": []})[0]["content"]
+    assert "docs@main" in unscoped and "proton@v1" in unscoped
+    token = ROLE_SCOPE.set(frozenset({"docs@main"}))
+    try:
+        scoped = prompt_fn({"messages": []})[0]["content"]
+    finally:
+        ROLE_SCOPE.reset(token)
+    assert "docs@main" in scoped and "proton@v1" not in scoped
+    token = ROLE_SCOPE.set(frozenset())
+    try:
+        empty = prompt_fn({"messages": []})[0]["content"]
+    finally:
+        ROLE_SCOPE.reset(token)
+    assert "proton@v1" not in empty and "docs@main" not in empty

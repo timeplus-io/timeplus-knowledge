@@ -2,13 +2,14 @@ import { useState } from "react";
 import { apiFetch, setToken } from "./api";
 import { useServerVersion, versionLabel } from "./version";
 
-type Me = { username: string; role: string; capabilities: string[] };
+type Me = { username: string; role: string; capabilities: string[]; anonymous?: boolean };
 
 async function fetchMe(): Promise<Me> {
   const resp = await apiFetch("/auth/me");
   if (!resp.ok) throw new Error(`could not load profile (HTTP ${resp.status})`);
   const body = await resp.json();
-  return { username: body.username, role: body.role, capabilities: body.capabilities ?? [] };
+  return { username: body.username, role: body.role, capabilities: body.capabilities ?? [],
+           anonymous: body.anonymous === true };
 }
 
 /**
@@ -23,10 +24,13 @@ async function fetchMe(): Promise<Me> {
  */
 export default function Login({
   onDone,
+  anonymousAvailable = false,
   initialMode = "login",
   initialUsername = "",
 }: {
   onDone: (me: Me) => void;
+  // The server serves unauthenticated chat over the public corpus (#94).
+  anonymousAvailable?: boolean;
   initialMode?: "login" | "change";
   initialUsername?: string;
 }) {
@@ -129,6 +133,18 @@ export default function Login({
             <button type="submit" className="tk-btn login-submit" disabled={busy}>
               {busy ? "Signing in…" : "Sign in"}
             </button>
+            {anonymousAvailable && (
+              <button type="button" className="tk-btn tk-btn-secondary login-anonymous" disabled={busy}
+                      onClick={async () => {
+                        setBusy(true); setError("");
+                        try { onDone(await fetchMe()); }
+                        catch (e) { setError(String(e)); }
+                        finally { setBusy(false); }
+                      }}>
+                Continue without signing in
+                <span className="login-anonymous-sub">chat over the public docs only</span>
+              </button>
+            )}
           </form>
         ) : (
           <form className="login-form" onSubmit={changePassword}>
