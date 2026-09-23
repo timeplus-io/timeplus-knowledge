@@ -49,7 +49,11 @@ def test_parse_drops_edges_with_unknown_endpoints(tmp_path: Path):
 # documented values directly (no LLM run required to observe them).
 
 
-def test_doc_kind_node_is_public_even_with_internal_default(tmp_path: Path):
+def test_every_node_carries_its_entry_visibility(tmp_path: Path):
+    # A doc-kind node inside an INTERNAL entry used to be stamped "public"
+    # (a leftover from before visibility meant anything). Now that anonymous
+    # access makes visibility a boundary (#94, enforced per entry), the node
+    # label must not contradict the entry it belongs to.
     g = tmp_path / "graph.json"
     g.write_text(
         json.dumps(
@@ -67,8 +71,10 @@ def test_doc_kind_node_is_public_even_with_internal_default(tmp_path: Path):
     nodes, edges = parse_graph_json(g, repo="r", default_visibility="internal")
     doc_node = next(n for n in nodes if n.kind == "document")
     code_node = next(n for n in nodes if n.kind == "file")
-    assert doc_node.visibility == "public"
+    assert doc_node.visibility == "internal"
     assert code_node.visibility == "internal"
+    nodes, _ = parse_graph_json(g, repo="r", default_visibility="public")
+    assert {n.visibility for n in nodes} == {"public"}
 
 
 def test_ambiguous_confidence_maps_to_inferred(tmp_path: Path):

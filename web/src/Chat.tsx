@@ -196,7 +196,7 @@ function SourceCard({ n, source }: { n?: number; source: SourceEventPayload }) {
 // Daily token budget for the current user (#62). `limited: false` for admins,
 // unlimited roles, or when no budget is enforced -> no indicator shown.
 type UsageInfo =
-  | { limited: true; used: number; limit: number; remaining: number; reset: string }
+  | { limited: true; used: number; limit: number; remaining: number; reset: string; anonymous?: boolean }
   | { limited: false }
   | null;
 
@@ -561,7 +561,7 @@ export default function Chat({
           )}
           {usage?.limited && (
             <>
-              <div className="tk-chat-topbar-label">daily tokens</div>
+              <div className="tk-chat-topbar-label">{usage.anonymous ? "shared daily tokens (anonymous)" : "daily tokens"}</div>
               <span className="tk-model-tag"
                     title={`Used ${usage.used.toLocaleString()} of ${usage.limit.toLocaleString()} · resets ${new Date(usage.reset).toLocaleString()}`}>
                 {usage.used.toLocaleString()} / {usage.limit.toLocaleString()}

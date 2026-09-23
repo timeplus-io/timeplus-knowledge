@@ -10,7 +10,7 @@ import Users from "./Users";
 import ChangePassword from "./ChangePassword";
 import { CAP, type Capability, hasCap } from "./capabilities";
 
-type Me = { username: string; role: string; capabilities: string[] };
+type Me = { username: string; role: string; capabilities: string[]; anonymous?: boolean };
 
 // Nav order + the capability each view needs, so a caller lands on the first
 // view they're allowed to see (a chat-less role must not open on Chat).
@@ -34,6 +34,8 @@ export default function App() {
   // guards the one render before the mount-time /auth/me check resolves, so
   // a logged-in reload doesn't flash the login form.
   const [me, setMe] = useState<Me | null>(null);
+  // Server allows unauthenticated chat over the public corpus (#94).
+  const [anonymousAvailable, setAnonymousAvailable] = useState(false);
   const [pendingChangeUser, setPendingChangeUser] = useState<string | null>(null);
   const [checked, setChecked] = useState(false);
 
@@ -67,15 +69,19 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!getToken()) { setChecked(true); return; }
+      // No token: /auth/me still answers 200 when anonymous access is on
+      // (#94) -- that is how the login page learns to offer "continue
+      // without signing in". A 401 there is the normal signed-out state.
+      const hadToken = !!getToken();
       try {
-        const resp = await apiFetch("/auth/me");
+        const resp = await apiFetch("/auth/me", {}, { skip401Handling: !hadToken });
         if (cancelled) return;
         if (resp.ok) {
           const body = await resp.json();
+          if (body.anonymous) { setAnonymousAvailable(true); }
           // A must_change_password answer routes straight to Login's change
           // mode (skipping the login form — we already hold a valid token).
-          if (body.must_change_password) setPendingChangeUser(body.username);
+          else if (body.must_change_password) setPendingChangeUser(body.username);
           else setMe({ username: body.username, role: body.role,
                        capabilities: body.capabilities ?? [] });
         }
@@ -104,7 +110,7 @@ export default function App() {
 
   async function logout() {
     try {
-      await apiFetch("/auth/logout", { method: "POST" });
+      if (!me?.anonymous) await apiFetch("/auth/logout", { method: "POST" });
     } catch {
       // Even if the network request fails, always clear the local session
       // so the user isn't stranded in the authenticated view.
@@ -130,7 +136,7 @@ export default function App() {
   if (!me) {
     return (
       <div className="shell">
-        <Login onDone={setMe} />
+        <Login onDone={setMe} anonymousAvailable={anonymousAvailable} />
       </div>
     );
   }

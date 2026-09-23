@@ -199,20 +199,34 @@ def build_agent(
     if corpus_provider is None:
         return create_react_agent(chat_model, tools, prompt=system_prompt(repos))
 
-    # `repos` seeds the fallback corpus: if `corpus_provider()` raises (e.g.
-    # a transient DB failure), the turn must still get a usable prompt
-    # instead of the chat dying with an error event. Mirrors the
-    # degrade-gracefully pattern in tools.py's KnowledgeGraph._corpus_state.
+    return create_react_agent(chat_model, tools, prompt=live_prompt(repos, corpus_provider))
+
+
+def live_prompt(repos, corpus_provider):
+    """Per-turn prompt builder. `repos` seeds the fallback corpus: if
+    `corpus_provider()` raises (e.g. a transient DB failure), the turn must
+    still get a usable prompt instead of the chat dying with an error event.
+    Mirrors the degrade-gracefully pattern in tools.py's
+    KnowledgeGraph._corpus_state.
+
+    The corpus list is narrowed to the turn's ROLE_SCOPE (a role's entries,
+    or the anonymous public scope, #94): the same ContextVar the tools obey,
+    so the prompt never advertises entries the tools cannot reach."""
+    from tpk.tools import ROLE_SCOPE
+
     last_good_repos = repos
 
-    def _live_prompt(state):
+    def _prompt(state):
         nonlocal last_good_repos
         try:
             last_good_repos = corpus_provider()
         except Exception:
             pass  # keep serving the last successful (or seed) corpus
-        return [
-            {"role": "system", "content": system_prompt(last_good_repos)}
-        ] + list(state["messages"])
+        entries = (list(last_good_repos.values()) if isinstance(last_good_repos, dict)
+                   else list(last_good_repos))
+        scope = ROLE_SCOPE.get()
+        if scope is not None:
+            entries = [r for r in entries if entry_key(r) in scope]
+        return [{"role": "system", "content": system_prompt(entries)}] + list(state["messages"])
 
-    return create_react_agent(chat_model, tools, prompt=_live_prompt)
+    return _prompt

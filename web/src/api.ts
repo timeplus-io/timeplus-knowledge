@@ -42,7 +42,10 @@ export async function apiFetch(
   // response on an otherwise-still-valid session (e.g. change-password
   // rejecting a wrong old password) rather than session expiry — clearing
   // the token there would strand the user with no way to retry.
-  if (resp.status === 401 && !opts.skip401Handling) {
+  // A 401 means "your session is gone" only when there WAS a session token
+  // to lose. An anonymous session (#94) holds no token and gets 401 from
+  // every non-chat endpoint by design; that must not bounce it to login.
+  if (resp.status === 401 && !opts.skip401Handling && token) {
     setToken(null);
     unauthorized?.();
   }

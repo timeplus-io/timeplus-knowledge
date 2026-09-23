@@ -100,6 +100,8 @@ export the matching env var — whichever suits your deployment. Secrets are
 | `TPK_SESSION_TTL` | `[server].session_ttl` | `86400` | Login session lifetime (seconds) |
 | `TPK_CHAT_AUDIT` | `[server].chat_audit` | `true` | Chat Q&A auditing (`false`/`0` disables) |
 | `TPK_DAILY_TOKEN_LIMIT` | `[server].daily_token_limit` | `500000` | Global fallback per-user daily token budget for non-admins (`0` = unlimited; a per-user or role `daily_token_limit` wins) |
+| `TPK_ANONYMOUS_ACCESS` | `[server].anonymous_access` | `false` | Serve unauthenticated chat over the public corpus entries (chat only) |
+| `TPK_ANONYMOUS_DAILY_TOKEN_LIMIT` | `[server].anonymous_daily_token_limit` | `100000` | One daily token budget shared by all anonymous chat (`0` = closed) |
 | `TPK_MCP_HTTP_ENABLED` | `[server].mcp_http` | `true` | Remote MCP endpoint `/mcp` (`false`/`0` disables it) |
 | `TPK_MCP_ALLOWED_HOSTS` | `[server].mcp_allowed_hosts` | `` | Comma-separated `Host` allow-list for `/mcp` (empty = no check) |
 | `TPK_EXTRACTION_BACKEND` | `[llm].backend` | `auto` | Semantic-extraction backend (`auto`\|`claude`\|`openai`) |
@@ -649,6 +651,22 @@ the only one left returns `400`. The web UI's **Users** console (visible
 with `users:view`) covers all of this — create/edit/delete users and roles,
 tick capabilities and corpus entries by checkbox — without hand-writing
 these requests; it is read-only for a `users:view`-only caller.
+
+**Anonymous access (off by default).** Set `TPK_ANONYMOUS_ACCESS=1`
+(`[server].anonymous_access`) and the login page offers **Continue without
+signing in**: an unauthenticated visitor can chat over the corpus entries whose
+visibility is `public` — and nothing else. The anonymous principal holds only
+the `chat` capability (no Explorer, no source fragments or thinking trace, no
+MCP, no management), its corpus scope is the enabled public entries (enforced
+per entry, server-side, on every turn), and the agent's prompt lists only
+those entries. All anonymous traffic shares **one** daily token budget,
+`TPK_ANONYMOUS_DAILY_TOKEN_LIMIT` (`[server].anonymous_daily_token_limit`,
+default 100000; `0` closes anonymous chat) — when it is spent the chat answers
+429 with a "sign in for your own budget" hint. A wrong or expired token is
+still rejected (401), never downgraded to anonymous. The names `anonymous`
+(user and role) are reserved. Because a public entry is exposed to anyone once
+this is on, the add-entry form warns when `public` is chosen; visibility
+cannot be changed after creation.
 
 **Break-glass (locked out of every admin account).** The API's last-admin
 guard only stops you from doing this through `/api`; if every admin is

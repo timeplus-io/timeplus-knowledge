@@ -120,6 +120,7 @@ Login-based access control, with roles that scope what each user can query.
 - **Role-scoped chat.** Orthogonal to capabilities: a role lists the exact `name@ref` corpus entries its members may query, and a non-admin's chat/explore results are transparently restricted to that scope (admin, the local stdio MCP server, and the CLI are unrestricted; the remote `/mcp` endpoint runs as the token's user and is scoped like chat). Isolation is enforced server-side across every graph tool path.
 - **Bounded delegation.** A non-admin with `users:manage` can never mint admins or manage admin users, and can only grant capabilities and corpus entries within its own grant — no self-promotion path.
 - **Admin console.** A Users/Roles console manages accounts, role assignments, password resets, per-role capabilities, and per-role entry-key access; last-admin lockout is prevented, and `tpk auth reset-admin` recovers the admin account from the command line if it happens anyway.
+- **Anonymous access (opt-in).** With `TPK_ANONYMOUS_ACCESS` on, visitors can chat — and only chat — over the corpus entries marked `public`, under one shared daily token budget; internal entries stay invisible to them, enforced per entry on the server.
 - **Hardened DB layer.** The compose stack provisions a dedicated `tpk` timeplusd user and password-locks the previously open `default` user.
 
 ## Deployment surfaces

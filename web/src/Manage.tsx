@@ -392,6 +392,12 @@ export default function Manage({ capabilities }: { capabilities: string[] }) {
                     <option value="internal">internal</option>
                     <option value="public">public</option>
                   </select>
+                  {form.visibility === "public" && (
+                    <div className="tk-form-hint tk-form-warning" role="alert">
+                      Public entries are visible to unauthenticated users whenever anonymous access is
+                      enabled — and this cannot be changed after the entry is created.
+                    </div>
+                  )}
                 </div>
                 <div className="tk-form-field">
                   <label htmlFor="mng-extraction">Extraction</label>

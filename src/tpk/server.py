@@ -161,7 +161,7 @@ def create_app(
     from tpk.agent import RECURSION_LIMIT
     from tpk.api import create_api_router
     from tpk.auth import AuthLayer, User, create_auth_router
-    from tpk.config import daily_token_limit
+    from tpk.config import anonymous_daily_token_limit, daily_token_limit
     from tpk.tools import ROLE_SCOPE
     from tpk.usage import day_window, effective_daily_limit
 
@@ -254,22 +254,29 @@ def create_app(
         the global default limit, and the usage read fails open (0 used)."""
         if user.role == auth_mod.ROLE_ADMIN or usage is None:
             return {"limited": False}
-        try:
-            role = auth_mod.get_role(auth._client(), user.role, prefix=stream_prefix)
-        except Exception:
-            role = None
-        limit = effective_daily_limit(user.daily_token_limit, role, daily_token_limit())
-        if limit <= 0:
-            return {"limited": False}
+        if user.role == auth_mod.ROLE_ANONYMOUS:
+            # One shared pool for all anonymous traffic (#94); 0 = closed.
+            limit = anonymous_daily_token_limit()
+        else:
+            try:
+                role = auth_mod.get_role(auth._client(), user.role, prefix=stream_prefix)
+            except Exception:
+                role = None
+            limit = effective_daily_limit(user.daily_token_limit, role, daily_token_limit())
+            if limit <= 0:
+                return {"limited": False}
         used = usage.used_today(user.username)
         _, reset = day_window()
-        return {
+        out = {
             "limited": True,
             "used": used,
             "limit": limit,
             "remaining": max(0, limit - used),
             "reset": reset.isoformat(),
         }
+        if user.role == auth_mod.ROLE_ANONYMOUS:
+            out["anonymous"] = True
+        return out
 
     @app.post("/chat")
     async def chat(req: ChatRequest, user: User = Depends(auth.require_cap(auth_mod.CAP_CHAT))):
@@ -288,7 +295,34 @@ def create_app(
         scope = None
         role = None
         turn_limit = 0  # effective daily token budget for this user (0 = unlimited)
-        if user.role != auth_mod.ROLE_ADMIN:
+        anonymous = user.role == auth_mod.ROLE_ANONYMOUS
+        if anonymous:
+            # #94: scope = the enabled PUBLIC entries (per entry, read live;
+            # fails closed to empty); budget = ONE global pool shared by every
+            # anonymous caller, metered under the reserved username. A limit
+            # of 0 keeps the endpoint answering 429, i.e. anonymous chat off.
+            def _public():
+                try:
+                    return auth_mod.public_scope(auth._client(), prefix=stream_prefix)
+                except Exception:  # store unreachable: closed, never unrestricted
+                    return frozenset()
+            scope = await run_in_threadpool(_public)
+            turn_limit = anonymous_daily_token_limit()
+            used = await run_in_threadpool(lambda: usage.used_today(user.username)) if usage is not None else 0
+            if turn_limit <= 0 or used >= turn_limit:
+                _, reset = day_window()
+                raise HTTPException(
+                    status_code=429,
+                    detail={
+                        "message": (
+                            f"The shared daily budget for anonymous use is spent ({used}/{turn_limit}). "
+                            f"Sign in for your own budget, or try again after {reset.isoformat()}."
+                        ),
+                        "used": used, "limit": turn_limit, "reset": reset.isoformat(),
+                        "anonymous": True,
+                    },
+                )
+        elif user.role != auth_mod.ROLE_ADMIN:
             try:
                 # Off the event loop: against an unreachable-but-not-refusing
                 # store this is a blocking TCP connect timeout, which would

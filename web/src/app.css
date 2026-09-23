@@ -92,7 +92,7 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 /* Login (mockup 1g): sign-in card + forced password-change card. Reuses
    .tk-card / .tk-btn / .tk-input / .tk-logo-mark; the classes below cover
    only what those shared components don't already provide. */
-.login-shell { flex: 1; display: flex; align-items: center; justify-content: center; }
+.login-shell { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .login-card { width: 320px; display: flex; flex-direction: column; gap: 16px; }
 .login-header { display: flex; align-items: center; gap: 10px; }
 .login-title { font-size: 18px; font-weight: 600; color: var(--gray-200); }
@@ -902,3 +902,13 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 .tk-version { font-size: 11px; color: var(--gray-500); padding: 4px 12px 0; user-select: text; }
 .tk-sidebar.collapsed .tk-version { display: none; }
 .login-version { padding: 12px 0 0; text-align: center; }
+
+/* Anonymous access (#94): login-page entry point, sidebar badge, public-entry warning. */
+.login-anonymous { margin-top: 8px; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.login-anonymous-sub { font-size: 11px; color: var(--gray-500); font-weight: 400; }
+.tk-account-anonymous { display: flex; flex-direction: column; gap: 8px; padding: 8px 4px; }
+.tk-account-anon-badge { font-size: 12px; color: var(--gray-500); }
+.tk-sidebar.collapsed .tk-account-anon-badge { display: none; }
+.tk-account-signin { width: 100%; }
+.tk-form-warning { color: var(--red-500); }
+
