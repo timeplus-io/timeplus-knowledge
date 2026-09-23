@@ -277,3 +277,55 @@ def test_ingest_writes_entry_key_and_cleans_legacy_rows(tp, monkeypatch, tmp_pat
         return dict(rows)
 
     _eventually(lambda: counts(), lambda c: c.get("vrepo@v1.0.0") == 1 and "vrepo" not in c)
+
+
+# -- ingest history (#15): a run is visible while it runs, and says why it failed
+
+def _runs(client, prefix, repo):
+    return client.query(
+        f"SELECT run_id, status, error FROM table({prefix}kg_ingest_log)"
+        f" WHERE repo = %(r)s ORDER BY _tp_time", parameters={"r": repo}
+    ).result_rows
+
+
+def test_ingest_logs_a_started_row_then_the_outcome_with_the_same_run_id(tp, monkeypatch, tmp_path: Path):
+    from tpk import ingest as ingest_mod
+    from tpk.ingest import ingest_repo
+
+    client, prefix = tp
+    seen = {}
+
+    def fake_graphify(repo_path, out_dir, **kw):
+        # while extraction runs, the started row must already be there
+        seen["during"] = _eventually(lambda: _runs(client, prefix, "histrepo"),
+                                     lambda rows: len(rows) == 1)
+        gj = out_dir / "graphify-out" / "graph.json"
+        gj.parent.mkdir(parents=True, exist_ok=True)
+        gj.write_text('{"nodes": [], "links": []}')
+        return gj
+
+    monkeypatch.setattr(ingest_mod, "run_graphify", fake_graphify)
+    cfg = RepoConfig(name="histrepo", path=tmp_path, visibility="internal")
+    result = ingest_repo(client, cfg, prefix=prefix, out_root=tmp_path / "out")
+    assert result.status == "ok"
+    assert [r[1] for r in seen["during"]] == ["started"]
+    rows = _eventually(lambda: _runs(client, prefix, "histrepo"), lambda rows: len(rows) == 2)
+    assert [(r[1], r[2]) for r in rows] == [("started", ""), ("ok", "")]
+    assert rows[0][0] == rows[1][0] == result.run_id
+
+
+def test_ingest_failure_row_carries_the_error(tp, monkeypatch, tmp_path: Path):
+    from tpk import ingest as ingest_mod
+    from tpk.ingest import ingest_repo
+
+    client, prefix = tp
+
+    def boom(repo_path, out_dir, **kw):
+        raise RuntimeError("graphify exploded: exit 137")
+
+    monkeypatch.setattr(ingest_mod, "run_graphify", boom)
+    cfg = RepoConfig(name="failrepo", path=tmp_path, visibility="internal")
+    ingest_repo(client, cfg, prefix=prefix, out_root=tmp_path / "out")
+    rows = _eventually(lambda: _runs(client, prefix, "failrepo"), lambda rows: len(rows) == 2)
+    assert [r[1] for r in rows] == ["started", "failed"]
+    assert "graphify exploded: exit 137" in rows[1][2]
