@@ -41,6 +41,9 @@ jobs:
   app:
     name: app image (timeplus/tpk-app)
     runs-on: ubuntu-latest
+    # A hung buildx (seen once: an arm64 QEMU crash that never returned) must
+    # fail fast, not sit until GitHub's 6h default and end up 'cancelled'.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -102,6 +105,9 @@ jobs:
     # registry secrets are available. PRs skip it.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    # A hung buildx (seen once: an arm64 QEMU crash that never returned) must
+    # fail fast, not sit until GitHub's 6h default and end up 'cancelled'.
+    timeout-minutes: 30
     env:
       TP_REGISTRY_USER: ${{ secrets.TIMEPLUSD_REGISTRY_USERNAME }}
     steps:

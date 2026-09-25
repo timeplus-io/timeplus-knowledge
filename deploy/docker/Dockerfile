@@ -13,7 +13,12 @@
 # builds the app target; docker-compose.allinone.yml builds the allinone target.
 
 # --- shared: React chat UI (so runtime images don't need node) ---------------
-FROM node:22-alpine AS webbuild
+# Built ONCE on the runner's own architecture: the bundle is plain JS/CSS, the
+# same for every target platform. Without --platform=$BUILDPLATFORM buildx runs
+# `npm ci` a second time under arm64 QEMU emulation, which crashed with
+# "qemu: uncaught target signal 4 (Illegal instruction)" on the v0.0.7 release
+# build and hung the job until GitHub's 6h timeout.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS webbuild
 WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
