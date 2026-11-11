@@ -97,6 +97,8 @@ export the matching env var — whichever suits your deployment. Secrets are
 | `TPK_AGENT_MODEL` | `[agent].model` | per-provider | Chat model override |
 | `TPK_AGENT_REASONING_EFFORT` | `[agent].reasoning_effort` | unset | OpenAI reasoning effort (e.g. `low`) |
 | `TPK_CHECKOUT_DIR` | `[server].checkout_dir` | `~/.tpk/checkouts` | GitHub checkout cache |
+| `TPK_TRANSFER_DIR` | `[server].transfer_dir` | system temp dir | Scratch space for corpus export/import through the UI (#102) |
+| `TPK_IMPORT_MAX_MB` | `[server].import_max_mb` | `2048` | Upload cap for `POST /api/corpus/import` (`0` = unlimited) |
 | `TPK_SESSION_TTL` | `[server].session_ttl` | `86400` | Login session lifetime (seconds) |
 | `TPK_CHAT_AUDIT` | `[server].chat_audit` | `true` | Chat Q&A auditing (`false`/`0` disables) |
 | `TPK_DAILY_TOKEN_LIMIT` | `[server].daily_token_limit` | `500000` | Global fallback per-user daily token budget for non-admins (`0` = unlimited; a per-user or role `daily_token_limit` wins) |
@@ -125,7 +127,8 @@ the connecting user needs `CREATE DATABASE` (first run) plus read/write on `tpk`
 **Upgrading an existing deployment:** streams created before this change live in
 `default` and are **not** moved automatically — after upgrading, tpk looks in
 `tpk` and finds an empty graph. Either re-ingest (`tpk ingest`), or carry data
-over with `tpk export` (old version) → `tpk import` (new version). Point
+over with `tpk export` (old version) → `tpk import` (new version), or from the
+Manage tab as an admin (**Export corpus** → **Import corpus**, #102). Point
 `TIMEPLUS_DATABASE=default` to keep using the old location instead.
 
 ## Docker compose (quickest start)

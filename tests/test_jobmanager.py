@@ -53,3 +53,54 @@ def test_jobmanager_records_progress_fields(monkeypatch):
     # snapshot() (what /api/jobs returns) exposes the same rec.
     snap = next(j for j in mgr.snapshot() if j["id"] == job_id)
     assert snap["phase"] == "done" and "updated_at" in snap
+
+
+def test_jobmanager_import_job_loads_bundle_and_cleans_up(monkeypatch, tmp_path):
+    """#102: an import job runs transfer.import_bundle on the single worker,
+    records per-stream rows, and deletes the unpacked bundle dir afterwards."""
+    import tpk.api as api_mod
+    from tpk.api import IMPORT_ENTRY_KEY, JobManager
+
+    monkeypatch.setattr(api_mod.db, "get_client", lambda *a, **k: object())
+    seen = {}
+
+    def fake_import(client, in_dir, prefix="", replace=False):
+        seen["in_dir"], seen["replace"], seen["prefix"] = in_dir, replace, prefix
+        return {"format": "Parquet", "streams": {"kg_nodes": {"rows": 7}, "kg_edges": {"rows": 4}}}
+
+    monkeypatch.setattr(api_mod.transfer, "import_bundle", fake_import)
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "manifest.json").write_text("{}")
+
+    mgr = JobManager(prefix="p_")
+    job_id = mgr.submit_import(bundle, replace=True)
+    rec = _wait_done(mgr, job_id)
+    assert rec["status"] == "ok"
+    assert rec["kind"] == "import" and rec["entry_key"] == IMPORT_ENTRY_KEY
+    assert rec["streams"] == {"kg_nodes": 7, "kg_edges": 4}
+    assert (rec["nodes"], rec["edges"]) == (7, 4)
+    assert rec["finished_at"] is not None
+    assert seen == {"in_dir": bundle, "replace": True, "prefix": "p_"}
+    assert not bundle.exists()
+    assert mgr.has_active() is False
+
+
+def test_jobmanager_import_failure_is_recorded_and_cleaned(monkeypatch, tmp_path):
+    import tpk.api as api_mod
+    from tpk.api import JobManager
+
+    monkeypatch.setattr(api_mod.db, "get_client", lambda *a, **k: object())
+
+    def boom(client, in_dir, prefix="", replace=False):
+        raise ValueError("kg_nodes: target stream is missing column(s) ['x']")
+
+    monkeypatch.setattr(api_mod.transfer, "import_bundle", boom)
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    mgr = JobManager()
+    rec = _wait_done(mgr, mgr.submit_import(bundle))
+    assert rec["status"] == "failed"
+    assert "missing column" in rec["error"]
+    assert rec["finished_at"] is not None
+    assert not bundle.exists()

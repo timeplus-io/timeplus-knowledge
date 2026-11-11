@@ -1,19 +1,24 @@
-"""Management API: corpus CRUD + background ingest jobs."""
+"""Management API: corpus CRUD + background ingest jobs + corpus
+export/import transport (#102)."""
 
 import queue
 import re
+import shutil
+import tempfile
 import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 import tpk.auth as auth_mod
-from tpk import corpus, db
+from tpk import corpus, db, transfer
 from tpk.auth import AuthLayer, User
-from tpk.config import RepoConfig, Settings, config_path, entry_key, load_llm
+from tpk.config import RepoConfig, Settings, config_path, entry_key, load_llm, setting
 from tpk import ingest as ingest_mod
 from tpk.ingest import ingest_repo
 
@@ -139,8 +144,33 @@ def _validate(body: AddRepo) -> RepoConfig:
     )
 
 
+def transfer_dir() -> Path:
+    """Scratch space for export bundles and uploaded import archives (#102):
+    env > [server].transfer_dir > the system temp dir. In Kubernetes point it
+    at an emptyDir sized for the bundle (see deploy/k8s)."""
+    return Path(setting("TPK_TRANSFER_DIR", "server", "transfer_dir",
+                        tempfile.gettempdir())).expanduser()
+
+
+def import_max_bytes() -> int:
+    """Upload cap for `POST /api/corpus/import`, in MB (0 = unlimited)."""
+    mb = setting("TPK_IMPORT_MAX_MB", "server", "import_max_mb", 2048, cast=int)
+    return int(mb) * 1024 * 1024
+
+
+IMPORT_ENTRY_KEY = "corpus import"
+
+
 class JobManager:
-    """One worker thread; jobs use their own DB client (never the KG's)."""
+    """One worker thread; jobs use their own DB client (never the KG's).
+
+    Two job kinds share the queue: `ingest` (one corpus entry) and `import`
+    (a whole bundle, #102). Running them on the same single worker is what
+    serialises an import against ingests already queued; the API refuses to
+    *submit* an import while anything is active (409), so an import never
+    drops a stream a UI-started ingest is writing into. (A `tpk ingest`
+    run from the CLI or `kubectl exec` is a separate process this manager
+    cannot see -- don't import while one of those is running.)"""
 
     def __init__(self, prefix: str = ""):
         self.prefix = prefix
@@ -160,10 +190,10 @@ class JobManager:
                 threading.Thread(target=self._run, daemon=True).start()
                 self._started = True
 
-    def submit(self, cfg: RepoConfig) -> str:
+    def _submit(self, kind: str, key: str, payload) -> str:
         job_id = uuid.uuid4().hex[:12]
         rec = {
-            "id": job_id, "entry_key": entry_key(cfg), "status": "queued",
+            "id": job_id, "kind": kind, "entry_key": key, "status": "queued",
             "phase": None, "message": "", "nodes": 0, "edges": 0, "error": None,
             "submitted_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": None,
@@ -171,9 +201,21 @@ class JobManager:
         }
         with self._jobs_lock:
             self.jobs[job_id] = rec
-        self._q.put((job_id, cfg))
+        self._q.put((job_id, kind, payload))
         self._ensure_worker()
         return job_id
+
+    def submit(self, cfg: RepoConfig) -> str:
+        return self._submit("ingest", entry_key(cfg), cfg)
+
+    def submit_import(self, bundle_dir, replace: bool = False) -> str:
+        """Load an already-unpacked bundle directory; the worker deletes the
+        directory when done, whatever the outcome."""
+        return self._submit("import", IMPORT_ENTRY_KEY, (Path(bundle_dir), replace))
+
+    def has_active(self) -> bool:
+        with self._jobs_lock:
+            return any(j["status"] in ("queued", "running") for j in self.jobs.values())
 
     def snapshot(self) -> list[dict]:
         with self._jobs_lock:
@@ -183,13 +225,35 @@ class JobManager:
         with self._jobs_lock:
             return self.jobs.get(job_id)
 
+    def _run_import(self, rec: dict, bundle_dir: Path, replace: bool):
+        try:
+            with self._jobs_lock:
+                rec["phase"] = "import"
+                rec["message"] = "replacing graph streams" if replace else "loading bundle"
+                rec["updated_at"] = datetime.now(timezone.utc).isoformat()
+            client = db.get_client(Settings.from_env())
+            manifest = transfer.import_bundle(client, bundle_dir, prefix=self.prefix,
+                                              replace=replace)
+            streams = {name: info["rows"] for name, info in manifest["streams"].items()}
+            with self._jobs_lock:
+                rec["streams"] = streams
+                rec["nodes"] = streams.get("kg_nodes", 0)
+                rec["edges"] = streams.get("kg_edges", 0)
+                rec["status"] = "ok"
+        finally:
+            shutil.rmtree(bundle_dir, ignore_errors=True)
+
     def _run(self):
         while True:
-            job_id, cfg = self._q.get()
+            job_id, kind, payload = self._q.get()
             with self._jobs_lock:
                 rec = self.jobs[job_id]
                 rec["status"] = "running"
             try:
+                if kind == "import":
+                    self._run_import(rec, *payload)
+                    continue
+                cfg = payload
                 client = db.get_client(Settings.from_env())
                 llm = load_llm(REPOS_TOML) if REPOS_TOML.exists() else None
                 backend = None if (llm is None or llm.backend == "auto") else llm.backend
@@ -220,8 +284,9 @@ class JobManager:
                 with self._jobs_lock:
                     rec["status"] = "failed"
                     rec["error"] = f"{type(exc).__name__}: {exc}"
-            with self._jobs_lock:
-                rec["finished_at"] = datetime.now(timezone.utc).isoformat()
+            finally:
+                with self._jobs_lock:
+                    rec["finished_at"] = datetime.now(timezone.utc).isoformat()
 
 
 def create_api_router(prefix: str = "", auth=None) -> APIRouter:
@@ -377,6 +442,76 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
         the UI, the CLI or kubectl, folded per run_id; `running` / `stale`
         for runs that have not written their end row."""
         return {"runs": ingest_mod.list_runs(_client(), prefix=prefix, limit=limit, entry=entry)}
+
+    # -- corpus export / import transport (#102) ---------------------------
+    # Admin-only, not corpus:manage: a non-admin manager is role-scoped to a
+    # subset of entries, but a bundle is the WHOLE graph (every internal
+    # entry included) and an import rewrites all of it.
+
+    @router.get("/corpus/export")
+    def export_corpus(format: str = Query("Parquet"), actor: User = Depends(auth.require_admin)):
+        """Dump the graph + corpus registry and stream it back as one
+        `.tar.gz` -- the CLI bundle layout, so `tpk import` reads it unpacked."""
+        if format not in transfer.FORMATS:
+            raise HTTPException(422, "format must be Parquet|Native")
+        root = transfer_dir()
+        root.mkdir(parents=True, exist_ok=True)
+        work = Path(tempfile.mkdtemp(prefix="tpk-export-", dir=root))
+        try:
+            transfer.export_bundle(_client(), work / "bundle", prefix=prefix, fmt=format)
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+            name = f"tpk-corpus-{stamp}{transfer.ARCHIVE_SUFFIX}"
+            archive = transfer.pack_bundle(work / "bundle", work / name)
+            shutil.rmtree(work / "bundle", ignore_errors=True)
+        except Exception:
+            shutil.rmtree(work, ignore_errors=True)
+            raise
+        # FileResponse streams from disk; the scratch dir goes once the body
+        # has been sent.
+        return FileResponse(archive, media_type="application/gzip", filename=name,
+                            background=BackgroundTask(shutil.rmtree, work, ignore_errors=True))
+
+    @router.post("/corpus/import")
+    def import_corpus(file: UploadFile = File(...), replace: bool = Form(False),
+                      actor: User = Depends(auth.require_admin)):
+        """Upload a bundle archive and load it as a background job (poll
+        `/api/jobs/{id}`). The archive is validated in full before anything
+        is written; a load is refused while any job is queued or running."""
+        if jobs.has_active():
+            raise HTTPException(409, "an ingest or import job is already running; retry when it finishes")
+        root = transfer_dir()
+        root.mkdir(parents=True, exist_ok=True)
+        work = Path(tempfile.mkdtemp(prefix="tpk-import-", dir=root))
+        try:
+            limit = import_max_bytes()
+            # Dot-prefixed so no archive member (those are rejected) can
+            # name it; the bundle files unpack beside it into `work`.
+            archive = work / ".upload.tar.gz"
+            size = 0
+            with open(archive, "wb") as fh:
+                while chunk := file.file.read(1024 * 1024):
+                    size += len(chunk)
+                    if limit and size > limit:
+                        raise HTTPException(413, f"archive exceeds the {limit // (1024 * 1024)} MB upload limit (TPK_IMPORT_MAX_MB)")
+                    fh.write(chunk)
+            try:
+                manifest = transfer.unpack_bundle(archive, work)
+            except transfer.BadBundle as exc:
+                raise HTTPException(400, f"invalid bundle: {exc}")
+            archive.unlink()
+        except Exception:
+            shutil.rmtree(work, ignore_errors=True)
+            raise
+        # Re-check under the submit: has_active() above and the submit are
+        # not atomic, but the single worker still serialises whatever lands
+        # in the queue, so the race only costs the 409 courtesy, not safety.
+        if jobs.has_active():
+            shutil.rmtree(work, ignore_errors=True)
+            raise HTTPException(409, "an ingest or import job is already running; retry when it finishes")
+        job_id = jobs.submit_import(work, replace=replace)
+        return {"job_id": job_id,
+                "streams": {k: v["rows"] for k, v in manifest["streams"].items()},
+                "format": manifest.get("format"), "created_at": manifest.get("created_at")}
 
     @router.get("/jobs")
     def list_jobs(actor: User = Depends(auth.require_cap(auth_mod.CAP_CORPUS_VIEW))):

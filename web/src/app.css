@@ -689,6 +689,7 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 .tk-manage-title { font-size: 18px; font-weight: 600; line-height: 1.4; color: var(--gray-200); }
 .tk-manage-subtitle { font-size: 12px; color: var(--gray-500); }
 .tk-manage-header-spacer { flex: 1; }
+.tk-manage-header-actions { display: flex; gap: 8px; align-items: center; }
 .tk-manage-error { color: var(--red-500); font-size: 12px; }
 
 /* Users/Roles tab bar */

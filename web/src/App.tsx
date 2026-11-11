@@ -172,7 +172,7 @@ export default function App() {
       ) : view === "tokens" ? (
         <Tokens />
       ) : view === "manage" ? (
-        <Manage capabilities={me.capabilities} />
+        <Manage capabilities={me.capabilities} isAdmin={me.role === "admin"} />
       ) : view === "users" ? (
         <Users capabilities={me.capabilities} isAdmin={me.role === "admin"} />
       ) : null}

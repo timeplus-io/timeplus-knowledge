@@ -327,6 +327,10 @@ spec:
 - **Backups.** Snapshot the DB data PVC (`/var/lib/proton` or
   `/var/lib/timeplusd`), or use `tpk export` to write a portable bundle you can
   `tpk import` elsewhere.
+  The same bundle is one click away in the Manage tab for an admin (**Export
+  corpus** downloads a `.tar.gz`, **Import corpus** uploads one); it is staged
+  in the `transfer` emptyDir (`TPK_TRANSFER_DIR=/opt/tpk/transfer`, 4Gi
+  `sizeLimit` — raise it if a packed bundle is bigger).
 - **All-in-one disk guard (dev tuning).** The `timeplus/tpk` image bakes in the
   dev override `deploy/timeplusd-dev/small-segments.yaml`, which — besides
   disabling nativelog preallocation — raises proton's disk-usage write guard to

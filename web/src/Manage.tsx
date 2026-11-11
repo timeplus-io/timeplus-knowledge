@@ -14,6 +14,10 @@ type Job = {
   phase?: string | null;
   message?: string;
   updated_at?: string | null;
+  // "ingest" (one entry) or "import" (a whole bundle, #102); import jobs
+  // report per-stream row counts instead of an ingest-log row.
+  kind?: string;
+  streams?: Record<string, number>;
 };
 
 // One ingest run from the persistent log (#15): UI, CLI and kubectl runs alike.
@@ -66,6 +70,7 @@ function formatRelative(iso: string): string {
 
 const PHASE_LABEL: Record<string, string> = {
   fetch: "fetching…", extract: "extracting…", parse: "parsing…", upsert: "saving…",
+  import: "importing…",
 };
 const STALL_MS = 60_000;
 
@@ -81,10 +86,19 @@ function elapsedLabel(sinceIso: string, now: number): string {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
 }
 
-export default function Manage({ capabilities }: { capabilities: string[] }) {
+// Pull a download filename out of `Content-Disposition: attachment;
+// filename="x"`; falls back to a generic name if the header is absent.
+function downloadName(resp: Response, fallback: string): string {
+  const m = /filename="?([^";]+)"?/.exec(resp.headers.get("content-disposition") ?? "");
+  return m ? m[1] : fallback;
+}
+
+export default function Manage({ capabilities, isAdmin }: { capabilities: string[]; isAdmin?: boolean }) {
   // corpus:manage gates every mutation; with only corpus:view the screen is
-  // read-only.
+  // read-only. Export/import of the WHOLE graph is admin-only (#102): a
+  // corpus:manage role may be scoped to a subset of entries.
   const canManage = hasCap(capabilities, CAP.corpusManage);
+  const canTransfer = !!isAdmin;
   const [repos, setRepos] = useState<Repo[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
@@ -100,15 +114,69 @@ export default function Manage({ capabilities }: { capabilities: string[] }) {
     return () => clearInterval(t);
   }, []);
 
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importReplace, setImportReplace] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
   function openAdd() { setForm({ ...EMPTY_FORM }); setError(""); setAddOpen(true); }
   function closeAdd() { setAddOpen(false); setError(""); }
+  function openImport() { setImportFile(null); setImportReplace(false); setError(""); setImportOpen(true); }
+  function closeImport() { if (importBusy) return; setImportOpen(false); setError(""); }
 
   useEffect(() => {
-    if (!addOpen) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setAddOpen(false); setError(""); } };
+    if (!addOpen && !importOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (addOpen) { setAddOpen(false); setError(""); }
+      if (importOpen && !importBusy) { setImportOpen(false); setError(""); }
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [addOpen]);
+  }, [addOpen, importOpen, importBusy]);
+
+  // Export: the download needs the bearer token, so it goes through
+  // apiFetch as a blob rather than a plain <a href>.
+  async function exportCorpus() {
+    setExporting(true);
+    setError("");
+    try {
+      const resp = await apiFetch("/api/corpus/export");
+      if (!resp.ok) throw new Error(`${resp.status}: ${await resp.text()}`);
+      const url = URL.createObjectURL(await resp.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = downloadName(resp, "tpk-corpus.tar.gz");
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function importCorpus() {
+    if (!importFile) { setError("Choose a bundle archive first"); return; }
+    setImportBusy(true);
+    setError("");
+    try {
+      const body = new FormData();
+      body.append("file", importFile);
+      body.append("replace", importReplace ? "true" : "false");
+      const resp = await apiFetch("/api/corpus/import", { method: "POST", body });
+      if (!resp.ok) throw new Error(`${resp.status}: ${await resp.text()}`);
+      setImportOpen(false);
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setImportBusy(false);
+    }
+  }
 
   async function refresh() {
     try {
@@ -144,6 +212,10 @@ export default function Manage({ capabilities }: { capabilities: string[] }) {
   }
 
   const activeJobs = jobs.filter((j) => j.status === "queued" || j.status === "running");
+  // Finished import jobs have no ingest-log row (the bundle carries its own
+  // provenance), so they are shown from the job list until the server
+  // restarts.
+  const importResults = jobs.filter((j) => j.kind === "import" && (j.status === "ok" || j.status === "failed"));
   // History comes from the persistent log. A run the JobManager is driving
   // right now is shown in the live block above (with phase + progress), so it
   // is dropped from the history list until it has an end row.
@@ -154,7 +226,7 @@ export default function Manage({ capabilities }: { capabilities: string[] }) {
     <div className="tk-manage">
       {/* Add-flow errors render inside the modal; keep this page-level banner
           for the table's toggle/reindex/delete errors only. */}
-      {!addOpen && error && <div className="tk-manage-error">{error}</div>}
+      {!addOpen && !importOpen && error && <div className="tk-manage-error">{error}</div>}
 
       <div className="tk-manage-header">
         <div>
@@ -164,11 +236,26 @@ export default function Manage({ capabilities }: { capabilities: string[] }) {
           </div>
         </div>
         <div className="tk-manage-header-spacer" />
-        {canManage && (
-          <button type="button" className="tk-btn" onClick={openAdd}>
-            Add corpus entry
-          </button>
-        )}
+        <div className="tk-manage-header-actions">
+          {canTransfer && (
+            <>
+              <button type="button" className="tk-btn tk-btn-secondary" onClick={exportCorpus}
+                      disabled={exporting} title="Download the ingested graph + corpus registry as one .tar.gz">
+                {exporting ? "Exporting…" : "Export corpus"}
+              </button>
+              <button type="button" className="tk-btn tk-btn-secondary" onClick={openImport}
+                      disabled={activeJobs.length > 0}
+                      title={activeJobs.length > 0 ? "Wait for the running job to finish" : "Load a bundle exported from another environment"}>
+                Import corpus
+              </button>
+            </>
+          )}
+          {canManage && (
+            <button type="button" className="tk-btn" onClick={openAdd}>
+              Add corpus entry
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="tk-corpus-table-card">
@@ -322,8 +409,21 @@ export default function Manage({ capabilities }: { capabilities: string[] }) {
             </div>
           )}
 
-          {history.length > 0 ? (
+          {history.length > 0 || importResults.length > 0 ? (
             <div className="tk-jobs-history">
+              {importResults.map((j) => (
+                <div className="tk-job-row" key={j.id} title={`job ${j.id}`}>
+                  <div className="tk-job-name">{j.entry_key}</div>
+                  {j.status === "ok" ? (
+                    <div className="tk-job-result">
+                      ok · {Object.entries(j.streams ?? {}).map(([s, n]) => `${s} ${n}`).join(" · ")}
+                    </div>
+                  ) : (
+                    <div className="tk-job-result tk-job-result-failed">failed · {j.error || "unknown error"}</div>
+                  )}
+                  <div className="tk-job-time">{formatRelative(j.finished_at ?? j.submitted_at)}</div>
+                </div>
+              ))}
               {history.map((r) => (
                 <div className="tk-job-row" key={r.run_id} title={`run ${r.run_id}${r.git_sha ? ` · ${r.git_sha}` : ""}`}>
                   <div className="tk-job-name">{r.entry_key}</div>
@@ -349,6 +449,55 @@ export default function Manage({ capabilities }: { capabilities: string[] }) {
         </div>
 
       </div>
+
+      {importOpen && (
+        <div className="tk-modal-overlay" onClick={closeImport}>
+          <div className="tk-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="tk-modal-header">
+              <div className="tk-modal-title">Import corpus</div>
+              <div className="tk-modal-spacer" />
+              <button type="button" className="tk-modal-close" onClick={closeImport} aria-label="Close" disabled={importBusy}>✕</button>
+            </div>
+            <form className="tk-modal-body" onSubmit={(e) => { e.preventDefault(); importCorpus(); }}>
+              <div className="tk-form-field">
+                <label htmlFor="mng-bundle">Bundle archive <span className="tk-form-required">*</span></label>
+                <input id="mng-bundle" type="file" accept=".tar.gz,.tgz,application/gzip" className="tk-input"
+                       disabled={importBusy}
+                       onChange={(e) => setImportFile(e.target.files?.[0] ?? null)} />
+                <div className="tk-form-hint">
+                  A <code>.tar.gz</code> from <strong>Export corpus</strong> or <code>tpk export</code>: graph, corpus
+                  entries and ingest history. Users and roles are not included. Loading runs as a job in the
+                  panel below; without <em>replace</em> it upserts into the current graph.
+                </div>
+              </div>
+              <div className="tk-form-field">
+                <label>
+                  <input type="checkbox" checked={importReplace} disabled={importBusy}
+                         onChange={(e) => setImportReplace(e.target.checked)} />
+                  {" "}Replace existing graph
+                </label>
+                {importReplace && (
+                  <div className="tk-form-hint tk-form-warning" role="alert">
+                    Drops and recreates every graph stream (nodes, edges, corpus entries, ingest history) before
+                    loading — anything not in the bundle is gone. Roles that reference removed entries keep
+                    dangling keys.
+                  </div>
+                )}
+              </div>
+
+              {error && <div className="tk-manage-error">{error}</div>}
+
+              <div className="tk-modal-footer">
+                <button type="button" className="tk-btn tk-btn-secondary" onClick={closeImport} disabled={importBusy}>Cancel</button>
+                <button type="submit" className={importReplace ? "tk-btn tk-btn-solid-danger" : "tk-btn"}
+                        disabled={importBusy || !importFile}>
+                  {importBusy ? "Uploading…" : importReplace ? "Replace & import" : "Import"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {addOpen && (
         <div className="tk-modal-overlay" onClick={closeAdd}>

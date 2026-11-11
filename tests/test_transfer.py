@@ -1,7 +1,11 @@
 """Corpus export/import round-trip (issue #29)."""
 
+import io
+import json
+import tarfile
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -174,3 +178,106 @@ def test_schema_mismatch_rejected(tp, tmp_path):
         assert _count(client, dst, "kg_edges") == 0
     finally:
         db.drop_schema(client, dst)
+
+
+# -- single-file transport + path stripping (#102) --------------------------
+
+def _write_bundle(tmp_path, files=None, manifest=None):
+    """A fake on-disk bundle for archive tests (no DB needed)."""
+    b = tmp_path / "b"
+    b.mkdir()
+    files = files if files is not None else {"kg_nodes.parquet": b"nodes", "kg_edges.parquet": b"edges"}
+    for name, data in files.items():
+        (b / name).write_bytes(data)
+    if manifest is None:
+        manifest = {"bundle_version": 1, "format": "Parquet", "created_at": "x",
+                    "streams": {n.split(".")[0]: {"file": n, "columns": [], "rows": 0} for n in files}}
+    (b / transfer.MANIFEST_NAME).write_text(json.dumps(manifest))
+    return b
+
+
+def test_pack_unpack_roundtrip(tmp_path):
+    b = _write_bundle(tmp_path)
+    archive = transfer.pack_bundle(b, tmp_path / "c.tar.gz")
+    out = tmp_path / "out"
+    manifest = transfer.unpack_bundle(archive, out)
+    assert set(manifest["streams"]) == {"kg_nodes", "kg_edges"}
+    assert (out / "kg_nodes.parquet").read_bytes() == b"nodes"
+    assert (out / "kg_edges.parquet").read_bytes() == b"edges"
+    assert json.loads((out / transfer.MANIFEST_NAME).read_text()) == manifest
+
+
+def _tar(path, members):
+    """members: list of (TarInfo, bytes|None)."""
+    with tarfile.open(path, "w:gz") as tar:
+        for info, data in members:
+            if data is None:
+                tar.addfile(info)
+            else:
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+    return path
+
+
+def _file(name, data):
+    ti = tarfile.TarInfo(name)
+    return ti, data
+
+
+def test_unpack_rejects_path_traversal(tmp_path):
+    manifest = json.dumps({"streams": {"x": {"file": "../evil", "columns": [], "rows": 0}}}).encode()
+    archive = _tar(tmp_path / "t.tar.gz", [_file("manifest.json", manifest), _file("../evil", b"x")])
+    with pytest.raises(transfer.BadBundle, match="unsafe name"):
+        transfer.unpack_bundle(archive, tmp_path / "out")
+    assert not (tmp_path / "evil").exists()
+    assert list((tmp_path / "out").iterdir()) == []
+
+
+def test_unpack_rejects_symlink_and_dirs(tmp_path):
+    manifest = json.dumps({"streams": {}}).encode()
+    link = tarfile.TarInfo("kg_nodes.parquet")
+    link.type = tarfile.SYMTYPE
+    link.linkname = "/etc/passwd"
+    archive = _tar(tmp_path / "t.tar.gz", [_file("manifest.json", manifest), (link, None)])
+    with pytest.raises(transfer.BadBundle, match="not a regular file"):
+        transfer.unpack_bundle(archive, tmp_path / "out")
+
+
+def test_unpack_rejects_unlisted_and_missing_files(tmp_path):
+    manifest = json.dumps({"streams": {"kg_nodes": {"file": "kg_nodes.parquet", "columns": [], "rows": 0}}}).encode()
+    archive = _tar(tmp_path / "extra.tar.gz", [_file("manifest.json", manifest),
+                                              _file("kg_nodes.parquet", b"n"), _file("stray.bin", b"s")])
+    with pytest.raises(transfer.BadBundle, match="does not list"):
+        transfer.unpack_bundle(archive, tmp_path / "out1")
+    assert list((tmp_path / "out1").iterdir()) == []
+    archive = _tar(tmp_path / "missing.tar.gz", [_file("manifest.json", manifest)])
+    with pytest.raises(transfer.BadBundle, match="missing from the archive"):
+        transfer.unpack_bundle(archive, tmp_path / "out2")
+
+
+def test_unpack_rejects_no_manifest_and_garbage(tmp_path):
+    archive = _tar(tmp_path / "t.tar.gz", [_file("kg_nodes.parquet", b"n")])
+    with pytest.raises(transfer.BadBundle, match="no manifest"):
+        transfer.unpack_bundle(archive, tmp_path / "out")
+    garbage = tmp_path / "g.tar.gz"
+    garbage.write_bytes(b"this is not an archive")
+    with pytest.raises(transfer.BadBundle, match="not a gzipped tar"):
+        transfer.unpack_bundle(garbage, tmp_path / "out2")
+
+
+def test_export_strips_local_path_when_github_set(tp, tmp_path):
+    client, prefix = tp
+    corpus.upsert_entry(client, RepoConfig(name="gh", ref="v1", github="org/gh", path=Path("/home/me/gh")),
+                        prefix=prefix)
+    corpus.upsert_entry(client, RepoConfig(name="local", ref="", path=Path("/home/me/local")), prefix=prefix)
+    _wait_count(client, prefix, "kg_repos", 2)
+    manifest = transfer.export_bundle(client, tmp_path / "bundle", prefix=prefix, streams=["kg_repos"])
+    assert manifest["streams"]["kg_repos"]["rows"] == 2
+
+    client.command(f"DROP STREAM IF EXISTS {prefix}kg_repos")
+    db.ensure_schema(client, prefix)
+    transfer.import_bundle(client, tmp_path / "bundle", prefix=prefix)
+    _wait_count(client, prefix, "kg_repos", 2)
+    entries = {e.name: e for e in corpus.list_entries(client, prefix=prefix)}
+    assert entries["gh"].path is None          # github entry: path dropped
+    assert entries["local"].path == Path("/home/me/local")   # dev-mode entry keeps its path

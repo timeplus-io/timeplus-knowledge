@@ -5,11 +5,15 @@ Leverages proton/ClickHouse's own `FORMAT Parquet` (or `Native`) serialization
 through the client's raw stream/insert — the engine encodes/decodes the
 files, so there is no Python-side type juggling and no extra dependency.
 
-A bundle is a directory: one file per stream plus a `manifest.json`.
+A bundle is a directory: one file per stream plus a `manifest.json`. For
+transport through the web UI (#102) a bundle is packed into a single flat
+`.tar.gz` (`pack_bundle` / `unpack_bundle`); the on-disk layout is the same
+either way, so `tpk import` reads an unpacked archive unchanged.
 """
 
 import json
 import shutil
+import tarfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,6 +27,16 @@ GRAPH_STREAMS = ["kg_nodes", "kg_edges", "kg_repos", "kg_ingest_log"]
 MANIFEST_NAME = "manifest.json"
 BUNDLE_VERSION = 1
 _EXT = {"Parquet": "parquet", "Native": "native"}
+FORMATS = tuple(_EXT)
+ARCHIVE_SUFFIX = ".tar.gz"
+
+# A `path` in `kg_repos` is a checkout on the EXPORTING host's filesystem and
+# means nothing after a cross-environment import (#102). When the entry also
+# names a GitHub source the target can re-fetch from, the bundle carries an
+# empty path so the Manage tab doesn't show a dead local path.
+_EXPORT_EXPR = {
+    ("kg_repos", "path"): "if(github != '', '', path) AS path",
+}
 
 
 def _stream_columns(client, stream: str, prefix: str = "") -> list[str]:
@@ -64,8 +78,9 @@ def export_bundle(client, out_dir, streams=None, prefix: str = "",
         # raw_stream returns the engine's serialized bytes as a file-like
         # object; copy it out in chunks so a 300k-row stream never lands
         # wholly in memory.
+        select = [_EXPORT_EXPR.get((stream, c), c) for c in cols]
         src = client.raw_stream(
-            f"SELECT {', '.join(cols)} FROM table({db.qualified(stream, prefix)})", fmt=fmt)
+            f"SELECT {', '.join(select)} FROM table({db.qualified(stream, prefix)})", fmt=fmt)
         with open(out / fname, "wb") as fh:
             shutil.copyfileobj(src, fh)
         manifest["streams"][stream] = {
@@ -126,4 +141,71 @@ def import_bundle(client, in_dir, prefix: str = "", replace: bool = False) -> di
             client.raw_insert(table=db.qualified(stream, prefix),
                               column_names=info["columns"],
                               insert_block=fh, fmt=fmt)
+    return manifest
+
+
+# -- single-file transport (#102) -------------------------------------------
+
+def pack_bundle(bundle_dir, archive_path) -> Path:
+    """Tar+gzip a bundle directory into one flat archive (manifest first,
+    then exactly the files the manifest lists). Returns the archive path."""
+    src = Path(bundle_dir)
+    manifest = load_manifest(src)
+    out = Path(archive_path)
+    with tarfile.open(out, "w:gz") as tar:
+        tar.add(src / MANIFEST_NAME, arcname=MANIFEST_NAME)
+        for info in manifest["streams"].values():
+            tar.add(src / info["file"], arcname=info["file"])
+    return out
+
+
+class BadBundle(ValueError):
+    """The archive is not a bundle this version will load."""
+
+
+def _check_member(m: tarfile.TarInfo):
+    # Flat archive of regular files only: no directories, links, devices,
+    # nested paths or `..` -- every member lands directly in the dest dir.
+    if not m.isfile():
+        raise BadBundle(f"archive member {m.name!r} is not a regular file")
+    name = m.name
+    if name != Path(name).name or name in (".", "..") or name.startswith("."):
+        raise BadBundle(f"archive member {m.name!r} has an unsafe name")
+
+
+def unpack_bundle(archive_path, dest_dir, max_members: int = 64) -> dict:
+    """Extract a `pack_bundle` archive into `dest_dir`, validating every
+    member BEFORE writing anything: flat regular files only, a readable
+    `manifest.json`, and no file the manifest doesn't list. Returns the
+    manifest. Raises `BadBundle` on anything else."""
+    dest = Path(dest_dir)
+    dest.mkdir(parents=True, exist_ok=True)
+    try:
+        tar = tarfile.open(archive_path, "r:gz")
+    except (tarfile.TarError, OSError, EOFError) as exc:
+        raise BadBundle(f"not a gzipped tar archive: {exc}") from exc
+    with tar:
+        members = tar.getmembers()
+        if len(members) > max_members:
+            raise BadBundle(f"archive has {len(members)} members (max {max_members})")
+        for m in members:
+            _check_member(m)
+        names = [m.name for m in members]
+        if MANIFEST_NAME not in names:
+            raise BadBundle(f"archive has no {MANIFEST_NAME}")
+        raw = tar.extractfile(MANIFEST_NAME).read()
+        try:
+            manifest = json.loads(raw)
+            listed = {info["file"] for info in manifest["streams"].values()}
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+            raise BadBundle(f"malformed {MANIFEST_NAME}: {exc}") from exc
+        extra = sorted(set(names) - listed - {MANIFEST_NAME})
+        if extra:
+            raise BadBundle(f"archive contains files the manifest does not list: {extra}")
+        missing = sorted(listed - set(names))
+        if missing:
+            raise BadBundle(f"manifest lists files missing from the archive: {missing}")
+        for m in members:
+            with tar.extractfile(m) as src, open(dest / m.name, "wb") as fh:
+                shutil.copyfileobj(src, fh)
     return manifest
