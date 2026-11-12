@@ -208,10 +208,14 @@ class JobManager:
     def submit(self, cfg: RepoConfig) -> str:
         return self._submit("ingest", entry_key(cfg), cfg)
 
-    def submit_import(self, bundle_dir, replace: bool = False) -> str:
+    def submit_import(self, bundle_dir, replace: bool = False, entries=None) -> str:
         """Load an already-unpacked bundle directory; the worker deletes the
-        directory when done, whatever the outcome."""
-        return self._submit("import", IMPORT_ENTRY_KEY, (Path(bundle_dir), replace))
+        directory when done, whatever the outcome. `entries` (#104) restricts
+        the load to those entry keys."""
+        job_id = self._submit("import", IMPORT_ENTRY_KEY, (Path(bundle_dir), replace, entries))
+        with self._jobs_lock:
+            self.jobs[job_id]["entries"] = list(entries) if entries is not None else None
+        return job_id
 
     def has_active(self) -> bool:
         with self._jobs_lock:
@@ -225,15 +229,19 @@ class JobManager:
         with self._jobs_lock:
             return self.jobs.get(job_id)
 
-    def _run_import(self, rec: dict, bundle_dir: Path, replace: bool):
+    def _run_import(self, rec: dict, bundle_dir: Path, replace: bool, entries=None):
         try:
             with self._jobs_lock:
                 rec["phase"] = "import"
-                rec["message"] = "replacing graph streams" if replace else "loading bundle"
+                if entries is not None:
+                    rec["message"] = (f"{'replacing' if replace else 'loading'} "
+                                      f"{len(entries)} selected entr{'y' if len(entries) == 1 else 'ies'}")
+                else:
+                    rec["message"] = "replacing graph streams" if replace else "loading bundle"
                 rec["updated_at"] = datetime.now(timezone.utc).isoformat()
             client = db.get_client(Settings.from_env())
             manifest = transfer.import_bundle(client, bundle_dir, prefix=self.prefix,
-                                              replace=replace)
+                                              replace=replace, entries=entries)
             streams = {name: info["rows"] for name, info in manifest["streams"].items()}
             with self._jobs_lock:
                 rec["streams"] = streams
@@ -449,18 +457,29 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
     # entry included) and an import rewrites all of it.
 
     @router.get("/corpus/export")
-    def export_corpus(format: str = Query("Parquet"), actor: User = Depends(auth.require_admin)):
+    def export_corpus(format: str = Query("Parquet"),
+                      entries: list[str] = Query(default=[]),
+                      actor: User = Depends(auth.require_admin)):
         """Dump the graph + corpus registry and stream it back as one
-        `.tar.gz` -- the CLI bundle layout, so `tpk import` reads it unpacked."""
+        `.tar.gz` -- the CLI bundle layout, so `tpk import` reads it unpacked.
+        `entries` (repeatable, #104) limits the bundle to those entry keys."""
         if format not in transfer.FORMATS:
             raise HTTPException(422, "format must be Parquet|Native")
+        client = _client()
+        selected = sorted(set(entries)) if entries else None
+        if selected:
+            unknown = sorted(set(selected) - set(transfer.list_entry_keys(client, prefix=prefix)))
+            if unknown:
+                raise HTTPException(422, f"unknown corpus entries: {', '.join(unknown)}")
         root = transfer_dir()
         root.mkdir(parents=True, exist_ok=True)
         work = Path(tempfile.mkdtemp(prefix="tpk-export-", dir=root))
         try:
-            transfer.export_bundle(_client(), work / "bundle", prefix=prefix, fmt=format)
+            transfer.export_bundle(client, work / "bundle", prefix=prefix, fmt=format,
+                                   entries=selected)
             stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-            name = f"tpk-corpus-{stamp}{transfer.ARCHIVE_SUFFIX}"
+            scope = "-partial" if selected is not None else ""
+            name = f"tpk-corpus-{stamp}{scope}{transfer.ARCHIVE_SUFFIX}"
             archive = transfer.pack_bundle(work / "bundle", work / name)
             shutil.rmtree(work / "bundle", ignore_errors=True)
         except Exception:
@@ -473,10 +492,14 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
 
     @router.post("/corpus/import")
     def import_corpus(file: UploadFile = File(...), replace: bool = Form(False),
+                      entries: list[str] = Form(default=[]),
                       actor: User = Depends(auth.require_admin)):
         """Upload a bundle archive and load it as a background job (poll
         `/api/jobs/{id}`). The archive is validated in full before anything
-        is written; a load is refused while any job is queued or running."""
+        is written; a load is refused while any job is queued or running.
+        `entries` (repeatable form field, #104) loads only those entry keys;
+        with `replace`, only those entries' existing rows are purged first."""
+        selected = sorted(set(entries)) if entries else None
         if jobs.has_active():
             raise HTTPException(409, "an ingest or import job is already running; retry when it finishes")
         root = transfer_dir()
@@ -499,6 +522,11 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
             except transfer.BadBundle as exc:
                 raise HTTPException(400, f"invalid bundle: {exc}")
             archive.unlink()
+            listed = manifest.get("entries")
+            if selected and listed is not None:
+                unknown = sorted(set(selected) - set(listed))
+                if unknown:
+                    raise HTTPException(422, f"bundle does not contain: {', '.join(unknown)}")
         except Exception:
             shutil.rmtree(work, ignore_errors=True)
             raise
@@ -508,9 +536,11 @@ def create_api_router(prefix: str = "", auth=None) -> APIRouter:
         if jobs.has_active():
             shutil.rmtree(work, ignore_errors=True)
             raise HTTPException(409, "an ingest or import job is already running; retry when it finishes")
-        job_id = jobs.submit_import(work, replace=replace)
+        job_id = jobs.submit_import(work, replace=replace, entries=selected)
         return {"job_id": job_id,
                 "streams": {k: v["rows"] for k, v in manifest["streams"].items()},
+                "entries": selected, "bundle_entries": manifest.get("entries"),
+                "partial": manifest.get("partial", False),
                 "format": manifest.get("format"), "created_at": manifest.get("created_at")}
 
     @router.get("/jobs")

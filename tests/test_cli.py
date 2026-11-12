@@ -72,3 +72,57 @@ def test_ingest_reads_corpus_store_and_matches_name_or_key(tp, monkeypatch, tmp_
                                       "--repo", "storeonly@v1"])
     assert res.exit_code == 0, res.output
     assert calls == ["storeonly"]
+
+
+@requires_timeplus
+def test_export_import_entry_option(tp, monkeypatch, tmp_path):
+    """`tpk export -e KEY` / `tpk import -e KEY` (#104): a partial bundle
+    round-trips only the named entry, and unknown keys are rejected."""
+    import uuid
+    from datetime import datetime, timezone
+
+    from tpk import corpus, db, transfer
+    from tpk.config import RepoConfig
+    from tpk.model import NODE_COLUMNS, Node, node_rows
+
+    client, prefix = tp
+    now = datetime.now(timezone.utc)
+    for key, name, ref in (("a@v1", "a", "v1"), ("b@v2", "b", "v2")):
+        client.insert(f"{prefix}kg_nodes",
+                      node_rows([Node(f"{name}-n", key, "function", "f", f"{name}::f", "x.py",
+                                      1, 2, "", "c0", "public")], now),
+                      column_names=NODE_COLUMNS)
+        corpus.upsert_entry(client, RepoConfig(name=name, ref=ref, github=f"o/{name}"), prefix=prefix)
+    monkeypatch.setattr(cli_mod.db, "get_client", lambda s: client)
+    monkeypatch.setenv("TPK_STREAM_PREFIX", prefix)
+    runner = CliRunner()
+
+    res = runner.invoke(app, ["export", "-o", str(tmp_path / "b"), "-e", "zzz@v0"])
+    assert res.exit_code != 0 and "unknown corpus entries: zzz@v0" in res.output
+
+    res = runner.invoke(app, ["export", "-o", str(tmp_path / "b"), "-e", "a@v1"])
+    assert res.exit_code == 0, res.output
+    assert "entries (partial): a@v1" in res.output
+    assert transfer.load_manifest(tmp_path / "b")["entries"] == ["a@v1"]
+
+    res = runner.invoke(app, ["import", str(tmp_path / "b"), "-e", "b@v2"])
+    assert res.exit_code != 0 and "bundle does not contain: b@v2" in res.output
+
+    target = f"test_{uuid.uuid4().hex[:6]}_"
+    db.ensure_schema(client, target)
+    try:
+        monkeypatch.setenv("TPK_STREAM_PREFIX", target)
+        res = runner.invoke(app, ["import", str(tmp_path / "b"), "-e", "a@v1"])
+        assert res.exit_code == 0, res.output
+        assert "entries loaded: a@v1" in res.output
+        import time
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            rows = client.query(
+                f"SELECT DISTINCT repo FROM {db.latest(target + 'kg_nodes')}").result_rows
+            if rows:
+                break
+            time.sleep(0.2)
+        assert sorted(r[0] for r in rows) == ["a@v1"]
+    finally:
+        db.drop_schema(client, target)

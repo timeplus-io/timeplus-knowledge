@@ -149,15 +149,28 @@ def status():
 def export(
     out: Path = typer.Option(..., "--out", "-o", help="Output bundle directory"),
     fmt: str = typer.Option("Parquet", "--format", help="Bundle format: Parquet or Native"),
+    entry: list[str] = typer.Option(
+        None, "--entry", "-e",
+        help="Only this corpus entry (name@ref, or name for a local-path entry); repeatable. "
+             "Default: the whole corpus.",
+    ),
 ):
     """Export the ingested graph + corpus registry to a portable bundle."""
     from tpk import transfer
 
     client = db.get_client(Settings.from_env())
     prefix = setting("TPK_STREAM_PREFIX", "db", "stream_prefix", "")
-    manifest = transfer.export_bundle(client, out, prefix=prefix, fmt=fmt)
+    entries = list(entry) if entry else None
+    if entries:
+        known = set(transfer.list_entry_keys(client, prefix=prefix))
+        unknown = sorted(set(entries) - known)
+        if unknown:
+            raise typer.BadParameter(f"unknown corpus entries: {', '.join(unknown)}")
+    manifest = transfer.export_bundle(client, out, prefix=prefix, fmt=fmt, entries=entries)
     for stream, info in manifest["streams"].items():
         typer.echo(f"{stream:16s} {info['rows']:>9} rows -> {info['file']}")
+    scope = "partial" if manifest.get("partial") else "whole corpus"
+    typer.echo(f"entries ({scope}): {', '.join(manifest['entries']) or '(none)'}")
     typer.echo(f"bundle written to {out}")
 
 
@@ -165,7 +178,13 @@ def export(
 def import_bundle(
     src: Path = typer.Argument(..., help="Bundle directory to load"),
     replace: bool = typer.Option(
-        False, "--replace", help="Reset target streams before loading (else upsert)"
+        False, "--replace",
+        help="Reset target streams before loading (else upsert). With --entry: purge just "
+             "those entries' existing rows first.",
+    ),
+    entry: list[str] = typer.Option(
+        None, "--entry", "-e",
+        help="Only load this entry from the bundle (name@ref); repeatable. Default: the whole bundle.",
     ),
 ):
     """Load a corpus bundle into this environment — no re-ingest."""
@@ -173,9 +192,20 @@ def import_bundle(
 
     client = db.get_client(Settings.from_env())
     prefix = setting("TPK_STREAM_PREFIX", "db", "stream_prefix", "")
-    manifest = transfer.import_bundle(client, src, prefix=prefix, replace=replace)
+    entries = list(entry) if entry else None
+    if entries:
+        listed = transfer.load_manifest(src).get("entries")
+        if listed is not None:
+            unknown = sorted(set(entries) - set(listed))
+            if unknown:
+                raise typer.BadParameter(
+                    f"bundle does not contain: {', '.join(unknown)} (it has: {', '.join(listed) or 'none'})")
+    manifest = transfer.import_bundle(client, src, prefix=prefix, replace=replace, entries=entries)
     for stream, info in manifest["streams"].items():
-        typer.echo(f"{stream:16s} loaded {info['rows']:>9} rows")
+        typer.echo(f"{stream:16s} loaded {info['rows']:>9} rows"
+                   + (" (filtered)" if entries else ""))
+    if entries:
+        typer.echo(f"entries loaded: {', '.join(entries)}")
     typer.echo("import complete")
 
 

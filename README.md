@@ -548,6 +548,10 @@ serialization (the engine encodes/decodes; no extra dependency):
     tpk import corpus-dump/               # load into this environment (upsert)
     tpk import corpus-dump/ --replace     # reset the target streams first (drop stale rows)
 
+    tpk export --out one/ -e proton@v1.6.0 -e docs@main   # only these entries (#104)
+    tpk import corpus-dump/ -e docs@main                  # only this entry out of a bundle
+    tpk import corpus-dump/ -e docs@main --replace        # ...purging its existing rows first
+
 The bundle covers the expensive/portable streams — `kg_nodes`, `kg_edges`,
 `kg_repos`, `kg_ingest_log` — plus a `manifest.json` (format, per-stream
 columns + row counts, `created_at`). **Auth streams
@@ -568,6 +572,16 @@ it — before loading. A bundle whose columns don't
 all exist in the target deployment is rejected up front (schema drift between
 versions), before anything is written. Bundle files stream to/from disk, so a
 300k-node graph never lands wholly in memory.
+
+`--entry KEY` / `-e KEY` (repeatable, #104) limits either direction to the
+named corpus entries (`name@ref`, or bare `name` for a local-path entry).
+The manifest always lists the entries a bundle holds (`entries`) and whether
+it was filtered (`partial`). A partial import stages the bundle in throwaway
+streams and copies only the matching rows, so the target's other entries are
+never touched; with `--entry`, `--replace` purges just those entries'
+registry row, nodes and edges before loading (the append-only ingest log keeps
+its history). Unknown keys are rejected before anything is written, on both
+sides.
 
 Streams under `TPK_STREAM_PREFIX` are exported/imported when that env var is
 set, matching the rest of the CLI.
