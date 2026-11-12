@@ -98,6 +98,11 @@ spec:
             # The DB is already up; a short connect-retry covers transient blips.
             - name: TPK_DB_WAIT_SECONDS
               value: "120"
+            # Scratch space for corpus export/import through the UI (#102):
+            # an emptyDir sized for a packed bundle, so a big download/upload
+            # never fills the container's writable layer.
+            - name: TPK_TRANSFER_DIR
+              value: /opt/tpk/transfer
             # Optional chat-agent overrides:
             # - name: TPK_AGENT_PROVIDER
             #   value: "anthropic"
@@ -133,10 +138,15 @@ spec:
           volumeMounts:
             - name: checkouts
               mountPath: /opt/tpk/.checkouts
+            - name: transfer             # export/import scratch (#102)
+              mountPath: /opt/tpk/transfer
       volumes:
         - name: checkouts
           persistentVolumeClaim:
             claimName: tpk-checkouts
+        - name: transfer
+          emptyDir:
+            sizeLimit: 4Gi
 ---
 # Access service for the chat agent + web UI — target from Ingress / port-forward.
 apiVersion: v1

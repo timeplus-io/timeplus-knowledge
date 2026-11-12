@@ -204,3 +204,161 @@ def test_last_admin_protection(tp, monkeypatch, admin_hdr):
     assert c.post("/api/users/update", headers=admin_hdr, json={"username": "root", "disabled": True}).status_code == 400
     assert c.post("/api/roles", headers=admin_hdr, json={"name": "other", "entry_keys": []}).status_code == 200
     assert c.post("/api/users/update", headers=admin_hdr, json={"username": "root", "role": "other"}).status_code == 400
+
+
+# -- corpus export / import transport (#102) ---------------------------------
+
+def _seed_graph(client, prefix):
+    from datetime import datetime, timezone
+    from tpk import corpus
+    from tpk.config import RepoConfig
+    from tpk.model import EDGE_COLUMNS, NODE_COLUMNS, Edge, Node, edge_rows, node_rows
+    now = datetime.now(timezone.utc)
+    nodes = [Node(f"n{i}", "demo@v1", "function", f"fn{i}", f"demo::fn{i}", "src/x.cpp",
+                  i, i + 5, f"summary {i}", "c0", "public") for i in range(3)]
+    edges = [Edge("n0", "n1", "calls", "EXTRACTED", "demo@v1")]
+    client.insert(f"{prefix}kg_nodes", node_rows(nodes, now), column_names=NODE_COLUMNS)
+    client.insert(f"{prefix}kg_edges", edge_rows(edges, now), column_names=EDGE_COLUMNS)
+    corpus.upsert_entry(client, RepoConfig(name="demo", ref="v1", github="org/demo"), prefix=prefix)
+    _eventually(lambda: int(client.query(
+        f"SELECT count() FROM table({prefix}kg_nodes)").result_rows[0][0]) == 3)
+
+
+def _transfer_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("TPK_TRANSFER_DIR", str(tmp_path / "scratch"))
+
+
+def test_export_download_is_a_valid_bundle_archive(tp, monkeypatch, admin_hdr, tmp_path):
+    import io
+    import json
+    import tarfile
+    client, prefix = tp
+    _transfer_env(monkeypatch, tmp_path)
+    _seed_graph(client, prefix)
+    c, _ = _client(tp, monkeypatch)
+
+    r = c.get("/api/corpus/export", headers=admin_hdr)
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"] == "application/gzip"
+    assert "tpk-corpus-" in r.headers["content-disposition"]
+    assert r.headers["content-disposition"].endswith('.tar.gz"')
+    with tarfile.open(fileobj=io.BytesIO(r.content), mode="r:gz") as tar:
+        names = tar.getnames()
+        manifest = json.load(tar.extractfile("manifest.json"))
+    assert manifest["streams"]["kg_nodes"]["rows"] == 3
+    assert manifest["streams"]["kg_edges"]["rows"] == 1
+    assert manifest["streams"]["kg_repos"]["rows"] == 1
+    assert set(names) == {"manifest.json", *(i["file"] for i in manifest["streams"].values())}
+    # scratch dir cleaned once the body was sent
+    assert list((tmp_path / "scratch").iterdir()) == []
+    assert c.get("/api/corpus/export?format=CSV", headers=admin_hdr).status_code == 422
+
+
+def test_import_upload_runs_as_job(tp, monkeypatch, admin_hdr, tmp_path):
+    client, prefix = tp
+    _transfer_env(monkeypatch, tmp_path)
+    _seed_graph(client, prefix)
+    c, _ = _client(tp, monkeypatch)
+    archive = c.get("/api/corpus/export", headers=admin_hdr).content
+
+    # wipe the graph, then load it back through the upload endpoint
+    client.command(f"DROP STREAM IF EXISTS {prefix}kg_nodes")
+    from tpk import db
+    db.ensure_schema(client, prefix)
+    _eventually(lambda: int(client.query(
+        f"SELECT count() FROM table({prefix}kg_nodes)").result_rows[0][0]) == 0)
+
+    r = c.post("/api/corpus/import", headers=admin_hdr, data={"replace": "true"},
+               files={"file": ("corpus.tar.gz", archive, "application/gzip")})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["streams"]["kg_nodes"] == 3
+    job_id = body["job_id"]
+    rec = _eventually(lambda: (lambda j: j if j["status"] in ("ok", "failed") else None)(
+        c.get(f"/api/jobs/{job_id}", headers=admin_hdr).json()), timeout=30)
+    assert rec and rec["status"] == "ok", rec
+    assert rec["kind"] == "import" and rec["streams"]["kg_nodes"] == 3
+    assert _eventually(lambda: int(client.query(
+        f"SELECT count() FROM table({prefix}kg_nodes)").result_rows[0][0]) == 3)
+    # the unpacked bundle is gone after the job
+    assert _eventually(lambda: list((tmp_path / "scratch").iterdir()) == [])
+
+
+def test_import_rejects_bad_archive_before_writing(tp, monkeypatch, admin_hdr, tmp_path):
+    import io
+    import json
+    import tarfile
+    client, prefix = tp
+    _transfer_env(monkeypatch, tmp_path)
+    c, _ = _client(tp, monkeypatch)
+
+    r = c.post("/api/corpus/import", headers=admin_hdr,
+               files={"file": ("x.tar.gz", b"not an archive", "application/gzip")})
+    assert r.status_code == 400 and "invalid bundle" in r.text
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        m = json.dumps({"streams": {"kg_nodes": {"file": "../kg_nodes.parquet", "columns": [], "rows": 0}}}).encode()
+        for name, data in [("manifest.json", m), ("../kg_nodes.parquet", b"x")]:
+            ti = tarfile.TarInfo(name); ti.size = len(data)
+            tar.addfile(ti, io.BytesIO(data))
+    r = c.post("/api/corpus/import", headers=admin_hdr,
+               files={"file": ("x.tar.gz", buf.getvalue(), "application/gzip")})
+    assert r.status_code == 400 and "unsafe name" in r.text
+    assert c.get("/api/jobs", headers=admin_hdr).json() == []
+    assert list((tmp_path / "scratch").iterdir()) == []
+    assert not (tmp_path / "kg_nodes.parquet").exists()
+
+
+def test_import_refused_while_a_job_is_active(tp, monkeypatch, admin_hdr, tmp_path):
+    import threading
+    client, prefix = tp
+    _transfer_env(monkeypatch, tmp_path)
+    _seed_graph(client, prefix)
+    c, _ = _client(tp, monkeypatch)
+    archive = c.get("/api/corpus/export", headers=admin_hdr).content
+
+    import tpk.api as api_mod
+    from tpk.ingest import IngestResult
+    gate = threading.Event()
+
+    def slow_ingest(client_, cfg, prefix="", **kw):
+        gate.wait(10)
+        from tpk.config import entry_key
+        return IngestResult(entry_key(cfg), "j", 1, 0, "ok")
+    monkeypatch.setattr(api_mod, "ingest_repo", slow_ingest)
+
+    job = c.post("/api/repos/reindex", headers=admin_hdr, json={"name": "demo", "ref": "v1"}).json()["job_id"]
+    _eventually(lambda: c.get(f"/api/jobs/{job}", headers=admin_hdr).json()["status"] == "running")
+    r = c.post("/api/corpus/import", headers=admin_hdr,
+               files={"file": ("corpus.tar.gz", archive, "application/gzip")})
+    assert r.status_code == 409
+    gate.set()
+    _eventually(lambda: c.get(f"/api/jobs/{job}", headers=admin_hdr).json()["status"] == "ok")
+    assert c.post("/api/corpus/import", headers=admin_hdr,
+                  files={"file": ("corpus.tar.gz", archive, "application/gzip")}).status_code == 200
+
+
+def test_import_upload_size_cap(tp, monkeypatch, admin_hdr, tmp_path):
+    _transfer_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("TPK_IMPORT_MAX_MB", "1")
+    c, _ = _client(tp, monkeypatch)
+    r = c.post("/api/corpus/import", headers=admin_hdr,
+               files={"file": ("big.tar.gz", b"\\0" * (2 * 1024 * 1024), "application/gzip")})
+    assert r.status_code == 413 and "1 MB" in r.text
+    assert list((tmp_path / "scratch").iterdir()) == []
+
+
+def test_export_import_are_admin_only(tp, monkeypatch, admin_hdr):
+    client, prefix = tp
+    c, _ = _client(tp, monkeypatch)
+    # a full corpus:manage role is still not enough -- the bundle is the whole graph
+    auth.upsert_role(client, auth.Role("curator", [], capabilities=[auth.CAP_CORPUS_MANAGE]), prefix=prefix)
+    auth.upsert_user(client, auth.User("cur", auth.hash_password("password-1"), "curator"), prefix=prefix)
+    _eventually(lambda: c.post("/auth/login", json={"username": "cur", "password": "password-1"}).status_code == 200)
+    t = c.post("/auth/login", json={"username": "cur", "password": "password-1"}).json()["token"]
+    hdr = {"Authorization": f"Bearer {t}"}
+    assert c.get("/api/corpus/export").status_code == 401
+    assert c.get("/api/corpus/export", headers=hdr).status_code == 403
+    assert c.post("/api/corpus/import", headers=hdr,
+                  files={"file": ("x.tar.gz", b"x", "application/gzip")}).status_code == 403
