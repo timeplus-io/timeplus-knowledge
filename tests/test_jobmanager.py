@@ -64,8 +64,9 @@ def test_jobmanager_import_job_loads_bundle_and_cleans_up(monkeypatch, tmp_path)
     monkeypatch.setattr(api_mod.db, "get_client", lambda *a, **k: object())
     seen = {}
 
-    def fake_import(client, in_dir, prefix="", replace=False):
+    def fake_import(client, in_dir, prefix="", replace=False, entries=None):
         seen["in_dir"], seen["replace"], seen["prefix"] = in_dir, replace, prefix
+        seen["entries"] = entries
         return {"format": "Parquet", "streams": {"kg_nodes": {"rows": 7}, "kg_edges": {"rows": 4}}}
 
     monkeypatch.setattr(api_mod.transfer, "import_bundle", fake_import)
@@ -81,9 +82,35 @@ def test_jobmanager_import_job_loads_bundle_and_cleans_up(monkeypatch, tmp_path)
     assert rec["streams"] == {"kg_nodes": 7, "kg_edges": 4}
     assert (rec["nodes"], rec["edges"]) == (7, 4)
     assert rec["finished_at"] is not None
-    assert seen == {"in_dir": bundle, "replace": True, "prefix": "p_"}
+    assert seen == {"in_dir": bundle, "replace": True, "prefix": "p_", "entries": None}
+    assert rec["entries"] is None
     assert not bundle.exists()
     assert mgr.has_active() is False
+
+
+def test_jobmanager_import_job_passes_selected_entries(monkeypatch, tmp_path):
+    """#104: an entry-filtered import hands the keys to transfer.import_bundle
+    and records them on the job."""
+    import tpk.api as api_mod
+    from tpk.api import JobManager
+
+    monkeypatch.setattr(api_mod.db, "get_client", lambda *a, **k: object())
+    seen = {}
+
+    def fake_import(client, in_dir, prefix="", replace=False, entries=None):
+        seen["replace"], seen["entries"] = replace, entries
+        return {"format": "Parquet", "streams": {"kg_nodes": {"rows": 2}}}
+
+    monkeypatch.setattr(api_mod.transfer, "import_bundle", fake_import)
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    mgr = JobManager()
+    rec = _wait_done(mgr, mgr.submit_import(bundle, replace=True, entries=["a@v1", "b@v2"]))
+    assert rec["status"] == "ok"
+    assert seen == {"replace": True, "entries": ["a@v1", "b@v2"]}
+    assert rec["entries"] == ["a@v1", "b@v2"]
+    assert rec["message"] == "replacing 2 selected entries"
+    assert not bundle.exists()
 
 
 def test_jobmanager_import_failure_is_recorded_and_cleaned(monkeypatch, tmp_path):
@@ -92,7 +119,7 @@ def test_jobmanager_import_failure_is_recorded_and_cleaned(monkeypatch, tmp_path
 
     monkeypatch.setattr(api_mod.db, "get_client", lambda *a, **k: object())
 
-    def boom(client, in_dir, prefix="", replace=False):
+    def boom(client, in_dir, prefix="", replace=False, entries=None):
         raise ValueError("kg_nodes: target stream is missing column(s) ['x']")
 
     monkeypatch.setattr(api_mod.transfer, "import_bundle", boom)

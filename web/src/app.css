@@ -690,6 +690,16 @@ h2 { font-size: 14px; font-weight: 600; margin-top: 24px; color: var(--gray-200)
 .tk-manage-subtitle { font-size: 12px; color: var(--gray-500); }
 .tk-manage-header-spacer { flex: 1; }
 .tk-manage-header-actions { display: flex; gap: 8px; align-items: center; }
+
+/* Entry pick list in the Export / Import modals (#104) */
+.tk-radio { display: block; font-size: 13px; margin: 4px 0; }
+.tk-entry-picker { margin: 8px 0; border: 1px solid var(--gray-700); border-radius: 4px; }
+.tk-entry-picker-bar { display: flex; gap: 10px; align-items: center; padding: 6px 8px; font-size: 12px; color: var(--gray-500); border-bottom: 1px solid var(--gray-700); }
+.tk-entry-picker-bar-spacer { flex: 1; }
+.tk-entry-picker-list { max-height: 220px; overflow-y: auto; padding: 4px 8px; }
+.tk-entry-picker-item { display: block; font-size: 13px; padding: 3px 0; }
+.tk-link-btn { background: none; border: none; padding: 0; color: var(--pink-400); cursor: pointer; font-size: 12px; }
+.tk-link-btn:disabled { background: none; opacity: .5; cursor: default; }
 .tk-manage-error { color: var(--red-500); font-size: 12px; }
 
 /* Users/Roles tab bar */

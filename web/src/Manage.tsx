@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "./api";
+import { peekManifest, type BundleManifest } from "./bundle";
 import { CAP, hasCap } from "./capabilities";
 
 type Repo = {
@@ -18,6 +19,8 @@ type Job = {
   // report per-stream row counts instead of an ingest-log row.
   kind?: string;
   streams?: Record<string, number>;
+  // import jobs: the entry keys the load was limited to (null = whole bundle), #104
+  entries?: string[] | null;
 };
 
 // One ingest run from the persistent log (#15): UI, CLI and kubectl runs alike.
@@ -93,6 +96,37 @@ function downloadName(resp: Response, fallback: string): string {
   return m ? m[1] : fallback;
 }
 
+// Checkbox list of entry keys with select-all / none, shared by the Export
+// and Import modals (#104).
+function EntryPicker({ keys, selected, onChange, disabled }: {
+  keys: string[]; selected: Set<string>; onChange: (next: Set<string>) => void; disabled?: boolean;
+}) {
+  function toggle(key: string, on: boolean) {
+    const next = new Set(selected);
+    if (on) next.add(key); else next.delete(key);
+    onChange(next);
+  }
+  return (
+    <div className="tk-entry-picker">
+      <div className="tk-entry-picker-bar">
+        <span>{selected.size} of {keys.length} selected</span>
+        <span className="tk-entry-picker-bar-spacer" />
+        <button type="button" className="tk-link-btn" disabled={disabled} onClick={() => onChange(new Set(keys))}>All</button>
+        <button type="button" className="tk-link-btn" disabled={disabled} onClick={() => onChange(new Set())}>None</button>
+      </div>
+      <div className="tk-entry-picker-list">
+        {keys.map((k) => (
+          <label key={k} className="tk-entry-picker-item">
+            <input type="checkbox" checked={selected.has(k)} disabled={disabled}
+                   onChange={(e) => toggle(k, e.target.checked)} />
+            {" "}<code>{k}</code>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Manage({ capabilities, isAdmin }: { capabilities: string[]; isAdmin?: boolean }) {
   // corpus:manage gates every mutation; with only corpus:view the screen is
   // read-only. Export/import of the WHOLE graph is admin-only (#102): a
@@ -118,31 +152,59 @@ export default function Manage({ capabilities, isAdmin }: { capabilities: string
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importReplace, setImportReplace] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
+  // Entry scope for import (#104): the bundle's manifest is read client-side
+  // from the chosen archive; "selected" is only offered when it lists entries.
+  const [importManifest, setImportManifest] = useState<BundleManifest | null>(null);
+  const [importPeek, setImportPeek] = useState<"idle" | "reading" | "ok" | "none">("idle");
+  const [importScope, setImportScope] = useState<"all" | "selected">("all");
+  const [importSel, setImportSel] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportScope, setExportScope] = useState<"all" | "selected">("all");
+  const [exportSel, setExportSel] = useState<Set<string>>(new Set());
 
   function openAdd() { setForm({ ...EMPTY_FORM }); setError(""); setAddOpen(true); }
   function closeAdd() { setAddOpen(false); setError(""); }
-  function openImport() { setImportFile(null); setImportReplace(false); setError(""); setImportOpen(true); }
+  function openImport() {
+    setImportFile(null); setImportReplace(false); setImportManifest(null); setImportPeek("idle");
+    setImportScope("all"); setImportSel(new Set()); setError(""); setImportOpen(true);
+  }
   function closeImport() { if (importBusy) return; setImportOpen(false); setError(""); }
+  function openExport() { setExportScope("all"); setExportSel(new Set()); setError(""); setExportOpen(true); }
+  function closeExport() { if (exporting) return; setExportOpen(false); setError(""); }
+
+  async function chooseImportFile(f: File | null) {
+    setImportFile(f); setImportManifest(null); setImportScope("all"); setImportSel(new Set());
+    if (!f) { setImportPeek("idle"); return; }
+    setImportPeek("reading");
+    const m = await peekManifest(f);
+    setImportManifest(m);
+    setImportPeek(m && Array.isArray(m.entries) ? "ok" : "none");
+  }
+  const bundleEntries: string[] = importPeek === "ok" ? (importManifest?.entries ?? []) : [];
 
   useEffect(() => {
-    if (!addOpen && !importOpen) return;
+    if (!addOpen && !importOpen && !exportOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (addOpen) { setAddOpen(false); setError(""); }
       if (importOpen && !importBusy) { setImportOpen(false); setError(""); }
+      if (exportOpen && !exporting) { setExportOpen(false); setError(""); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [addOpen, importOpen, importBusy]);
+  }, [addOpen, importOpen, importBusy, exportOpen, exporting]);
 
   // Export: the download needs the bearer token, so it goes through
   // apiFetch as a blob rather than a plain <a href>.
   async function exportCorpus() {
+    const selected = exportScope === "selected" ? [...exportSel] : null;
+    if (selected && selected.length === 0) { setError("Pick at least one entry"); return; }
     setExporting(true);
     setError("");
     try {
-      const resp = await apiFetch("/api/corpus/export");
+      const qs = selected ? "?" + selected.map((k) => `entries=${encodeURIComponent(k)}`).join("&") : "";
+      const resp = await apiFetch("/api/corpus/export" + qs);
       if (!resp.ok) throw new Error(`${resp.status}: ${await resp.text()}`);
       const url = URL.createObjectURL(await resp.blob());
       const a = document.createElement("a");
@@ -152,6 +214,7 @@ export default function Manage({ capabilities, isAdmin }: { capabilities: string
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+      setExportOpen(false);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -167,6 +230,10 @@ export default function Manage({ capabilities, isAdmin }: { capabilities: string
       const body = new FormData();
       body.append("file", importFile);
       body.append("replace", importReplace ? "true" : "false");
+      if (importScope === "selected") {
+        if (importSel.size === 0) throw new Error("Pick at least one entry");
+        for (const k of importSel) body.append("entries", k);
+      }
       const resp = await apiFetch("/api/corpus/import", { method: "POST", body });
       if (!resp.ok) throw new Error(`${resp.status}: ${await resp.text()}`);
       setImportOpen(false);
@@ -226,7 +293,7 @@ export default function Manage({ capabilities, isAdmin }: { capabilities: string
     <div className="tk-manage">
       {/* Add-flow errors render inside the modal; keep this page-level banner
           for the table's toggle/reindex/delete errors only. */}
-      {!addOpen && !importOpen && error && <div className="tk-manage-error">{error}</div>}
+      {!addOpen && !importOpen && !exportOpen && error && <div className="tk-manage-error">{error}</div>}
 
       <div className="tk-manage-header">
         <div>
@@ -239,7 +306,7 @@ export default function Manage({ capabilities, isAdmin }: { capabilities: string
         <div className="tk-manage-header-actions">
           {canTransfer && (
             <>
-              <button type="button" className="tk-btn tk-btn-secondary" onClick={exportCorpus}
+              <button type="button" className="tk-btn tk-btn-secondary" onClick={openExport}
                       disabled={exporting} title="Download the ingested graph + corpus registry as one .tar.gz">
                 {exporting ? "Exporting…" : "Export corpus"}
               </button>
@@ -413,10 +480,11 @@ export default function Manage({ capabilities, isAdmin }: { capabilities: string
             <div className="tk-jobs-history">
               {importResults.map((j) => (
                 <div className="tk-job-row" key={j.id} title={`job ${j.id}`}>
-                  <div className="tk-job-name">{j.entry_key}</div>
+                  <div className="tk-job-name">{j.entry_key}{j.entries ? ` (${j.entries.length} ${j.entries.length === 1 ? "entry" : "entries"})` : ""}</div>
                   {j.status === "ok" ? (
                     <div className="tk-job-result">
                       ok · {Object.entries(j.streams ?? {}).map(([s, n]) => `${s} ${n}`).join(" · ")}
+                      {j.entries ? ` · ${j.entries.join(", ")}` : ""}
                     </div>
                   ) : (
                     <div className="tk-job-result tk-job-result-failed">failed · {j.error || "unknown error"}</div>
@@ -450,6 +518,50 @@ export default function Manage({ capabilities, isAdmin }: { capabilities: string
 
       </div>
 
+      {exportOpen && (
+        <div className="tk-modal-overlay" onClick={closeExport}>
+          <div className="tk-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="tk-modal-header">
+              <div className="tk-modal-title">Export corpus</div>
+              <div className="tk-modal-spacer" />
+              <button type="button" className="tk-modal-close" onClick={closeExport} aria-label="Close" disabled={exporting}>✕</button>
+            </div>
+            <form className="tk-modal-body" onSubmit={(e) => { e.preventDefault(); exportCorpus(); }}>
+              <div className="tk-form-field">
+                <label>Scope</label>
+                <label className="tk-radio">
+                  <input type="radio" name="export-scope" checked={exportScope === "all"} disabled={exporting}
+                         onChange={() => setExportScope("all")} />
+                  {" "}Whole corpus ({repos.length} {repos.length === 1 ? "entry" : "entries"})
+                </label>
+                <label className="tk-radio">
+                  <input type="radio" name="export-scope" checked={exportScope === "selected"} disabled={exporting}
+                         onChange={() => setExportScope("selected")} />
+                  {" "}Selected entries
+                </label>
+                {exportScope === "selected" && (
+                  <EntryPicker keys={repos.map((r) => r.entry_key)} selected={exportSel} onChange={setExportSel} disabled={exporting} />
+                )}
+                <div className="tk-form-hint">
+                  One <code>.tar.gz</code> with the graph, corpus entries and ingest history of the chosen scope.
+                  Users and roles are not included. <code>tpk import</code> and <strong>Import corpus</strong> read it.
+                </div>
+              </div>
+
+              {error && <div className="tk-manage-error">{error}</div>}
+
+              <div className="tk-modal-footer">
+                <button type="button" className="tk-btn tk-btn-secondary" onClick={closeExport} disabled={exporting}>Cancel</button>
+                <button type="submit" className="tk-btn"
+                        disabled={exporting || (exportScope === "selected" && exportSel.size === 0)}>
+                  {exporting ? "Exporting…" : "Export"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {importOpen && (
         <div className="tk-modal-overlay" onClick={closeImport}>
           <div className="tk-modal" onClick={(e) => e.stopPropagation()}>
@@ -463,20 +575,58 @@ export default function Manage({ capabilities, isAdmin }: { capabilities: string
                 <label htmlFor="mng-bundle">Bundle archive <span className="tk-form-required">*</span></label>
                 <input id="mng-bundle" type="file" accept=".tar.gz,.tgz,application/gzip" className="tk-input"
                        disabled={importBusy}
-                       onChange={(e) => setImportFile(e.target.files?.[0] ?? null)} />
+                       onChange={(e) => chooseImportFile(e.target.files?.[0] ?? null)} />
                 <div className="tk-form-hint">
                   A <code>.tar.gz</code> from <strong>Export corpus</strong> or <code>tpk export</code>: graph, corpus
                   entries and ingest history. Users and roles are not included. Loading runs as a job in the
                   panel below; without <em>replace</em> it upserts into the current graph.
                 </div>
+                {importPeek === "reading" && <div className="tk-form-hint">Reading bundle…</div>}
+                {importPeek === "ok" && importManifest && (
+                  <div className="tk-form-hint" data-testid="bundle-summary">
+                    Bundle{importManifest.partial ? " (partial export)" : ""}
+                    {importManifest.created_at ? ` from ${new Date(importManifest.created_at).toLocaleString()}` : ""}:
+                    {" "}{bundleEntries.length} {bundleEntries.length === 1 ? "entry" : "entries"}
+                    {importManifest.streams?.kg_nodes ? `, ${importManifest.streams.kg_nodes.rows} nodes` : ""}.
+                  </div>
+                )}
+                {importPeek === "none" && (
+                  <div className="tk-form-hint">
+                    Could not read an entry list from this archive (older bundle or browser); it will be imported whole.
+                  </div>
+                )}
               </div>
+              {importPeek === "ok" && (
+                <div className="tk-form-field">
+                  <label>Scope</label>
+                  <label className="tk-radio">
+                    <input type="radio" name="import-scope" checked={importScope === "all"} disabled={importBusy}
+                           onChange={() => setImportScope("all")} />
+                    {" "}Whole bundle
+                  </label>
+                  <label className="tk-radio">
+                    <input type="radio" name="import-scope" checked={importScope === "selected"} disabled={importBusy}
+                           onChange={() => setImportScope("selected")} />
+                    {" "}Selected entries
+                  </label>
+                  {importScope === "selected" && (
+                    <EntryPicker keys={bundleEntries} selected={importSel} onChange={setImportSel} disabled={importBusy} />
+                  )}
+                </div>
+              )}
               <div className="tk-form-field">
                 <label>
                   <input type="checkbox" checked={importReplace} disabled={importBusy}
                          onChange={(e) => setImportReplace(e.target.checked)} />
-                  {" "}Replace existing graph
+                  {" "}{importScope === "selected" ? "Replace the selected entries" : "Replace existing graph"}
                 </label>
-                {importReplace && (
+                {importReplace && importScope === "selected" && (
+                  <div className="tk-form-hint">
+                    Deletes the selected entries' current nodes, edges and registry rows before loading, so stale
+                    nodes from an earlier ingest do not linger. Other entries are untouched; ingest history is kept.
+                  </div>
+                )}
+                {importReplace && importScope !== "selected" && (
                   <div className="tk-form-hint tk-form-warning" role="alert">
                     Drops and recreates every graph stream (nodes, edges, corpus entries, ingest history) before
                     loading — anything not in the bundle is gone. Roles that reference removed entries keep
@@ -489,8 +639,8 @@ export default function Manage({ capabilities, isAdmin }: { capabilities: string
 
               <div className="tk-modal-footer">
                 <button type="button" className="tk-btn tk-btn-secondary" onClick={closeImport} disabled={importBusy}>Cancel</button>
-                <button type="submit" className={importReplace ? "tk-btn tk-btn-solid-danger" : "tk-btn"}
-                        disabled={importBusy || !importFile}>
+                <button type="submit" className={importReplace && importScope !== "selected" ? "tk-btn tk-btn-solid-danger" : "tk-btn"}
+                        disabled={importBusy || !importFile || importPeek === "reading" || (importScope === "selected" && importSel.size === 0)}>
                   {importBusy ? "Uploading…" : importReplace ? "Replace & import" : "Import"}
                 </button>
               </div>

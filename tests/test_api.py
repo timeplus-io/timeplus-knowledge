@@ -362,3 +362,92 @@ def test_export_import_are_admin_only(tp, monkeypatch, admin_hdr):
     assert c.get("/api/corpus/export", headers=hdr).status_code == 403
     assert c.post("/api/corpus/import", headers=hdr,
                   files={"file": ("x.tar.gz", b"x", "application/gzip")}).status_code == 403
+
+
+# -- entry-filtered export / import (#104) ------------------------------------
+
+def _seed_second_entry(client, prefix):
+    from datetime import datetime, timezone
+    from tpk import corpus
+    from tpk.config import RepoConfig
+    from tpk.model import NODE_COLUMNS, Node, node_rows
+    now = datetime.now(timezone.utc)
+    nodes = [Node(f"m{i}", "other@v2", "function", f"g{i}", f"other::g{i}", "src/y.cpp",
+                  i, i + 2, f"other {i}", "c1", "public") for i in range(2)]
+    client.insert(f"{prefix}kg_nodes", node_rows(nodes, now), column_names=NODE_COLUMNS)
+    corpus.upsert_entry(client, RepoConfig(name="other", ref="v2", github="org/other"), prefix=prefix)
+    _eventually(lambda: int(client.query(
+        f"SELECT count() FROM table({prefix}kg_nodes)").result_rows[0][0]) == 5)
+
+
+def _manifest_of(archive: bytes) -> dict:
+    import io
+    import json
+    import tarfile
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
+        return json.load(tar.extractfile("manifest.json"))
+
+
+def _node_repos(client, prefix):
+    from tpk import db
+    rows = client.query(f"SELECT DISTINCT repo FROM {db.latest(prefix + 'kg_nodes')}").result_rows
+    return sorted(r[0] for r in rows)
+
+
+def test_export_selected_entries(tp, monkeypatch, admin_hdr, tmp_path):
+    client, prefix = tp
+    _transfer_env(monkeypatch, tmp_path)
+    _seed_graph(client, prefix)
+    _seed_second_entry(client, prefix)
+    c, _ = _client(tp, monkeypatch)
+
+    r = c.get("/api/corpus/export", headers=admin_hdr, params={"entries": ["other@v2"]})
+    assert r.status_code == 200, r.text
+    assert "-partial.tar.gz" in r.headers["content-disposition"]
+    m = _manifest_of(r.content)
+    assert m["partial"] is True and m["entries"] == ["other@v2"]
+    assert m["streams"]["kg_nodes"]["rows"] == 2
+    assert m["streams"]["kg_repos"]["rows"] == 1
+
+    full = _manifest_of(c.get("/api/corpus/export", headers=admin_hdr).content)
+    assert full["partial"] is False and full["entries"] == ["demo@v1", "other@v2"]
+
+    r = c.get("/api/corpus/export", headers=admin_hdr, params={"entries": ["nope@v0", "other@v2"]})
+    assert r.status_code == 422 and "nope@v0" in r.text
+
+
+def test_import_selected_entries(tp, monkeypatch, admin_hdr, tmp_path):
+    client, prefix = tp
+    _transfer_env(monkeypatch, tmp_path)
+    _seed_graph(client, prefix)
+    _seed_second_entry(client, prefix)
+    c, _ = _client(tp, monkeypatch)
+    archive = c.get("/api/corpus/export", headers=admin_hdr).content
+
+    # a key the bundle does not hold is refused before any job starts
+    r = c.post("/api/corpus/import", headers=admin_hdr, data={"entries": ["ghost@v9"]},
+               files={"file": ("corpus.tar.gz", archive, "application/gzip")})
+    assert r.status_code == 422 and "ghost@v9" in r.text
+    assert list((tmp_path / "scratch").iterdir()) == []
+
+    # drop everything, load only other@v2 back
+    from tpk import db
+    for s in ("kg_nodes", "kg_edges", "kg_repos"):
+        client.command(f"DROP STREAM IF EXISTS {prefix}{s}")
+    db.ensure_schema(client, prefix)
+    _eventually(lambda: _node_repos(client, prefix) == [])
+
+    r = c.post("/api/corpus/import", headers=admin_hdr, data={"entries": ["other@v2"]},
+               files={"file": ("corpus.tar.gz", archive, "application/gzip")})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["entries"] == ["other@v2"] and body["bundle_entries"] == ["demo@v1", "other@v2"]
+    job_id = body["job_id"]
+    rec = _eventually(lambda: (lambda j: j if j["status"] in ("ok", "failed") else None)(
+        c.get(f"/api/jobs/{job_id}", headers=admin_hdr).json()), timeout=90)
+    assert rec and rec["status"] == "ok", rec
+    assert rec["entries"] == ["other@v2"]
+    assert _eventually(lambda: _node_repos(client, prefix) == ["other@v2"])
+    repos = c.get("/api/repos", headers=admin_hdr).json()
+    assert [e["name"] for e in repos] == ["other"]
+    assert _eventually(lambda: list((tmp_path / "scratch").iterdir()) == [])

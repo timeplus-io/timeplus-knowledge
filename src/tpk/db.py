@@ -144,12 +144,13 @@ def _add_column_if_missing(client, stream: str, column: str, col_type: str) -> N
         pass
 
 
-def ensure_schema(client, prefix: str = "") -> None:
-    # All tpk streams live under a dedicated database (default `tpk`, #58);
-    # create it first so the qualified DDL below resolves. CREATE DATABASE is a
-    # global statement (works from the default-database session get_client uses)
-    # and is a no-op if it already exists, on both timeplusd and proton.
-    client.command(f"CREATE DATABASE IF NOT EXISTS {database()}")
+GRAPH_STREAMS = ("kg_nodes", "kg_edges", "kg_ingest_log", "kg_repos")
+
+
+def ensure_graph_streams(client, prefix: str = "") -> None:
+    """DDL for the four graph/corpus streams only (`GRAPH_STREAMS`). Split out
+    of `ensure_schema` so a corpus import can stage a bundle under a
+    throwaway prefix (#104) without also creating the auth streams."""
     # Keyed (upsertable, latest-state) streams -- MUTABLE on timeplusd,
     # versioned_kv + `deleted` tombstone on proton (see _keyed_stream).
     client.command(_keyed_stream(prefix, "kg_nodes", [
@@ -181,6 +182,24 @@ def ensure_schema(client, prefix: str = "") -> None:
         "enabled bool", "visibility string", "extraction string",
         "description string", "updated_at datetime64(3, 'UTC')",
     ], pk="name, ref"))
+
+
+def drop_graph_streams(client, prefix: str) -> None:
+    """Drop the four graph streams under `prefix` (staging cleanup, #104).
+    Refuses an empty prefix, like `drop_schema`."""
+    if not prefix:
+        raise ValueError("refusing to drop unprefixed (production) streams")
+    for name in GRAPH_STREAMS:
+        client.command(f"DROP STREAM IF EXISTS {qualified(name, prefix)}")
+
+
+def ensure_schema(client, prefix: str = "") -> None:
+    # All tpk streams live under a dedicated database (default `tpk`, #58);
+    # create it first so the qualified DDL below resolves. CREATE DATABASE is a
+    # global statement (works from the default-database session get_client uses)
+    # and is a no-op if it already exists, on both timeplusd and proton.
+    client.command(f"CREATE DATABASE IF NOT EXISTS {database()}")
+    ensure_graph_streams(client, prefix)
     client.command(_keyed_stream(prefix, "kg_users", [
         "username string", "password_hash string", "role string",
         "must_change_password bool", "disabled bool",
