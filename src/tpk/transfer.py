@@ -39,14 +39,29 @@ _EXPORT_EXPR = {
 }
 
 
+# Append-only streams have no key: their row ORDER is the data (ingest.py
+# picks the newest `kg_ingest_log` row per entry by `_tp_time`). Insert time
+# is the only ordering, so the bundle must carry `_tp_time` for these, or
+# every imported row lands on one timestamp and `started`/`ok` become
+# indistinguishable (an imported entry then shows "started", later "stale").
+# Keyed streams are upserted by primary key and need no such column.
+TIME_ORDERED_STREAMS = frozenset({"kg_ingest_log"})
+
+
 def _stream_columns(client, stream: str, prefix: str = "") -> list[str]:
     """Real, insertable columns of a stream — excludes proton's internal
-    `_tp_*` pseudo-columns and any ALIAS/MATERIALIZED columns."""
+    `_tp_*` pseudo-columns (except `_tp_time` on time-ordered streams, which
+    is insertable and carries the row order) and any ALIAS/MATERIALIZED
+    columns."""
     rows = client.query(f"DESCRIBE {db.qualified(stream, prefix)}").result_rows
+    keep_time = stream in TIME_ORDERED_STREAMS
     cols = []
     for row in rows:
         name = row[0]
         default_type = row[2] if len(row) > 2 else ""
+        if name == "_tp_time" and keep_time:
+            cols.append(name)
+            continue
         if name.startswith("_tp") or default_type in ("ALIAS", "MATERIALIZED"):
             continue
         cols.append(name)

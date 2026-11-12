@@ -281,3 +281,27 @@ def test_export_strips_local_path_when_github_set(tp, tmp_path):
     entries = {e.name: e for e in corpus.list_entries(client, prefix=prefix)}
     assert entries["gh"].path is None          # github entry: path dropped
     assert entries["local"].path == Path("/home/me/local")   # dev-mode entry keeps its path
+
+
+def test_ingest_log_order_survives_import(tp, tmp_path):
+    """A `started` row older than its `ok` row must still read as `ok` after a
+    round trip: the bundle carries `_tp_time` for the append-only log, so the
+    newest-row-per-entry logic in ingest.latest_status keeps working."""
+    from tpk import ingest as ingest_mod
+    client, prefix = tp
+    cols = ["repo", "run_id", "nodes", "edges", "git_sha", "status", "_tp_time"]
+    client.insert(f"{prefix}kg_ingest_log",
+                  [["demo@v1", "r1", 0, 0, "abc", "started", datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc)],
+                   ["demo@v1", "r1", 3, 2, "abc", "ok", datetime(2026, 1, 1, 10, 5, tzinfo=timezone.utc)]],
+                  column_names=cols)
+    _wait_count(client, prefix, "kg_ingest_log", 2)
+    assert ingest_mod.latest_status(client, prefix=prefix)["demo@v1"][1] == "ok"
+
+    manifest = transfer.export_bundle(client, tmp_path / "b", prefix=prefix, streams=["kg_ingest_log"])
+    assert "_tp_time" in manifest["streams"]["kg_ingest_log"]["columns"]
+
+    transfer.import_bundle(client, tmp_path / "b", prefix=prefix, replace=True)
+    _wait_count(client, prefix, "kg_ingest_log", 2)
+    sha, status, t = ingest_mod.latest_status(client, prefix=prefix)["demo@v1"]
+    assert status == "ok"
+    assert t.replace(tzinfo=timezone.utc) == datetime(2026, 1, 1, 10, 5, tzinfo=timezone.utc)
